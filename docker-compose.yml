@@ -1,0 +1,10 @@
+services:
+  howard:
+    build: .
+    image: howard:latest
+    container_name: howard
+    ports:
+      - "5170:80"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

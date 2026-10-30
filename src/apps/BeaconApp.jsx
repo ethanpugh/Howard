@@ -1,0 +1,513 @@
+import React, { useState, useEffect } from 'react';
+import {
+  ShieldAlert,
+  Cat,
+  Phone,
+  Stethoscope,
+  Wifi,
+  Home,
+  Edit3,
+  Check,
+  X
+} from 'lucide-react';
+
+export default function BeaconApp({
+  activeProfile,
+  darkMode,
+  beaconInfo,
+  cadenceSettings,
+  onSaveBeacon,
+  onNavigateApp
+}) {
+  const canEdit = activeProfile.id !== 'caregiver';
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(beaconInfo || {});
+
+  useEffect(() => {
+    if (beaconInfo && !isEditing) {
+      setDraft(beaconInfo);
+    }
+  }, [beaconInfo, isEditing]);
+
+  const catName = cadenceSettings?.catName || beaconInfo?.petCare?.petName || 'Mochi';
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    await onSaveBeacon(draft);
+    setIsEditing(false);
+  };
+
+  return (
+    <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-5 space-y-6">
+      {/* HEADER */}
+      <section
+        className={`rounded-3xl p-5 sm:p-6 border shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+          darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
+        }`}
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-sky-500 to-blue-600 text-white flex items-center justify-center shadow-xs">
+            <ShieldAlert className="w-6 h-6" />
+          </div>
+          <div>
+            <h1 className="text-xl font-extrabold tracking-tight">
+              Beacon • Emergency, Vet &amp; House Guide
+            </h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Everything a pet sitter, guest, or household member needs for {catName} and the house
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onNavigateApp('cadence')}
+            className="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold cursor-pointer"
+          >
+            Open {catName}&apos;s Medicine (Cadence)
+          </button>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(beaconInfo || {});
+                setIsEditing(!isEditing);
+              }}
+              className={`px-3.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
+                darkMode
+                  ? 'bg-slate-800 border-slate-700 text-slate-200'
+                  : 'bg-slate-100 border-slate-200 text-slate-700'
+              }`}
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              <span>{isEditing ? 'Cancel Edit' : 'Edit Guide'}</span>
+            </button>
+          )}
+        </div>
+      </section>
+
+      {isEditing && canEdit ? (
+        <form
+          onSubmit={handleSave}
+          className={`rounded-3xl p-6 border shadow-xs space-y-5 ${
+            darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+          }`}
+        >
+          <h3 className="text-base font-extrabold">Edit Beacon Guide</h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
+                Vet Practice Name
+              </label>
+              <input
+                type="text"
+                value={draft.vetInfo?.clinicName || ''}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    vetInfo: { ...draft.vetInfo, clinicName: e.target.value }
+                  })
+                }
+                className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
+                Vet Daytime Phone
+              </label>
+              <input
+                type="text"
+                value={draft.vetInfo?.phone || ''}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    vetInfo: { ...draft.vetInfo, phone: e.target.value }
+                  })
+                }
+                className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
+                24hr Emergency Vet Phone
+              </label>
+              <input
+                type="text"
+                value={draft.vetInfo?.emergencyPhone || ''}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    vetInfo: { ...draft.vetInfo, emergencyPhone: e.target.value }
+                  })
+                }
+                className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
+                Vet Address
+              </label>
+              <input
+                type="text"
+                value={draft.vetInfo?.address || ''}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    vetInfo: { ...draft.vetInfo, address: e.target.value }
+                  })
+                }
+                className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
+              {catName}&apos;s Feeding &amp; Daily Routine
+            </label>
+            <textarea
+              rows={2}
+              value={draft.petCare?.feedingGuide || ''}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  petCare: { ...draft.petCare, feedingGuide: e.target.value }
+                })
+              }
+              className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
+              Where Carrier, Syringes &amp; Supplies Are Kept
+            </label>
+            <textarea
+              rows={2}
+              value={draft.petCare?.carrierAndSupplies || ''}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  petCare: { ...draft.petCare, carrierAndSupplies: e.target.value }
+                })
+              }
+              className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
+                Home Wi-Fi Network
+              </label>
+              <input
+                type="text"
+                value={draft.houseGuide?.wifiName || ''}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    houseGuide: { ...draft.houseGuide, wifiName: e.target.value }
+                  })
+                }
+                className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
+                Wi-Fi Password / Note
+              </label>
+              <input
+                type="text"
+                value={draft.houseGuide?.wifiPassword || ''}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    houseGuide: { ...draft.houseGuide, wifiPassword: e.target.value }
+                  })
+                }
+                className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
+                Bin Collection Info
+              </label>
+              <input
+                type="text"
+                value={draft.houseGuide?.binDayInfo || ''}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    houseGuide: { ...draft.houseGuide, binDayInfo: e.target.value }
+                  })
+                }
+                className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
+                Utilities &amp; Stopcock / Fuse Box
+              </label>
+              <input
+                type="text"
+                value={draft.houseGuide?.utilitiesInfo || ''}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    houseGuide: { ...draft.houseGuide, utilitiesInfo: e.target.value }
+                  })
+                }
+                className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
+              Vet Emergency &amp; Insurance Notes
+            </label>
+            <textarea
+              rows={2}
+              value={draft.vetInfo?.notes || ''}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  vetInfo: { ...draft.vetInfo, notes: e.target.value }
+                })
+              }
+              className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+            />
+          </div>
+
+          <div className="space-y-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
+            <label className="block text-xs font-bold uppercase tracking-wider opacity-70">
+              Household Emergency Contacts
+            </label>
+            {(draft.contacts || []).map((contact, idx) => (
+              <div key={contact.id || idx} className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <input
+                  type="text"
+                  value={contact.name || ''}
+                  onChange={(e) => {
+                    const next = [...(draft.contacts || [])];
+                    next[idx] = { ...next[idx], name: e.target.value };
+                    setDraft({ ...draft, contacts: next });
+                  }}
+                  placeholder="Name"
+                  className="px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                />
+                <input
+                  type="text"
+                  value={contact.phone || ''}
+                  onChange={(e) => {
+                    const next = [...(draft.contacts || [])];
+                    next[idx] = { ...next[idx], phone: e.target.value };
+                    setDraft({ ...draft, contacts: next });
+                  }}
+                  placeholder="Phone Number"
+                  className="px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                />
+                <input
+                  type="text"
+                  value={contact.note || ''}
+                  onChange={(e) => {
+                    const next = [...(draft.contacts || [])];
+                    next[idx] = { ...next[idx], note: e.target.value };
+                    setDraft({ ...draft, contacts: next });
+                  }}
+                  placeholder="Note (e.g., WhatsApp anytime)"
+                  className="px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setIsEditing(false)}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-700 text-white flex items-center gap-1.5"
+            >
+              <Check className="w-4 h-4" />
+              <span>Save Beacon Guide</span>
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* 1. PET CARE & MEDICATION INSTRUCTIONS */}
+          <section
+            className={`rounded-3xl p-5 sm:p-6 border shadow-xs space-y-4 ${
+              darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="p-2.5 rounded-2xl bg-teal-500/15 text-teal-600 dark:text-teal-400">
+                <Cat className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-extrabold">
+                  {catName}&apos;s Care, Feeding &amp; Supplies
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Prescribed: {cadenceSettings?.medicationName || 'Oral Solution'} (
+                  {cadenceSettings?.dosageLabel || '2.5 mg / 0.5 ml'})
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3 text-xs sm:text-sm">
+              <div
+                className={`p-3.5 rounded-2xl border ${
+                  darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-teal-50/50 border-teal-200/70'
+                }`}
+              >
+                <div className="font-bold text-teal-700 dark:text-teal-300 mb-1">
+                  Medication Schedule (~{cadenceSettings?.morningTargetTime || '08:00'} &amp; ~
+                  {cadenceSettings?.eveningTargetTime || '20:00'})
+                </div>
+                <p className="leading-relaxed">
+                  {cadenceSettings?.administrationNote || beaconInfo?.petCare?.summary}
+                </p>
+              </div>
+
+              <div
+                className={`p-3.5 rounded-2xl border ${
+                  darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                <div className="font-bold mb-1">🍽️ Feeding Routine</div>
+                <p className="leading-relaxed opacity-90">
+                  {beaconInfo?.petCare?.feedingGuide}
+                </p>
+              </div>
+
+              <div
+                className={`p-3.5 rounded-2xl border ${
+                  darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                <div className="font-bold mb-1">🧰 Carrier &amp; Medicine Supplies</div>
+                <p className="leading-relaxed opacity-90">
+                  {beaconInfo?.petCare?.carrierAndSupplies}
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* 2. EMERGENCY VET & HOUSEHOLD CONTACTS */}
+          <section
+            className={`rounded-3xl p-5 sm:p-6 border shadow-xs space-y-4 ${
+              darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="p-2.5 rounded-2xl bg-rose-500/15 text-rose-600 dark:text-rose-400">
+                <Stethoscope className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-extrabold">
+                  Veterinary Clinic &amp; Emergency Contacts
+                </h2>
+                <p className="text-xs text-slate-500">Tap any phone number to call directly</p>
+              </div>
+            </div>
+
+            <div
+              className={`p-4 rounded-2xl border space-y-2 text-xs sm:text-sm ${
+                darkMode ? 'bg-rose-950/20 border-rose-800/60' : 'bg-rose-50/50 border-rose-200'
+              }`}
+            >
+              <div className="font-extrabold text-base">{beaconInfo?.vetInfo?.clinicName}</div>
+              <div>📍 {beaconInfo?.vetInfo?.address}</div>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <a
+                  href={`tel:${beaconInfo?.vetInfo?.phone}`}
+                  className="px-3 py-2 rounded-xl bg-slate-900 text-white font-bold text-xs flex items-center gap-1.5"
+                >
+                  <Phone className="w-3.5 h-3.5" />
+                  <span>Daytime: {beaconInfo?.vetInfo?.phone}</span>
+                </a>
+                <a
+                  href={`tel:${beaconInfo?.vetInfo?.emergencyPhone}`}
+                  className="px-3 py-2 rounded-xl bg-rose-600 text-white font-bold text-xs flex items-center gap-1.5"
+                >
+                  <Phone className="w-3.5 h-3.5" />
+                  <span>{beaconInfo?.vetInfo?.emergencyPhone}</span>
+                </a>
+              </div>
+              {beaconInfo?.vetInfo?.notes && (
+                <p className="text-xs pt-2 border-t border-rose-500/20 opacity-85">
+                  {beaconInfo.vetInfo.notes}
+                </p>
+              )}
+            </div>
+
+            {/* Household Contact Cards */}
+            <div className="space-y-2">
+              <div className="text-xs font-bold uppercase tracking-wider opacity-60">
+                Household Contacts
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {(beaconInfo?.contacts || []).map((c) => (
+                  <div
+                    key={c.id}
+                    className={`p-3.5 rounded-2xl border flex items-center justify-between ${
+                      darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
+                    }`}
+                  >
+                    <div>
+                      <div className="font-bold text-sm">{c.name}</div>
+                      <div className="text-[11px] text-slate-500">{c.note}</div>
+                    </div>
+                    <a
+                      href={`tel:${c.phone}`}
+                      className="px-3 py-1.5 rounded-xl bg-teal-600 text-white text-xs font-bold"
+                    >
+                      {c.phone}
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Wi-Fi & Utilities */}
+            <div
+              className={`p-4 rounded-2xl border space-y-2 text-xs ${
+                darkMode ? 'bg-slate-800/40 border-slate-700' : 'bg-slate-50 border-slate-200'
+              }`}
+            >
+              <div className="font-bold flex items-center gap-1.5 text-sky-600 dark:text-sky-400">
+                <Wifi className="w-4 h-4" />
+                <span>Home Wi-Fi &amp; Utilities</span>
+              </div>
+              <div>
+                <strong>Wi-Fi:</strong> {beaconInfo?.houseGuide?.wifiName} ({beaconInfo?.houseGuide?.wifiPassword})
+              </div>
+              <div>
+                <strong>Bins:</strong> {beaconInfo?.houseGuide?.binDayInfo}
+              </div>
+              <div>
+                <strong>Utilities:</strong> {beaconInfo?.houseGuide?.utilitiesInfo}
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+    </main>
+  );
+}
