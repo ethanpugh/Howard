@@ -1369,8 +1369,14 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
       {/* MODAL 1: UNDO CONFIRMATION MODAL           */}
       {/* ========================================== */}
       {confirmUndoModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className={`rounded-3xl max-w-md w-full p-6 shadow-xl border space-y-4 ${cardSurface}`}>
+        <div
+          onClick={() => setConfirmUndoModal(null)}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={`rounded-2xl sm:rounded-3xl max-w-md w-full max-h-[calc(100dvh-1.5rem)] overflow-y-auto p-4 sm:p-6 shadow-xl border space-y-4 ${cardSurface}`}
+          >
             <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400">
               <div className="w-11 h-11 rounded-2xl bg-rose-500/15 flex items-center justify-center shrink-0">
                 <AlertTriangle className="w-6 h-6" />
@@ -1414,8 +1420,14 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
       {/* MODAL 2: MANUAL / PAST DOSE ENTRY MODAL    */}
       {/* ========================================== */}
       {manualLogModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className={`rounded-3xl max-w-md w-full p-6 shadow-xl border ${cardSurface}`}>
+        <div
+          onClick={() => setManualLogModal(null)}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={`rounded-2xl sm:rounded-3xl max-w-md w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto p-4 sm:p-6 shadow-xl border ${cardSurface}`}
+          >
             <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
               <div>
                 <h3 className="text-lg font-bold">
@@ -1535,8 +1547,14 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
       {/* MODAL 3: DOSAGE & BOTTLE SETTINGS MODAL    */}
       {/* ========================================== */}
       {settingsModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className={`rounded-3xl max-w-lg w-full p-6 shadow-xl border my-8 ${cardSurface}`}>
+        <div
+          onClick={() => setSettingsModalOpen(false)}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={`rounded-2xl sm:rounded-3xl max-w-lg w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto p-4 sm:p-6 shadow-xl border ${cardSurface}`}
+          >
             <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
               <div>
                 <h3 className="text-lg font-bold">

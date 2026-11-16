@@ -965,9 +965,17 @@ export default function AlmanacApp({
 
       {/* ADD / EDIT EVENT MODAL */}
       {addModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div
+          onClick={() => {
+            setAddModalOpen(false);
+            setEditingEventId(null);
+            setEditingEventOriginal(null);
+          }}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+        >
           <div
-            className={`max-w-md w-full rounded-3xl p-6 shadow-2xl border space-y-4 ${
+            onClick={(e) => e.stopPropagation()}
+            className={`max-w-md w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-3 sm:space-y-4 ${
               darkMode
                 ? 'bg-slate-900 border-slate-800 text-slate-100'
                 : 'bg-white border-slate-200 text-slate-800'
@@ -975,7 +983,7 @@ export default function AlmanacApp({
           >
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-extrabold">
+                <h3 className="text-base sm:text-lg font-extrabold">
                   {editingEventId ? 'Edit Almanac Event' : 'Add Almanac Event'}
                 </h3>
                 <p className="text-xs text-slate-500">
@@ -989,18 +997,18 @@ export default function AlmanacApp({
                   setEditingEventId(null);
                   setEditingEventOriginal(null);
                 }}
-                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800"
+                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveEvent} className="space-y-3.5">
+            <form onSubmit={handleSaveEvent} className="space-y-3">
               {editingEventId &&
                 editingEventOriginal?.recurrence &&
                 editingEventOriginal.recurrence !== 'none' && (
                   <div
-                    className={`p-3 rounded-2xl border space-y-2 ${
+                    className={`p-2.5 sm:p-3 rounded-2xl border space-y-1.5 ${
                       darkMode
                         ? 'bg-slate-800/60 border-slate-700'
                         : 'bg-indigo-50/60 border-indigo-200'
@@ -1014,14 +1022,14 @@ export default function AlmanacApp({
                         {
                           id: 'single',
                           label: `This occurrence only (${selectedDate})`,
-                          desc: 'Updates only this date and keeps all past & future dates unchanged'
+                          desc: 'Updates only this date; keeps past & future dates unchanged'
                         },
                         {
                           id: 'future',
                           label: 'This & future occurrences',
                           desc:
                             selectedDate > editingEventOriginal.date
-                              ? 'Preserves past occurrences as they happened and updates from this date onwards'
+                              ? 'Preserves past occurrences and updates from this date onwards'
                               : 'Updates the repeating series from this date onwards'
                         }
                       ].map((opt) => (
@@ -1036,7 +1044,7 @@ export default function AlmanacApp({
                               setRecurrenceInput(editingEventOriginal.recurrence);
                             }
                           }}
-                          className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                          className={`p-2 rounded-xl border text-left transition cursor-pointer ${
                             repeatEditScope === opt.id
                               ? 'bg-indigo-600 text-white border-indigo-600'
                               : darkMode
@@ -1044,9 +1052,9 @@ export default function AlmanacApp({
                                 : 'bg-white border-slate-200 text-slate-700'
                           }`}
                         >
-                          <div className="text-xs font-bold">{opt.label}</div>
+                          <div className="text-xs font-bold leading-snug">{opt.label}</div>
                           <div
-                            className={`text-[11px] ${
+                            className={`text-[11px] leading-snug ${
                               repeatEditScope === opt.id ? 'text-indigo-100' : 'opacity-70'
                             }`}
                           >
@@ -1068,11 +1076,11 @@ export default function AlmanacApp({
                   value={titleInput}
                   onChange={(e) => setTitleInput(e.target.value)}
                   placeholder="e.g., Vet Booster, GP Consultation, Bin Collection..."
-                  className="w-full px-3.5 py-2.5 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                  className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
                     Date
@@ -1096,7 +1104,7 @@ export default function AlmanacApp({
                     className="w-full px-2.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
                   />
                 </div>
-                <div>
+                <div className="col-span-2 sm:col-span-1">
                   <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
                     For Who?
                   </label>

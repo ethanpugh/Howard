@@ -996,9 +996,17 @@ export default function App() {
           MODAL 1: PROFILE SWITCHER & PIN SECURITY SETTINGS
       ==================================================================== */}
       {profileModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 no-print">
+        <div
+          onClick={() => {
+            setProfileModalOpen(false);
+            setPinPromptTarget(null);
+            setPinManageOpen(false);
+          }}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
+        >
           <div
-            className={`max-w-md w-full rounded-3xl p-6 shadow-2xl border space-y-5 ${
+            onClick={(e) => e.stopPropagation()}
+            className={`max-w-md w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-5 ${
               darkMode
                 ? 'bg-slate-900 border-slate-800 text-slate-100'
                 : 'bg-white border-slate-200 text-slate-800'
@@ -1320,9 +1328,13 @@ export default function App() {
           MODAL 2: UNIFIED HOUSEHOLD BACKUP & DATABASE STATUS ("BACKSTAGE")
       ==================================================================== */}
       {backupModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 no-print">
+        <div
+          onClick={() => setBackupModalOpen(false)}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
+        >
           <div
-            className={`max-w-lg w-full rounded-3xl p-6 shadow-2xl border space-y-5 ${
+            onClick={(e) => e.stopPropagation()}
+            className={`max-w-lg w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-5 ${
               darkMode
                 ? 'bg-slate-900 border-slate-800 text-slate-100'
                 : 'bg-white border-slate-200 text-slate-800'

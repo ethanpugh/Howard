@@ -2135,8 +2135,14 @@ export default function LedgerApp({
           MODAL 1: LOG / EDIT EXPENSE
       ==================================================================== */}
       {expenseModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className={`max-w-md w-full rounded-3xl p-6 shadow-2xl border space-y-4 ${cardSurface}`}>
+        <div
+          onClick={() => setExpenseModalOpen(false)}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={`max-w-md w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${cardSurface}`}
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-extrabold">
                 {editingExpenseId ? 'Edit Expense' : 'Log Expense'}
@@ -2281,8 +2287,14 @@ export default function LedgerApp({
           MODAL 2: ADD / EDIT SUBSCRIPTION OR DIRECT DEBIT
       ==================================================================== */}
       {recurringModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className={`max-w-md w-full rounded-3xl p-6 shadow-2xl border space-y-4 ${cardSurface}`}>
+        <div
+          onClick={() => setRecurringModalOpen(false)}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={`max-w-md w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${cardSurface}`}
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-extrabold">
                 {editingRecurringId
@@ -2481,8 +2493,14 @@ export default function LedgerApp({
           MODAL 3: ADD / EDIT INCOME STREAM
       ==================================================================== */}
       {incomeModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className={`max-w-md w-full rounded-3xl p-6 shadow-2xl border space-y-4 ${cardSurface}`}>
+        <div
+          onClick={() => setIncomeModalOpen(false)}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={`max-w-md w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${cardSurface}`}
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-extrabold">
                 {editingIncomeId ? 'Edit Income Stream' : 'Add Income Stream'}
