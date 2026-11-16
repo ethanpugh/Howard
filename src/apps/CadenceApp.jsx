@@ -25,9 +25,8 @@ import {
 } from 'lucide-react';
 
 // ==========================================
-// LOCAL DEVICE SESSION & POLLING CONFIG
+// LOCAL DEVICE SESSION CONFIG
 // ==========================================
-const POLL_INTERVAL_MS = 2500;
 const DEVICE_ID_STORAGE_KEY = 'cadence-device-id';
 
 const getOrCreateDeviceId = () => {
@@ -152,19 +151,26 @@ const DEFAULT_SETTINGS = {
     'Give directly by mouth or with a small portion of wet food. Wipe syringe tip clean after each use.'
 };
 
-export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
+export default function CadenceApp({
+  activeProfile,
+  darkMode,
+  cadenceSnapshot,
+  onGlobalSync
+}) {
   // ==========================================
   // STATE MANAGEMENT
   // ==========================================
   const [deviceId] = useState(() => getOrCreateDeviceId());
-  const [isConnected, setIsConnected] = useState(false);
   const [syncError, setSyncError] = useState(null);
   const [now, setNow] = useState(new Date());
 
-  // Local SQLite synced states
-  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
-  const [logsByDate, setLogsByDate] = useState({});
-  const [isLoadingData, setIsLoadingData] = useState(true);
+  // Local SQLite synced states (fed directly by Howard's unified incremental sync)
+  const [settings, setSettings] = useState(() => ({
+    ...DEFAULT_SETTINGS,
+    ...cadenceSnapshot?.settings
+  }));
+  const [logsByDate, setLogsByDate] = useState(() => cadenceSnapshot?.logsByDate || {});
+  const [isLoadingData, setIsLoadingData] = useState(() => !cadenceSnapshot);
 
   // Active caregiver automatically derives from active Howard profile
   const activeCaregiver =
@@ -192,62 +198,15 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
   }, []);
 
   // ==========================================
-  // LOCAL SERVER POLLING SYNC (EVERY 2.5s)
+  // RECEIVE UNIFIED HOWARD SNAPSHOT UPDATES
   // ==========================================
   useEffect(() => {
-    let isMounted = true;
-
-    const fetchHouseholdState = async () => {
-      try {
-        const res = await fetch('/api/cadence/state', {
-          headers: { Accept: 'application/json' },
-          cache: 'no-store'
-        });
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-        const data = await res.json();
-        if (!isMounted) return;
-
-        const mergedSettings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
-        setSettings(mergedSettings);
-        setLogsByDate(data.logsByDate || {});
-        setIsConnected(true);
-        setIsLoadingData(false);
-        setSyncError(null);
-      } catch (err) {
-        console.error('Local sync polling error:', err);
-        if (!isMounted) return;
-        setIsConnected(false);
-        setIsLoadingData(false);
-        setSyncError('Unable to reach local household server. Retrying...');
-      }
-    };
-
-    fetchHouseholdState();
-
-    const pollTimer = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        fetchHouseholdState();
-      }
-    }, POLL_INTERVAL_MS);
-
-    const handleVisibilityOrFocus = () => {
-      if (document.visibilityState === 'visible') {
-        fetchHouseholdState();
-      }
-    };
-
-    window.addEventListener('focus', handleVisibilityOrFocus);
-    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
-
-    return () => {
-      isMounted = false;
-      clearInterval(pollTimer);
-      window.removeEventListener('focus', handleVisibilityOrFocus);
-      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
-    };
-  }, []);
+    if (!cadenceSnapshot) return;
+    setSettings({ ...DEFAULT_SETTINGS, ...cadenceSnapshot.settings });
+    setLogsByDate(cadenceSnapshot.logsByDate || {});
+    setIsLoadingData(false);
+    setSyncError(null);
+  }, [cadenceSnapshot]);
 
   // ==========================================
   // COMPUTED DATA & STATUS CALCULATIONS
@@ -388,9 +347,8 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
     if (data?.record) {
       setLogsByDate((prev) => ({ ...prev, [dateKey]: data.record }));
     }
-    setIsConnected(true);
     setSyncError(null);
-    if (onGlobalSync) onGlobalSync();
+    if (onGlobalSync) onGlobalSync({ force: true });
   };
 
   const saveSettingsToApi = async (updatedSettings) => {
@@ -406,9 +364,8 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
     if (data?.settings) {
       setSettings(data.settings);
     }
-    setIsConnected(true);
     setSyncError(null);
-    if (onGlobalSync) onGlobalSync();
+    if (onGlobalSync) onGlobalSync({ force: true });
   };
 
   const handleRecordDose = async (slot, customNote = '') => {
@@ -578,10 +535,10 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
       return {
         theme: isEveningWindow
           ? 'bg-indigo-600 text-white border-indigo-500 shadow-indigo-900/10'
-          : 'bg-teal-600 text-white border-teal-500 shadow-teal-900/10',
+          : 'bg-purple-600 text-white border-purple-500 shadow-purple-900/10',
         badgeTheme: isEveningWindow
           ? 'bg-indigo-800/80 text-indigo-50 border border-indigo-400/30'
-          : 'bg-teal-800/80 text-teal-50 border border-teal-400/30',
+          : 'bg-purple-800/80 text-purple-50 border border-purple-400/30',
         iconWrapTheme: 'bg-white/15',
         icon: isEveningWindow ? (
           <Moon className="w-8 h-8 text-amber-200 shrink-0" />
@@ -632,7 +589,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
           className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex items-center justify-between gap-3 ${cardSurface}`}
         >
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-teal-500 to-emerald-600 flex items-center justify-center text-white shadow-xs shrink-0">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-purple-600 to-fuchsia-600 flex items-center justify-center text-white shadow-xs shrink-0">
               <Cat className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div className="min-w-0">
@@ -640,7 +597,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
                 <h1 className="text-lg sm:text-xl font-extrabold tracking-tight">
                   Cadence • {settings.catName}&apos;s {settings.medicationName}
                 </h1>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] sm:text-xs font-bold bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] sm:text-xs font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30">
                   <Droplets className="w-3 h-3" />
                   {settings.dosageLabel}
                 </span>
@@ -1035,7 +992,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
                     ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400'
                     : bottleStatus.isExpiringSoon
                       ? 'bg-amber-500/20 text-amber-600 dark:text-amber-300'
-                      : 'bg-teal-500/15 text-teal-600 dark:text-teal-400'
+                      : 'bg-purple-500/15 text-purple-600 dark:text-purple-400'
                 }`}
               >
                 <Droplets className="w-6 h-6" />
@@ -1045,7 +1002,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
                   <h3 className="font-bold text-base">
                     {settings.medicationName} Bottle Tracker
                   </h3>
-                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-teal-600 text-white">
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-600 text-white">
                     {settings.dosageLabel} • 2x Daily
                   </span>
                 </div>
@@ -1060,7 +1017,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
               <button
                 type="button"
                 onClick={handleOpenNewBottleToday}
-                className="px-3 py-2 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 text-teal-700 dark:text-teal-300 border border-teal-500/30 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                className="px-3 py-2 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-700 dark:text-purple-300 border border-purple-500/30 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 Opened New Bottle Today
@@ -1089,7 +1046,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
                     ? 'text-rose-600 dark:text-rose-400 font-bold'
                     : bottleStatus.isExpiringSoon
                       ? 'text-amber-600 dark:text-amber-300 font-bold'
-                      : 'text-teal-600 dark:text-teal-400'
+                      : 'text-purple-600 dark:text-purple-400'
                 }
               >
                 {bottleStatus.isExpired
@@ -1104,7 +1061,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
                     ? 'bg-rose-500'
                     : bottleStatus.isExpiringSoon
                       ? 'bg-amber-500'
-                      : 'bg-teal-500'
+                      : 'bg-purple-500'
                 }`}
                 style={{ width: `${bottleStatus.percentUsed}%` }}
               />
@@ -1119,7 +1076,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
                   : 'bg-slate-50 border-slate-200/80 text-slate-600'
               }`}
             >
-              <Info className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />
+              <Info className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
               <div>
                 <span className="font-semibold">Household Care Note: </span>
                 {settings.administrationNote}
@@ -1177,10 +1134,10 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
               </button>
 
               <div className="flex items-center gap-2 px-2">
-                <Calendar className="w-4 h-4 text-teal-600 shrink-0" />
+                <Calendar className="w-4 h-4 text-purple-600 shrink-0" />
                 <span className="text-xs sm:text-sm font-bold">{weekRangeLabel}</span>
                 {isCurrentWeek && (
-                  <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-700 dark:text-teal-300">
+                  <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-700 dark:text-purple-300">
                     This Week
                   </span>
                 )}
@@ -1209,7 +1166,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
                 <button
                   type="button"
                   onClick={() => setSelectedWeekMonday(currentWeekMonday)}
-                  className="px-2.5 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold transition cursor-pointer"
+                  className="px-2.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold transition cursor-pointer"
                 >
                   This Week
                 </button>
@@ -1253,7 +1210,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
                   <div
                     key={dateKey}
                     className={`py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
-                      isToday ? 'bg-teal-500/10 -mx-3 px-3 rounded-2xl' : ''
+                      isToday ? 'bg-purple-500/10 -mx-3 px-3 rounded-2xl' : ''
                     }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-[140px]">
@@ -1270,7 +1227,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
                         <div className="font-bold text-sm flex items-center gap-1.5">
                           <span>{formatReadableDate(dateKey, todayKey)}</span>
                           {isToday && (
-                            <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-700 dark:text-teal-300">
+                            <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-700 dark:text-purple-300">
                               Active
                             </span>
                           )}
@@ -1474,7 +1431,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
                       onClick={() => setManualCaregiverInput(person)}
                       className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
                         manualCaregiverInput === person
-                          ? 'bg-teal-600 text-white'
+                          ? 'bg-purple-600 text-white'
                           : 'bg-slate-100 dark:bg-slate-800'
                       }`}
                     >
@@ -1532,7 +1489,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm"
+                    className="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-sm"
                   >
                     Save Entry
                   </button>
@@ -1713,7 +1670,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm"
+                  className="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-sm"
                 >
                   Save Household Settings
                 </button>

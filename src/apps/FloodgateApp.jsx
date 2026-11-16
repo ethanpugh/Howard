@@ -27,8 +27,7 @@ import {
   User
 } from 'lucide-react';
 
-// Relaxed polling + instant Howard sync
-const POLL_INTERVAL_MS = 10000;
+// Unified incremental Howard sync (no duplicate standalone polling loop)
 
 // ============================================================================
 // CLINICAL CONSTANTS & PRESET OPTIONS
@@ -207,15 +206,16 @@ const normalizeEntry = (dateStr, raw) => {
 export default function FloodgateApp({
   activeProfile,
   darkMode,
+  floodgateSnapshot,
   navigationIntent,
   onOpenBackupModal,
   onGlobalSync
 }) {
-  // Local SQLite Sync State
-  const [syncState, setSyncState] = useState('connecting');
-  const [syncError, setSyncError] = useState('');
-  const [lastSyncedAt, setLastSyncedAt] = useState(null);
-  const [logsMap, setLogsMap] = useState({});
+  // Local SQLite Sync State (fed by Howard's unified incremental sync)
+  const [_syncState, setSyncState] = useState('synced');
+  const [_syncError, setSyncError] = useState('');
+  const [_lastSyncedAt, setLastSyncedAt] = useState(null);
+  const [logsMap, setLogsMap] = useState(() => floodgateSnapshot?.logsByDate || {});
 
   // Navigation State
   const [activeTab, setActiveTab] = useState('log'); // 'log' | 'calendar' | 'insights' | 'data'
@@ -310,68 +310,35 @@ export default function FloodgateApp({
         body: JSON.stringify({ ownerName: cleaned })
       });
       showToast(`Personalised journal for ${cleaned}`);
-      if (onGlobalSync) onGlobalSync();
+      if (onGlobalSync) onGlobalSync({ force: true });
     } catch {
       showToast('Saved name locally (server offline)', 'info');
     }
   };
 
   // --------------------------------------------------------------------------
-  // 1. LOCAL SQLITE SERVER POLLING & SYNC EFFECT
+  // 1. RECEIVE UNIFIED HOWARD SNAPSHOT UPDATES (PRESERVING UNSAVED FORM EDITS)
   // --------------------------------------------------------------------------
-  const fetchServerState = useCallback(async ({ silent = true } = {}) => {
-    try {
-      if (!silent) setSyncState('connecting');
-      const res = await fetch('/api/floodgate/state', {
-        method: 'GET',
-        headers: { Accept: 'application/json' },
-        cache: 'no-store'
-      });
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      const serverLogs = data.logsByDate || {};
-
-      setLogsMap(serverLogs);
-      if (typeof data.settings?.ownerName === 'string' && data.settings.ownerName.trim()) {
-        setOwnerName(data.settings.ownerName.trim());
-      }
-
-      if (!isDirtyRef.current) {
-        const currentDate = selectedDateRef.current;
-        setFormData(normalizeEntry(currentDate, serverLogs[currentDate]));
-      }
-
-      setSyncState('synced');
-      setSyncError('');
-      setLastSyncedAt(new Date());
-      if (!silent) {
-        showToast('Synced with local Floodgate database');
-      }
-    } catch (err) {
-      console.error('Error syncing with local SQLite server:', err);
-      setSyncState('error');
-      setSyncError('Cannot reach Floodgate server on local network. Changes held in memory.');
-    }
-  }, [showToast]);
-
   useEffect(() => {
-    fetchServerState({ silent: true });
+    if (!floodgateSnapshot) return;
+    const serverLogs = floodgateSnapshot.logsByDate || {};
+    setLogsMap(serverLogs);
 
-    const intervalId = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        fetchServerState({ silent: true });
-      }
-    }, POLL_INTERVAL_MS);
+    if (
+      typeof floodgateSnapshot.settings?.ownerName === 'string' &&
+      floodgateSnapshot.settings.ownerName.trim()
+    ) {
+      setOwnerName(floodgateSnapshot.settings.ownerName.trim());
+    }
 
-    const handleFocus = () => fetchServerState({ silent: true });
-    window.addEventListener('focus', handleFocus);
-    return () => {
-      clearInterval(intervalId);
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, [fetchServerState]);
+    if (!isDirtyRef.current) {
+      const currentDate = selectedDateRef.current;
+      setFormData(normalizeEntry(currentDate, serverLogs[currentDate]));
+    }
+
+    setSyncState('synced');
+    setSyncError('');
+  }, [floodgateSnapshot]);
 
   // --------------------------------------------------------------------------
   // 2. LOAD SELECTED DATE INTO FORM WHEN DATE CHANGES
@@ -422,7 +389,7 @@ export default function FloodgateApp({
       setSyncState('synced');
       setSyncError('');
       setLastSyncedAt(new Date());
-      if (onGlobalSync) onGlobalSync();
+      if (onGlobalSync) onGlobalSync({ force: true });
       if (!silentToast) {
         showToast(`Saved ${ownerName ? `${ownerName}'s ` : ''}log for ${formatShortDate(targetDate)}`);
       }
@@ -477,7 +444,7 @@ export default function FloodgateApp({
       }
       setSyncState('synced');
       setLastSyncedAt(new Date());
-      if (onGlobalSync) onGlobalSync();
+      if (onGlobalSync) onGlobalSync({ force: true });
       showToast(`Deleted log for ${formatShortDate(dateToDelete)}`);
     } catch (err) {
       console.error('Error deleting entry:', err);
@@ -757,7 +724,7 @@ export default function FloodgateApp({
       }
       setSyncState('synced');
       setLastSyncedAt(new Date());
-      if (onGlobalSync) onGlobalSync();
+      if (onGlobalSync) onGlobalSync({ force: true });
       showToast(successToastText);
     } catch (err) {
       console.error('Batch upsert failed:', err);

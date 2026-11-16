@@ -42,8 +42,23 @@ const floodgateDb = new DatabaseSync(FLOODGATE_DB_PATH);
 const bloomDb = new DatabaseSync(BLOOM_DB_PATH);
 
 for (const dbInstance of [howardDb, cadenceDb, floodgateDb, bloomDb]) {
-  dbInstance.exec('PRAGMA journal_mode = DELETE;');
+  try {
+    dbInstance.exec('PRAGMA journal_mode = WAL;');
+  } catch {
+    dbInstance.exec('PRAGMA journal_mode = TRUNCATE;');
+  }
   dbInstance.exec('PRAGMA synchronous = NORMAL;');
+  dbInstance.exec('PRAGMA busy_timeout = 5000;');
+}
+
+function checkpointAllDatabases() {
+  for (const dbInstance of [howardDb, cadenceDb, floodgateDb, bloomDb]) {
+    try {
+      dbInstance.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+    } catch {
+      // ignore checkpoint errors
+    }
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -402,6 +417,20 @@ howardDb.exec(`
     data TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS almanac_events (
+    id TEXT PRIMARY KEY,
+    date_key TEXT NOT NULL,
+    data TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS ledger_items (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    data TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
 `);
 
 const howardGetStmt = howardDb.prepare('SELECT data, updated_at FROM howard_store WHERE key = ?');
@@ -413,7 +442,35 @@ const howardUpsertStmt = howardDb.prepare(`
     updated_at = excluded.updated_at
 `);
 
-const todayStr = getLocalDateKey(new Date());
+const almanacCountStmt = howardDb.prepare('SELECT COUNT(*) AS cnt FROM almanac_events');
+const almanacGetAllStmt = howardDb.prepare(
+  'SELECT id, date_key, data, updated_at FROM almanac_events ORDER BY date_key ASC, updated_at ASC'
+);
+const almanacUpsertStmt = howardDb.prepare(`
+  INSERT INTO almanac_events (id, date_key, data, updated_at)
+  VALUES (?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    date_key = excluded.date_key,
+    data = excluded.data,
+    updated_at = excluded.updated_at
+`);
+const almanacDeleteStmt = howardDb.prepare('DELETE FROM almanac_events WHERE id = ?');
+const almanacClearAllStmt = howardDb.prepare('DELETE FROM almanac_events');
+
+const ledgerCountStmt = howardDb.prepare('SELECT COUNT(*) AS cnt FROM ledger_items');
+const ledgerGetAllStmt = howardDb.prepare(
+  'SELECT id, kind, data, updated_at FROM ledger_items ORDER BY updated_at DESC'
+);
+const ledgerUpsertStmt = howardDb.prepare(`
+  INSERT INTO ledger_items (id, kind, data, updated_at)
+  VALUES (?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    kind = excluded.kind,
+    data = excluded.data,
+    updated_at = excluded.updated_at
+`);
+const ledgerDeleteStmt = howardDb.prepare('DELETE FROM ledger_items WHERE id = ?');
+const ledgerClearAllStmt = howardDb.prepare('DELETE FROM ledger_items');
 
 const DEFAULT_PROFILES = [
   {
@@ -499,6 +556,7 @@ function ensureHowardSeed(key, defaultVal) {
 ensureHowardSeed('profiles', DEFAULT_PROFILES);
 ensureHowardSeed('almanac_events', DEFAULT_ALMANAC_EVENTS);
 ensureHowardSeed('ledger_data', DEFAULT_LEDGER_DATA);
+ensureHowardSeed('ledger_settings', { splitRule: '50-50' });
 ensureHowardSeed('beacon_info', DEFAULT_BEACON_INFO);
 
 // Non-destructively grant newly introduced household modules to existing saved profiles
@@ -576,10 +634,214 @@ function normalizeLedgerData(raw) {
   };
 }
 
+// Non-destructively migrate any existing legacy JSON blobs in howard_store into row-level tables on boot
+function migrateLegacyHowardBlobsIfNeeded() {
+  if (howardGetStmt.get('migration_v2_row_tables')) return;
+  const nowIso = new Date().toISOString();
+  const fallbackDate = getLocalDateKey(new Date());
+
+  // 1. Migrate legacy almanac_events JSON array if table is currently empty
+  const existingEvtCount = Number(almanacCountStmt.get()?.cnt || 0);
+  if (existingEvtCount === 0) {
+    const legacyEventsObj = readHowardKey('almanac_events', []);
+    if (Array.isArray(legacyEventsObj.data) && legacyEventsObj.data.length > 0) {
+      howardDb.exec('BEGIN IMMEDIATE');
+      try {
+        legacyEventsObj.data.forEach((evt, idx) => {
+          if (!evt || typeof evt !== 'object') return;
+          const id = String(evt.id || `evt-mig-${Date.now()}-${idx}`);
+          const dateKey =
+            typeof evt.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(evt.date)
+              ? evt.date
+              : fallbackDate;
+          almanacUpsertStmt.run(
+            id,
+            dateKey,
+            JSON.stringify({ ...evt, id, date: dateKey }),
+            evt.updatedAt || legacyEventsObj.updatedAt || nowIso
+          );
+        });
+        howardDb.exec('COMMIT');
+      } catch (err) {
+        howardDb.exec('ROLLBACK');
+        console.error('Almanac table migration error:', err);
+      }
+    }
+  }
+
+  // 2. Migrate legacy ledger_data JSON object if ledger_items table is currently empty
+  const legacyLedgerRow = howardGetStmt.get('ledger_data');
+  if (legacyLedgerRow) {
+    const legacyLedgerObj = readHowardKey('ledger_data', DEFAULT_LEDGER_DATA);
+    const normalized = normalizeLedgerData(legacyLedgerObj.data);
+    howardUpsertStmt.run(
+      'ledger_settings',
+      JSON.stringify({ splitRule: normalized.splitRule }),
+      legacyLedgerObj.updatedAt || nowIso
+    );
+
+    const existingLedgerCount = Number(ledgerCountStmt.get()?.cnt || 0);
+    if (existingLedgerCount === 0) {
+      howardDb.exec('BEGIN IMMEDIATE');
+      try {
+        normalized.expenses.forEach((exp, idx) => {
+          if (!exp || typeof exp !== 'object') return;
+          const id = String(exp.id || `exp-mig-${Date.now()}-${idx}`);
+          ledgerUpsertStmt.run(
+            id,
+            'expense',
+            JSON.stringify({ ...exp, id }),
+            exp.updatedAt || legacyLedgerObj.updatedAt || nowIso
+          );
+        });
+        normalized.recurring.forEach((rec, idx) => {
+          if (!rec || typeof rec !== 'object') return;
+          const id = String(rec.id || `rec-mig-${Date.now()}-${idx}`);
+          ledgerUpsertStmt.run(
+            id,
+            'recurring',
+            JSON.stringify({ ...rec, id }),
+            rec.updatedAt || legacyLedgerObj.updatedAt || nowIso
+          );
+        });
+        normalized.incomes.forEach((inc, idx) => {
+          if (!inc || typeof inc !== 'object') return;
+          const id = String(inc.id || `inc-mig-${Date.now()}-${idx}`);
+          ledgerUpsertStmt.run(
+            id,
+            'income',
+            JSON.stringify({ ...inc, id }),
+            inc.updatedAt || legacyLedgerObj.updatedAt || nowIso
+          );
+        });
+        howardDb.exec('COMMIT');
+      } catch (err) {
+        howardDb.exec('ROLLBACK');
+        console.error('Ledger table migration error:', err);
+      }
+    }
+  }
+
+  howardUpsertStmt.run(
+    'migration_v2_row_tables',
+    JSON.stringify({ migratedAt: nowIso }),
+    nowIso
+  );
+}
+
+migrateLegacyHowardBlobsIfNeeded();
+
+function readAlmanacEventsFromTable() {
+  const rows = almanacGetAllStmt.all();
+  const events = [];
+  let updatedAt = '';
+  for (const row of rows) {
+    try {
+      const parsed = JSON.parse(row.data);
+      events.push({ ...parsed, id: row.id, date: parsed.date || row.date_key });
+      if (row.updated_at > updatedAt) updatedAt = row.updated_at;
+    } catch {
+      // skip malformed row
+    }
+  }
+  return { events, updatedAt };
+}
+
+function replaceAllAlmanacEventsInTable(events, nowIso = new Date().toISOString()) {
+  const fallbackDate = getLocalDateKey(new Date());
+  howardDb.exec('BEGIN IMMEDIATE');
+  try {
+    almanacClearAllStmt.run();
+    (Array.isArray(events) ? events : []).forEach((evt, idx) => {
+      if (!evt || typeof evt !== 'object') return;
+      const id = String(evt.id || `evt-${Date.now()}-${idx}`);
+      const dateKey =
+        typeof evt.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(evt.date)
+          ? evt.date
+          : fallbackDate;
+      almanacUpsertStmt.run(id, dateKey, JSON.stringify({ ...evt, id, date: dateKey }), evt.updatedAt || nowIso);
+    });
+    howardDb.exec('COMMIT');
+  } catch (err) {
+    howardDb.exec('ROLLBACK');
+    throw err;
+  }
+  return nowIso;
+}
+
+function readLedgerDataFromTable() {
+  const settingsObj = readHowardKey('ledger_settings', { splitRule: '50-50' });
+  const splitRule = settingsObj.data?.splitRule === 'proportional' ? 'proportional' : '50-50';
+  const rows = ledgerGetAllStmt.all();
+
+  const expenses = [];
+  const recurring = [];
+  const incomes = [];
+  let latestItemUpdate = settingsObj.updatedAt || '';
+
+  for (const row of rows) {
+    try {
+      const parsed = { ...JSON.parse(row.data), id: row.id };
+      if (row.kind === 'expense') expenses.push(parsed);
+      else if (row.kind === 'recurring') recurring.push(parsed);
+      else if (row.kind === 'income') incomes.push(parsed);
+      if (row.updated_at > latestItemUpdate) latestItemUpdate = row.updated_at;
+    } catch {
+      // skip malformed row
+    }
+  }
+
+  expenses.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  recurring.reverse();
+
+  return {
+    ledgerData: {
+      splitRule,
+      incomes,
+      recurring,
+      expenses
+    },
+    updatedAt: latestItemUpdate
+  };
+}
+
+function replaceAllLedgerDataInTable(rawLedger, nowIso = new Date().toISOString()) {
+  const normalized = normalizeLedgerData(rawLedger);
+  howardDb.exec('BEGIN IMMEDIATE');
+  try {
+    howardUpsertStmt.run(
+      'ledger_settings',
+      JSON.stringify({ splitRule: normalized.splitRule }),
+      nowIso
+    );
+    ledgerClearAllStmt.run();
+    normalized.expenses.forEach((exp, idx) => {
+      if (!exp || typeof exp !== 'object') return;
+      const id = String(exp.id || `exp-${Date.now()}-${idx}`);
+      ledgerUpsertStmt.run(id, 'expense', JSON.stringify({ ...exp, id }), exp.updatedAt || nowIso);
+    });
+    normalized.recurring.forEach((rec, idx) => {
+      if (!rec || typeof rec !== 'object') return;
+      const id = String(rec.id || `rec-${Date.now()}-${idx}`);
+      ledgerUpsertStmt.run(id, 'recurring', JSON.stringify({ ...rec, id }), rec.updatedAt || nowIso);
+    });
+    normalized.incomes.forEach((inc, idx) => {
+      if (!inc || typeof inc !== 'object') return;
+      const id = String(inc.id || `inc-${Date.now()}-${idx}`);
+      ledgerUpsertStmt.run(id, 'income', JSON.stringify({ ...inc, id }), inc.updatedAt || nowIso);
+    });
+    howardDb.exec('COMMIT');
+  } catch (err) {
+    howardDb.exec('ROLLBACK');
+    throw err;
+  }
+  return { ledgerData: normalized, updatedAt: nowIso };
+}
+
 function readHowardState() {
   const profilesObj = readHowardKey('profiles', DEFAULT_PROFILES);
-  const eventsObj = readHowardKey('almanac_events', DEFAULT_ALMANAC_EVENTS);
-  const ledgerObj = readHowardKey('ledger_data', DEFAULT_LEDGER_DATA);
+  const eventsObj = readAlmanacEventsFromTable();
+  const ledgerObj = readLedgerDataFromTable();
   const beaconObj = readHowardKey('beacon_info', DEFAULT_BEACON_INFO);
 
   const latest = [
@@ -587,15 +849,76 @@ function readHowardState() {
     eventsObj.updatedAt,
     ledgerObj.updatedAt,
     beaconObj.updatedAt
-  ].sort().pop() || new Date().toISOString();
+  ]
+    .filter(Boolean)
+    .sort()
+    .pop() || new Date().toISOString();
 
   return {
     profiles: sanitizeProfilesForClient(profilesObj.data),
-    almanacEvents: eventsObj.data,
-    ledgerData: normalizeLedgerData(ledgerObj.data),
+    almanacEvents: eventsObj.events,
+    ledgerData: ledgerObj.ledgerData,
     beaconInfo: beaconObj.data,
     updatedAt: latest
   };
+}
+
+// ============================================================================
+// IN-MEMORY DOMAIN CACHE & INCREMENTAL SYNC TOKEN
+// ============================================================================
+const SERVER_BOOT_ID = Date.now().toString(36);
+let revisionCounter = 1;
+let cacheHoward = null;
+let cacheCadence = null;
+let cacheBloom = null;
+let cacheFloodgate = null;
+
+function bumpRevision(domain = 'all') {
+  revisionCounter += 1;
+  if (domain === 'howard' || domain === 'all') cacheHoward = null;
+  if (domain === 'cadence' || domain === 'all') cacheCadence = null;
+  if (domain === 'bloom' || domain === 'all') cacheBloom = null;
+  if (domain === 'floodgate' || domain === 'all') cacheFloodgate = null;
+}
+
+function getSyncTokenForProfile(profileId) {
+  return `${SERVER_BOOT_ID}:${profileId || 'caregiver'}:${revisionCounter}`;
+}
+
+function getCachedHowardState() {
+  if (!cacheHoward) cacheHoward = readHowardState();
+  return cacheHoward;
+}
+
+function getCachedCadenceState() {
+  if (!cacheCadence) {
+    const { settings, updatedAt: cSetUpd } = readCadenceSettings();
+    const { logsByDate, latestLogUpdate: cLogUpd } = readCadenceLogs();
+    cacheCadence = {
+      settings,
+      logsByDate,
+      updatedAt: cLogUpd > cSetUpd ? cLogUpd : cSetUpd
+    };
+  }
+  return cacheCadence;
+}
+
+function getCachedBloomState() {
+  if (!cacheBloom) cacheBloom = readBloomState();
+  return cacheBloom;
+}
+
+function getCachedFloodgateState() {
+  if (!cacheFloodgate) {
+    const { settings, updatedAt: fSetUpd } = readFloodgateSettings();
+    const { logsByDate, latestLogUpdate: fLogUpd } = readFloodgateLogs();
+    cacheFloodgate = {
+      settings,
+      logsByDate,
+      updatedAt: fLogUpd > fSetUpd ? fLogUpd : fSetUpd
+    };
+  }
+  return cacheFloodgate;
 }
 
 // ============================================================================
@@ -699,37 +1022,30 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ------------------------------------------------------------------------
-    // 1. UNIFIED HOWARD SYNC ENDPOINT (Polled every 2.5s by Foyer & Almanac)
+    // 1. UNIFIED HOWARD SYNC ENDPOINT (Incremental syncToken + In-Memory Cache)
     // ------------------------------------------------------------------------
     if (pathname === '/api/howard/sync' && req.method === 'GET') {
       const activeProfile = parsedUrl.searchParams.get('profile') || 'caregiver';
-      const howardState = readHowardState();
+      const clientSince = parsedUrl.searchParams.get('since') || '';
+      const syncToken = getSyncTokenForProfile(activeProfile);
 
-      const { settings: cadenceSettings, updatedAt: cSetUpd } = readCadenceSettings();
-      const { logsByDate: cadenceLogs, latestLogUpdate: cLogUpd } = readCadenceLogs();
-      const cadenceUpdatedAt = cLogUpd > cSetUpd ? cLogUpd : cSetUpd;
-
-      const bloom = readBloomState();
-
-      let floodgate = null;
-      if (activeProfile === 'partner2') {
-        const { settings: fgSettings, updatedAt: fSetUpd } = readFloodgateSettings();
-        const { logsByDate: fgLogs, latestLogUpdate: fLogUpd } = readFloodgateLogs();
-        const fgUpdatedAt = fLogUpd > fSetUpd ? fLogUpd : fSetUpd;
-        floodgate = {
-          settings: fgSettings,
-          logsByDate: fgLogs,
-          updatedAt: fgUpdatedAt
-        };
+      if (clientSince && clientSince === syncToken) {
+        return sendJson(res, 200, {
+          unchanged: true,
+          syncToken
+        });
       }
 
+      const howardState = getCachedHowardState();
+      const cadence = getCachedCadenceState();
+      const bloom = getCachedBloomState();
+      const floodgate = activeProfile === 'partner2' ? getCachedFloodgateState() : null;
+
       return sendJson(res, 200, {
+        unchanged: false,
+        syncToken,
         howard: howardState,
-        cadence: {
-          settings: cadenceSettings,
-          logsByDate: cadenceLogs,
-          updatedAt: cadenceUpdatedAt
-        },
+        cadence,
         bloom,
         floodgate,
         serverTime: new Date().toISOString()
@@ -785,6 +1101,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       writeHowardKey('profiles', profiles);
+      bumpRevision('howard');
       return sendJson(res, 200, { profiles: sanitizeProfilesForClient(profiles) });
     }
 
@@ -841,23 +1158,124 @@ const server = http.createServer(async (req, res) => {
         );
       }
 
+      bumpRevision('all');
       return sendJson(res, 200, { profiles: sanitizeProfilesForClient(profiles) });
     }
 
-    // Almanac Calendar Events CRUD
+    // Almanac Calendar Events — Atomic Row-Level Batch Upsert/Delete
+    if (pathname === '/api/howard/almanac/events/batch' && req.method === 'POST') {
+      const incoming = await parseJsonBody(req);
+      const upserts = Array.isArray(incoming.upserts) ? incoming.upserts : [];
+      const deleteIds = Array.isArray(incoming.deleteIds) ? incoming.deleteIds : [];
+      const nowIso = new Date().toISOString();
+      const fallbackDate = getLocalDateKey(new Date());
+
+      howardDb.exec('BEGIN IMMEDIATE');
+      try {
+        for (const id of deleteIds) {
+          if (id) almanacDeleteStmt.run(String(id));
+        }
+        for (const evt of upserts) {
+          if (!evt || typeof evt !== 'object' || !evt.id) continue;
+          const id = String(evt.id);
+          const dateKey =
+            typeof evt.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(evt.date)
+              ? evt.date
+              : fallbackDate;
+          almanacUpsertStmt.run(
+            id,
+            dateKey,
+            JSON.stringify({ ...evt, id, date: dateKey, updatedAt: nowIso }),
+            nowIso
+          );
+        }
+        howardDb.exec('COMMIT');
+      } catch (err) {
+        howardDb.exec('ROLLBACK');
+        throw err;
+      }
+
+      bumpRevision('howard');
+      const { events } = getCachedHowardState().almanacEvents
+        ? { events: getCachedHowardState().almanacEvents }
+        : readAlmanacEventsFromTable();
+      return sendJson(res, 200, { almanacEvents: events, updatedAt: nowIso });
+    }
+
+    // Almanac Calendar Event — Single Row Upsert / Delete
+    if (pathname.startsWith('/api/howard/almanac/events/')) {
+      const eventId = decodeURIComponent(pathname.slice('/api/howard/almanac/events/'.length));
+      if (!eventId) return sendJson(res, 400, { error: 'Missing event ID' });
+      const nowIso = new Date().toISOString();
+
+      if (req.method === 'PUT') {
+        const incoming = await parseJsonBody(req);
+        const evt = incoming.event || incoming;
+        const dateKey =
+          typeof evt.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(evt.date)
+            ? evt.date
+            : getLocalDateKey(new Date());
+        const record = { ...evt, id: eventId, date: dateKey, updatedAt: nowIso };
+        almanacUpsertStmt.run(eventId, dateKey, JSON.stringify(record), nowIso);
+        bumpRevision('howard');
+        return sendJson(res, 200, { event: record, updatedAt: nowIso });
+      }
+
+      if (req.method === 'DELETE') {
+        almanacDeleteStmt.run(eventId);
+        bumpRevision('howard');
+        return sendJson(res, 200, { deleted: true, id: eventId, updatedAt: nowIso });
+      }
+    }
+
+    // Almanac Calendar Events — Legacy Bulk Replace (Backward-Compatible)
     if (pathname === '/api/howard/almanac' && req.method === 'PUT') {
       const incoming = await parseJsonBody(req);
       const events = Array.isArray(incoming.events) ? incoming.events : [];
-      const updatedAt = writeHowardKey('almanac_events', events);
+      const updatedAt = replaceAllAlmanacEventsInTable(events);
+      bumpRevision('howard');
       return sendJson(res, 200, { almanacEvents: events, updatedAt });
     }
 
-    // Ledger Bookkeeping Data CRUD
+    // Ledger Bookkeeping — Split Rule Settings Update
+    if (pathname === '/api/howard/ledger/settings' && req.method === 'PUT') {
+      const incoming = await parseJsonBody(req);
+      const splitRule = incoming.splitRule === 'proportional' ? 'proportional' : '50-50';
+      const updatedAt = writeHowardKey('ledger_settings', { splitRule });
+      bumpRevision('howard');
+      return sendJson(res, 200, { splitRule, updatedAt });
+    }
+
+    // Ledger Bookkeeping — Single Row Item Upsert / Delete ('expense' | 'recurring' | 'income')
+    if (pathname.startsWith('/api/howard/ledger/items/')) {
+      const itemId = decodeURIComponent(pathname.slice('/api/howard/ledger/items/'.length));
+      if (!itemId) return sendJson(res, 400, { error: 'Missing ledger item ID' });
+      const nowIso = new Date().toISOString();
+
+      if (req.method === 'PUT') {
+        const incoming = await parseJsonBody(req);
+        const validKinds = ['expense', 'recurring', 'income'];
+        const kind = validKinds.includes(incoming.kind) ? incoming.kind : 'expense';
+        const rawItem = incoming.item || incoming;
+        const record = { ...rawItem, id: itemId, updatedAt: nowIso };
+        ledgerUpsertStmt.run(itemId, kind, JSON.stringify(record), nowIso);
+        bumpRevision('howard');
+        return sendJson(res, 200, { id: itemId, kind, item: record, updatedAt: nowIso });
+      }
+
+      if (req.method === 'DELETE') {
+        ledgerDeleteStmt.run(itemId);
+        bumpRevision('howard');
+        return sendJson(res, 200, { deleted: true, id: itemId, updatedAt: nowIso });
+      }
+    }
+
+    // Ledger Bookkeeping Data — Legacy Bulk Replace (Backward-Compatible)
     if (pathname === '/api/howard/ledger' && req.method === 'PUT') {
       const incoming = await parseJsonBody(req);
       const rawLedger = incoming.ledgerData || incoming;
-      const normalized = normalizeLedgerData(rawLedger);
-      const updatedAt = writeHowardKey('ledger_data', normalized);
+      const { ledgerData: normalized, updatedAt } = replaceAllLedgerDataInTable(rawLedger);
+      bumpRevision('howard');
       return sendJson(res, 200, { ledgerData: normalized, updatedAt });
     }
 
@@ -867,16 +1285,17 @@ const server = http.createServer(async (req, res) => {
       const { data: current } = readHowardKey('beacon_info', DEFAULT_BEACON_INFO);
       const updated = { ...current, ...(incoming.beaconInfo || incoming) };
       const updatedAt = writeHowardKey('beacon_info', updated);
+      bumpRevision('howard');
       return sendJson(res, 200, { beaconInfo: updated, updatedAt });
     }
 
-    // Full Household Backup Export
+    // Full Household Backup Export (Checkpoints WAL files first for clean .db state)
     if (pathname === '/api/howard/backup' && req.method === 'GET') {
+      checkpointAllDatabases();
       const includeFloodgate = parsedUrl.searchParams.get('includeFloodgate') === '1';
-      const howardState = readHowardState();
-      const cadenceSettings = readCadenceSettings().settings;
-      const cadenceLogs = readCadenceLogs().logsByDate;
-      const bloomState = readBloomState();
+      const howardState = getCachedHowardState();
+      const cadenceState = getCachedCadenceState();
+      const bloomState = getCachedBloomState();
 
       const payload = {
         app: 'Howard',
@@ -888,8 +1307,8 @@ const server = http.createServer(async (req, res) => {
           beaconInfo: howardState.beaconInfo
         },
         cadence: {
-          settings: cadenceSettings,
-          logsByDate: cadenceLogs
+          settings: cadenceState.settings,
+          logsByDate: cadenceState.logsByDate
         },
         bloom: {
           settings: bloomState.settings,
@@ -900,26 +1319,27 @@ const server = http.createServer(async (req, res) => {
       };
 
       if (includeFloodgate) {
+        const fgState = getCachedFloodgateState();
         payload.floodgate = {
-          settings: readFloodgateSettings().settings,
-          logsByDate: readFloodgateLogs().logsByDate
+          settings: fgState.settings,
+          logsByDate: fgState.logsByDate
         };
       }
 
       return sendJson(res, 200, payload);
     }
 
-    // Full Household Backup Restore
+    // Full Household Backup Restore (100% Compatible with v1.0 & v1.1 Backup Bundles)
     if (pathname === '/api/howard/restore' && req.method === 'POST') {
       const incoming = await parseJsonBody(req);
       const nowIso = new Date().toISOString();
 
       if (incoming.howard) {
         if (Array.isArray(incoming.howard.almanacEvents)) {
-          writeHowardKey('almanac_events', incoming.howard.almanacEvents);
+          replaceAllAlmanacEventsInTable(incoming.howard.almanacEvents, nowIso);
         }
         if (incoming.howard.ledgerData && typeof incoming.howard.ledgerData === 'object') {
-          writeHowardKey('ledger_data', normalizeLedgerData(incoming.howard.ledgerData));
+          replaceAllLedgerDataInTable(incoming.howard.ledgerData, nowIso);
         }
         if (incoming.howard.beaconInfo && typeof incoming.howard.beaconInfo === 'object') {
           writeHowardKey('beacon_info', incoming.howard.beaconInfo);
@@ -1018,6 +1438,7 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      bumpRevision('all');
       return sendJson(res, 200, { restored: true, updatedAt: nowIso });
     }
 
@@ -1025,10 +1446,7 @@ const server = http.createServer(async (req, res) => {
     // 2. CADENCE API ROUTES (/api/cadence/*)
     // ------------------------------------------------------------------------
     if (pathname === '/api/cadence/state' && req.method === 'GET') {
-      const { settings, updatedAt: sUpd } = readCadenceSettings();
-      const { logsByDate, latestLogUpdate: lUpd } = readCadenceLogs();
-      const updatedAt = lUpd > sUpd ? lUpd : sUpd;
-      return sendJson(res, 200, { settings, logsByDate, updatedAt });
+      return sendJson(res, 200, getCachedCadenceState());
     }
 
     if (pathname === '/api/cadence/settings' && req.method === 'PUT') {
@@ -1041,6 +1459,7 @@ const server = http.createServer(async (req, res) => {
         ...incoming
       };
       cadenceUpsertSettingsStmt.run('config', JSON.stringify(updatedSettings), nowIso);
+      bumpRevision('cadence');
       return sendJson(res, 200, { settings: updatedSettings, updatedAt: nowIso });
     }
 
@@ -1071,6 +1490,7 @@ const server = http.createServer(async (req, res) => {
         };
         cadenceUpsertLogStmt.run(dateKey, JSON.stringify(updatedRecord), updatedRecord.updatedAt);
         cadenceDb.exec('COMMIT');
+        bumpRevision('cadence');
         return sendJson(res, 200, { dateKey, record: updatedRecord });
       } catch (txErr) {
         cadenceDb.exec('ROLLBACK');
@@ -1082,10 +1502,7 @@ const server = http.createServer(async (req, res) => {
     // 3. FLOODGATE API ROUTES (/api/floodgate/*)
     // ------------------------------------------------------------------------
     if (pathname === '/api/floodgate/state' && req.method === 'GET') {
-      const { settings, updatedAt: sUpd } = readFloodgateSettings();
-      const { logsByDate, latestLogUpdate: lUpd } = readFloodgateLogs();
-      const updatedAt = lUpd > sUpd ? lUpd : sUpd;
-      return sendJson(res, 200, { settings, logsByDate, updatedAt });
+      return sendJson(res, 200, getCachedFloodgateState());
     }
 
     if (pathname === '/api/floodgate/settings' && req.method === 'PUT') {
@@ -1098,6 +1515,7 @@ const server = http.createServer(async (req, res) => {
         ...incoming
       };
       floodgateUpsertSettingsStmt.run('config', JSON.stringify(updatedSettings), nowIso);
+      bumpRevision('floodgate');
       return sendJson(res, 200, { settings: updatedSettings, updatedAt: nowIso });
     }
 
@@ -1137,8 +1555,9 @@ const server = http.createServer(async (req, res) => {
           upsertedCount += 1;
         }
         floodgateDb.exec('COMMIT');
-        const { logsByDate, latestLogUpdate } = readFloodgateLogs();
-        return sendJson(res, 200, { count: upsertedCount, logsByDate, updatedAt: latestLogUpdate || nowIso });
+        bumpRevision('floodgate');
+        const { logsByDate, updatedAt } = getCachedFloodgateState();
+        return sendJson(res, 200, { count: upsertedCount, logsByDate, updatedAt: updatedAt || nowIso });
       } catch (txErr) {
         floodgateDb.exec('ROLLBACK');
         throw txErr;
@@ -1172,6 +1591,7 @@ const server = http.createServer(async (req, res) => {
         };
         floodgateUpsertLogStmt.run(dateKey, JSON.stringify(updatedRecord), updatedRecord.updatedAt);
         floodgateDb.exec('COMMIT');
+        bumpRevision('floodgate');
         return sendJson(res, 200, { dateKey, record: updatedRecord });
       } catch (txErr) {
         floodgateDb.exec('ROLLBACK');
@@ -1185,6 +1605,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: 'Invalid dateKey format (expected YYYY-MM-DD)' });
       }
       floodgateDeleteLogStmt.run(dateKey);
+      bumpRevision('floodgate');
       return sendJson(res, 200, { deleted: true, dateKey });
     }
 
@@ -1192,7 +1613,7 @@ const server = http.createServer(async (req, res) => {
     // 4. BLOOM API ROUTES (/api/bloom/*)
     // ------------------------------------------------------------------------
     if (pathname === '/api/bloom/state' && req.method === 'GET') {
-      return sendJson(res, 200, readBloomState());
+      return sendJson(res, 200, getCachedBloomState());
     }
 
     if (pathname === '/api/bloom/settings' && req.method === 'PUT') {
@@ -1210,6 +1631,7 @@ const server = http.createServer(async (req, res) => {
         }
       });
       bloomUpsertSettingsStmt.run('config', JSON.stringify(updatedSettings), nowIso);
+      bumpRevision('bloom');
       return sendJson(res, 200, { settings: updatedSettings, updatedAt: nowIso });
     }
 
@@ -1256,6 +1678,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         bloomDb.exec('COMMIT');
+        bumpRevision('bloom');
         return sendJson(res, 200, {
           dateKey,
           record: updatedRecord,
@@ -1318,7 +1741,8 @@ const server = http.createServer(async (req, res) => {
         }
 
         bloomDb.exec('COMMIT');
-        const { molts } = readBloomMolts();
+        bumpRevision('bloom');
+        const { molts } = getCachedBloomState();
         return sendJson(res, 200, { molt: moltRecord, molts, settings: currentSettings, updatedAt: nowIso });
       } catch (txErr) {
         bloomDb.exec('ROLLBACK');
@@ -1330,7 +1754,8 @@ const server = http.createServer(async (req, res) => {
       const moltId = decodeURIComponent(pathname.slice('/api/bloom/molts/'.length));
       if (!moltId) return sendJson(res, 400, { error: 'Missing molt ID' });
       bloomDeleteMoltStmt.run(moltId);
-      const { molts } = readBloomMolts();
+      bumpRevision('bloom');
+      const { molts } = getCachedBloomState();
       return sendJson(res, 200, { deleted: true, id: moltId, molts });
     }
 
@@ -1354,7 +1779,8 @@ const server = http.createServer(async (req, res) => {
         updatedAt: nowIso
       };
       bloomUpsertFeederStmt.run(feederId, JSON.stringify(feederRecord), nowIso);
-      const { feeders } = readBloomFeeders();
+      bumpRevision('bloom');
+      const { feeders } = getCachedBloomState();
       return sendJson(res, 200, { feeder: feederRecord, feeders, updatedAt: nowIso });
     }
 
@@ -1362,7 +1788,8 @@ const server = http.createServer(async (req, res) => {
       const feederId = decodeURIComponent(pathname.slice('/api/bloom/feeders/'.length));
       if (!feederId) return sendJson(res, 400, { error: 'Missing feeder ID' });
       bloomDeleteFeederStmt.run(feederId);
-      const { feeders } = readBloomFeeders();
+      bumpRevision('bloom');
+      const { feeders } = getCachedBloomState();
       return sendJson(res, 200, { deleted: true, id: feederId, feeders });
     }
 
@@ -1411,6 +1838,7 @@ server.listen(PORT, '0.0.0.0', () => {
 
 const shutdown = () => {
   server.close(() => {
+    checkpointAllDatabases();
     for (const dbInstance of [howardDb, cadenceDb, floodgateDb, bloomDb]) {
       try {
         dbInstance.close();

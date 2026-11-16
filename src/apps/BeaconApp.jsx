@@ -82,7 +82,7 @@ export default function BeaconApp({
           <button
             type="button"
             onClick={() => onNavigateApp('cadence')}
-            className="px-2.5 sm:px-3 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+            className="px-2.5 sm:px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
             title={`Open ${catName}'s Medicine (Cadence)`}
           >
             <Cat className="w-4 h-4 shrink-0" />
@@ -407,7 +407,7 @@ export default function BeaconApp({
             }`}
           >
             <div className="flex items-center gap-2.5">
-              <div className="p-2.5 rounded-2xl bg-teal-500/15 text-teal-600 dark:text-teal-400">
+              <div className="p-2.5 rounded-2xl bg-purple-500/15 text-purple-600 dark:text-purple-400">
                 <Cat className="w-5 h-5" />
               </div>
               <div>
@@ -423,10 +423,10 @@ export default function BeaconApp({
             <div className="space-y-2.5 text-xs sm:text-sm">
               <div
                 className={`p-3 sm:p-3.5 rounded-xl sm:rounded-2xl border ${
-                  darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-teal-50/50 border-teal-200/70'
+                  darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-purple-50/50 border-purple-200/70'
                 }`}
               >
-                <div className="font-bold text-teal-700 dark:text-teal-300 mb-1">
+                <div className="font-bold text-purple-700 dark:text-purple-300 mb-1">
                   💊 {catName}&apos;s Medication Schedule (~
                   {cadenceSettings?.morningTargetTime || '08:00'} &amp; ~
                   {cadenceSettings?.eveningTargetTime || '20:00'})

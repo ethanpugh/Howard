@@ -1,7 +1,9 @@
 import React, { useMemo } from 'react';
-import { doesAlmanacEventOccurOnDate } from './AlmanacApp.jsx';
-import { getLedgerScheduleInfo } from './LedgerApp.jsx';
-import { computeBloomSummary } from './BloomApp.jsx';
+import {
+  doesAlmanacEventOccurOnDate,
+  getLedgerScheduleInfo,
+  computeBloomSummary
+} from '../utils/householdHelpers.js';
 import {
   Home,
   Cat,
@@ -209,7 +211,7 @@ export default function FoyerApp({
         }`}
       >
         <div className="flex items-start sm:items-center gap-3 min-w-0">
-          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-teal-500 to-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0">
+          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 text-white flex items-center justify-center shadow-xs shrink-0">
             <Home className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
           <div className="space-y-0.5 min-w-0">
@@ -373,7 +375,7 @@ export default function FoyerApp({
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200/70 dark:border-slate-800">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-teal-500 to-emerald-600 text-white flex items-center justify-center shadow-xs">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-purple-600 to-fuchsia-600 text-white flex items-center justify-center shadow-xs">
               <Cat className="w-6 h-6" />
             </div>
             <div>
@@ -381,7 +383,7 @@ export default function FoyerApp({
                 <h2 className="text-lg font-extrabold">
                   {catName}&apos;s {medName}
                 </h2>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30">
                   {dosageLabel}
                 </span>
               </div>
@@ -398,7 +400,7 @@ export default function FoyerApp({
           <button
             type="button"
             onClick={() => onNavigateApp('cadence')}
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-teal-600 dark:text-teal-400 hover:underline cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
           >
             <span>Open Full Cadence Tracker &amp; History</span>
             <ArrowRight className="w-4 h-4" />

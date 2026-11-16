@@ -39,16 +39,6 @@ const formatGBP = (num) => {
   });
 };
 
-const formatOrdinalDay = (dayNum) => {
-  const d = Number(dayNum) || 1;
-  const j = d % 10;
-  const k = d % 100;
-  if (j === 1 && k !== 11) return `${d}st`;
-  if (j === 2 && k !== 12) return `${d}nd`;
-  if (j === 3 && k !== 13) return `${d}rd`;
-  return `${d}th`;
-};
-
 const toMonthlyAmount = (amount, cycleOrFreq) => {
   const val = Number(amount) || 0;
   switch (cycleOrFreq) {
@@ -75,155 +65,12 @@ const WEEKDAY_OPTIONS = [
   { id: 7, label: 'Sunday', shortLabel: 'Sun' }
 ];
 
-export const getLedgerScheduleInfo = (item, isIncome = false) => {
-  const now = new Date();
-  const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const cycle = (isIncome ? item?.frequency : item?.cycle) || 'monthly';
-  const rawDay = Math.min(
-    31,
-    Math.max(1, Number(isIncome ? item?.payDay : item?.billingDay) || (isIncome ? 28 : 1))
-  );
-  const weekday = Math.min(
-    7,
-    Math.max(
-      1,
-      Number(isIncome ? item?.payWeekday : item?.billingWeekday) || (isIncome ? 5 : 1)
-    )
-  );
-  const anchorDateStr = (isIncome ? item?.payDate : item?.billingDate) || '';
+import {
+  getLedgerScheduleInfo,
+  doesLedgerItemOccurOnDate
+} from '../utils/householdHelpers.js';
 
-  const getClampedDate = (yr, moIndex, d) => {
-    const maxDay = new Date(yr, moIndex + 1, 0).getDate();
-    return new Date(yr, moIndex, Math.min(maxDay, Math.max(1, d)));
-  };
-
-  let candidate = todayDate;
-  let scheduleLabel = '';
-
-  if (cycle === 'weekly') {
-    const todayIsoWeekday = ((todayDate.getDay() + 6) % 7) + 1;
-    const diff = (weekday - todayIsoWeekday + 7) % 7;
-    candidate = new Date(
-      todayDate.getFullYear(),
-      todayDate.getMonth(),
-      todayDate.getDate() + diff
-    );
-    const weekdayMeta = WEEKDAY_OPTIONS.find((w) => w.id === weekday) || WEEKDAY_OPTIONS[0];
-    scheduleLabel = `Every ${weekdayMeta.label}`;
-  } else if (cycle === 'annual') {
-    let am = now.getMonth() + 1;
-    let ad = rawDay;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(anchorDateStr)) {
-      const parts = anchorDateStr.split('-').map(Number);
-      am = parts[1];
-      ad = parts[2];
-    }
-    candidate = getClampedDate(now.getFullYear(), am - 1, ad);
-    if (candidate < todayDate) {
-      candidate = getClampedDate(now.getFullYear() + 1, am - 1, ad);
-    }
-    const dayMonthText = candidate.toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'short'
-    });
-    scheduleLabel = `Annually on ${dayMonthText}`;
-  } else if (cycle === 'quarterly') {
-    let am = now.getMonth() + 1;
-    let ad = rawDay;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(anchorDateStr)) {
-      const parts = anchorDateStr.split('-').map(Number);
-      am = parts[1];
-      ad = parts[2];
-    }
-    for (let offset = 0; offset <= 4; offset++) {
-      const probe = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-      const py = probe.getFullYear();
-      const pm = probe.getMonth() + 1;
-      if (((pm - am) % 3 + 3) % 3 === 0) {
-        const cand = getClampedDate(py, pm - 1, ad);
-        if (cand >= todayDate) {
-          candidate = cand;
-          break;
-        }
-      }
-    }
-    scheduleLabel = `Quarterly (${formatOrdinalDay(ad)})`;
-  } else {
-    candidate = getClampedDate(now.getFullYear(), now.getMonth(), rawDay);
-    if (candidate < todayDate) {
-      candidate = getClampedDate(now.getFullYear(), now.getMonth() + 1, rawDay);
-    }
-    scheduleLabel = `${formatOrdinalDay(rawDay)} of month`;
-  }
-
-  const diffDays = Math.round(
-    (candidate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24)
-  );
-  return {
-    daysUntil: diffDays,
-    nextDateFormatted: candidate.toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'short',
-      ...(candidate.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {})
-    }),
-    scheduleLabel
-  };
-};
-
-export const doesLedgerItemOccurOnDate = (item, targetDateStr, isIncome = false) => {
-  if (!item || !targetDateStr || !/^\d{4}-\d{2}-\d{2}$/.test(targetDateStr)) return false;
-  if (isIncome && item.frequency === 'one-off') {
-    return item.date === targetDateStr;
-  }
-
-  const [ty, tm, td] = targetDateStr.split('-').map(Number);
-  const cycle = (isIncome ? item.frequency : item.cycle) || 'monthly';
-  const rawDay = Math.min(
-    31,
-    Math.max(1, Number(isIncome ? item.payDay : item.billingDay) || (isIncome ? 28 : 1))
-  );
-
-  if (cycle === 'weekly') {
-    const weekday = Math.min(
-      7,
-      Math.max(
-        1,
-        Number(isIncome ? item.payWeekday : item.billingWeekday) || (isIncome ? 5 : 1)
-      )
-    );
-    const dt = new Date(ty, tm - 1, td);
-    const targetIsoWeekday = ((dt.getDay() + 6) % 7) + 1;
-    return targetIsoWeekday === weekday;
-  }
-
-  const anchorDateStr = (isIncome ? item.payDate : item.billingDate) || '';
-  const maxDayInTargetMonth = new Date(ty, tm, 0).getDate();
-
-  if (cycle === 'annual') {
-    let am = tm;
-    let ad = rawDay;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(anchorDateStr)) {
-      const parts = anchorDateStr.split('-').map(Number);
-      am = parts[1];
-      ad = parts[2];
-    }
-    return tm === am && td === Math.min(maxDayInTargetMonth, ad);
-  }
-
-  if (cycle === 'quarterly') {
-    let am = 1;
-    let ad = rawDay;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(anchorDateStr)) {
-      const parts = anchorDateStr.split('-').map(Number);
-      am = parts[1];
-      ad = parts[2];
-    }
-    const monthDiff = ((tm - am) % 3 + 3) % 3;
-    return monthDiff === 0 && td === Math.min(maxDayInTargetMonth, ad);
-  }
-
-  return td === Math.min(maxDayInTargetMonth, rawDay);
-};
+export { getLedgerScheduleInfo, doesLedgerItemOccurOnDate };
 
 const EXPENSE_CATEGORIES = [
   'Housing & Mortgage',
@@ -278,6 +125,9 @@ export default function LedgerApp({
   profiles,
   darkMode,
   ledgerData,
+  onUpsertLedgerItem,
+  onDeleteLedgerItem,
+  onSaveSplitRule,
   onSaveLedgerData
 }) {
   const todayStr = getTodayStr();
@@ -832,22 +682,28 @@ export default function LedgerApp({
     const nextExpenses = editingExpenseId
       ? expenses.map((x) => (x.id === editingExpenseId ? record : x))
       : [record, ...expenses];
+    const nextLedgerData = { ...ledgerData, expenses: nextExpenses };
+    const msg = editingExpenseId
+      ? `Updated expense "${record.title}"`
+      : `Logged ${formatGBP(record.amount)} for "${record.title}"`;
 
-    await onSaveLedgerData(
-      { ...ledgerData, expenses: nextExpenses },
-      editingExpenseId
-        ? `Updated expense "${record.title}"`
-        : `Logged ${formatGBP(record.amount)} for "${record.title}"`
-    );
+    if (onUpsertLedgerItem) {
+      await onUpsertLedgerItem({ kind: 'expense', record, nextLedgerData }, msg);
+    } else {
+      await onSaveLedgerData(nextLedgerData, msg);
+    }
     setExpenseModalOpen(false);
   };
 
   const handleDeleteExpense = async (id) => {
     const nextExpenses = expenses.filter((x) => x.id !== id);
-    await onSaveLedgerData(
-      { ...ledgerData, expenses: nextExpenses },
-      'Deleted expense entry'
-    );
+    const nextLedgerData = { ...ledgerData, expenses: nextExpenses };
+    const msg = 'Deleted expense entry';
+    if (onDeleteLedgerItem) {
+      await onDeleteLedgerItem({ id, nextLedgerData }, msg);
+    } else {
+      await onSaveLedgerData(nextLedgerData, msg);
+    }
   };
 
   const openNewRecurringModal = (defaultType = 'direct-debit') => {
@@ -922,35 +778,46 @@ export default function LedgerApp({
       notes: recNotes.trim()
     };
 
+    const mergedRecord = editingRecurringId
+      ? { ...recurring.find((r) => r.id === editingRecurringId), ...record }
+      : record;
     const nextRecurring = editingRecurringId
-      ? recurring.map((r) => (r.id === editingRecurringId ? { ...r, ...record } : r))
-      : [...recurring, record];
+      ? recurring.map((r) => (r.id === editingRecurringId ? mergedRecord : r))
+      : [...recurring, mergedRecord];
+    const nextLedgerData = { ...ledgerData, recurring: nextRecurring };
+    const msg = editingRecurringId
+      ? `Updated "${record.title}"`
+      : `Added ${record.type === 'direct-debit' ? 'Direct Debit' : 'Subscription'}: "${record.title}"`;
 
-    await onSaveLedgerData(
-      { ...ledgerData, recurring: nextRecurring },
-      editingRecurringId
-        ? `Updated "${record.title}"`
-        : `Added ${record.type === 'direct-debit' ? 'Direct Debit' : 'Subscription'}: "${record.title}"`
-    );
+    if (onUpsertLedgerItem) {
+      await onUpsertLedgerItem({ kind: 'recurring', record: mergedRecord, nextLedgerData }, msg);
+    } else {
+      await onSaveLedgerData(nextLedgerData, msg);
+    }
     setRecurringModalOpen(false);
   };
 
   const handleToggleRecurringActive = async (rec) => {
-    const nextRecurring = recurring.map((r) =>
-      r.id === rec.id ? { ...r, active: r.active === false } : r
-    );
-    await onSaveLedgerData(
-      { ...ledgerData, recurring: nextRecurring },
-      `${rec.active === false ? 'Resumed' : 'Paused'} "${rec.title}"`
-    );
+    const toggledRecord = { ...rec, active: rec.active === false };
+    const nextRecurring = recurring.map((r) => (r.id === rec.id ? toggledRecord : r));
+    const nextLedgerData = { ...ledgerData, recurring: nextRecurring };
+    const msg = `${rec.active === false ? 'Resumed' : 'Paused'} "${rec.title}"`;
+    if (onUpsertLedgerItem) {
+      await onUpsertLedgerItem({ kind: 'recurring', record: toggledRecord, nextLedgerData }, msg);
+    } else {
+      await onSaveLedgerData(nextLedgerData, msg);
+    }
   };
 
   const handleDeleteRecurring = async (id) => {
     const nextRecurring = recurring.filter((r) => r.id !== id);
-    await onSaveLedgerData(
-      { ...ledgerData, recurring: nextRecurring },
-      'Removed recurring item'
-    );
+    const nextLedgerData = { ...ledgerData, recurring: nextRecurring };
+    const msg = 'Removed recurring item';
+    if (onDeleteLedgerItem) {
+      await onDeleteLedgerItem({ id, nextLedgerData }, msg);
+    } else {
+      await onSaveLedgerData(nextLedgerData, msg);
+    }
   };
 
   const openNewIncomeModal = (defaultFreq = 'monthly') => {
@@ -1024,31 +891,40 @@ export default function LedgerApp({
     const nextIncomes = editingIncomeId
       ? incomes.map((i) => (i.id === editingIncomeId ? record : i))
       : [record, ...incomes];
+    const nextLedgerData = { ...ledgerData, incomes: nextIncomes };
+    const msg = editingIncomeId
+      ? `Updated "${record.title}"`
+      : isOneOff
+        ? `Logged one-off income ${formatGBP(record.amount)} for "${record.title}"`
+        : `Added recurring income "${record.title}"`;
 
-    await onSaveLedgerData(
-      { ...ledgerData, incomes: nextIncomes },
-      editingIncomeId
-        ? `Updated "${record.title}"`
-        : isOneOff
-          ? `Logged one-off income ${formatGBP(record.amount)} for "${record.title}"`
-          : `Added recurring income "${record.title}"`
-    );
+    if (onUpsertLedgerItem) {
+      await onUpsertLedgerItem({ kind: 'income', record, nextLedgerData }, msg);
+    } else {
+      await onSaveLedgerData(nextLedgerData, msg);
+    }
     setIncomeModalOpen(false);
   };
 
   const handleDeleteIncome = async (id) => {
     const nextIncomes = incomes.filter((i) => i.id !== id);
-    await onSaveLedgerData(
-      { ...ledgerData, incomes: nextIncomes },
-      'Removed income stream'
-    );
+    const nextLedgerData = { ...ledgerData, incomes: nextIncomes };
+    const msg = 'Removed income stream';
+    if (onDeleteLedgerItem) {
+      await onDeleteLedgerItem({ id, nextLedgerData }, msg);
+    } else {
+      await onSaveLedgerData(nextLedgerData, msg);
+    }
   };
 
   const handleChangeSplitRule = async (nextRule) => {
-    await onSaveLedgerData(
-      { ...ledgerData, splitRule: nextRule },
-      `Updated joint bill split rule to ${nextRule === 'proportional' ? 'Income-Proportional' : '50/50 Equal'}`
-    );
+    const nextLedgerData = { ...ledgerData, splitRule: nextRule };
+    const msg = `Updated joint bill split rule to ${nextRule === 'proportional' ? 'Income-Proportional' : '50/50 Equal'}`;
+    if (onSaveSplitRule) {
+      await onSaveSplitRule({ splitRule: nextRule, nextLedgerData }, msg);
+    } else {
+      await onSaveLedgerData(nextLedgerData, msg);
+    }
   };
 
   const handleExportMonthCSV = () => {

@@ -16,8 +16,13 @@ import {
   Repeat,
   X
 } from 'lucide-react';
-import { doesLedgerItemOccurOnDate } from './LedgerApp.jsx';
-import { computeBloomSummary } from './BloomApp.jsx';
+import {
+  doesLedgerItemOccurOnDate,
+  computeBloomSummary,
+  doesAlmanacEventOccurOnDate
+} from '../utils/householdHelpers.js';
+
+export { doesAlmanacEventOccurOnDate };
 
 const getTodayStr = () => {
   const now = new Date();
@@ -56,48 +61,12 @@ const getPreviousDateStr = (dateStr) => {
   return `${py}-${pm}-${pd}`;
 };
 
-// Determine whether an Almanac event (one-off or recurring) occurs on targetDateStr ('YYYY-MM-DD')
-export const doesAlmanacEventOccurOnDate = (evt, targetDateStr) => {
-  if (!evt || !evt.date || !targetDateStr) return false;
-  if (targetDateStr < evt.date) return false;
-  if (evt.untilDate && targetDateStr > evt.untilDate) return false;
-  if (Array.isArray(evt.skippedDates) && evt.skippedDates.includes(targetDateStr)) {
-    return false;
-  }
-
-  const rec = evt.recurrence || 'none';
-  if (rec === 'none') {
-    return evt.date === targetDateStr;
-  }
-
-  const [sy, sm, sd] = evt.date.split('-').map(Number);
-  const [ty, tm, td] = targetDateStr.split('-').map(Number);
-  const startUtc = Date.UTC(sy, sm - 1, sd);
-  const targetUtc = Date.UTC(ty, tm - 1, td);
-  const diffDays = Math.round((targetUtc - startUtc) / 86400000);
-
-  if (diffDays < 0) return false;
-  if (rec === 'weekly') return diffDays % 7 === 0;
-  if (rec === 'fortnightly') return diffDays % 14 === 0;
-  if (rec === 'monthly') {
-    const maxDayInTargetMonth = new Date(ty, tm, 0).getDate();
-    const clampedDay = Math.min(maxDayInTargetMonth, sd);
-    return td === clampedDay;
-  }
-  if (rec === 'annual') {
-    const maxDayInTargetMonth = new Date(ty, tm, 0).getDate();
-    const clampedDay = Math.min(maxDayInTargetMonth, sd);
-    return sm === tm && td === clampedDay;
-  }
-  return evt.date === targetDateStr;
-};
-
 const EVENT_CATEGORIES = [
   { id: 'household', label: 'Household', color: 'bg-indigo-600 text-white', badge: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300' },
-  { id: 'pet', label: 'Pet / Vet', color: 'bg-teal-600 text-white', badge: 'bg-teal-500/15 text-teal-700 dark:text-teal-300' },
+  { id: 'pet', label: 'Pet / Vet', color: 'bg-purple-600 text-white', badge: 'bg-purple-500/15 text-purple-700 dark:text-purple-300' },
   { id: 'medical', label: 'GP / Health', color: 'bg-rose-600 text-white', badge: 'bg-rose-500/15 text-rose-700 dark:text-rose-300' },
   { id: 'bins', label: 'Bins / Utilities', color: 'bg-amber-600 text-white', badge: 'bg-amber-500/15 text-amber-800 dark:text-amber-300' },
-  { id: 'social', label: 'Holiday / Social', color: 'bg-purple-600 text-white', badge: 'bg-purple-500/15 text-purple-700 dark:text-purple-300' }
+  { id: 'social', label: 'Holiday / Social', color: 'bg-teal-600 text-white', badge: 'bg-teal-500/15 text-teal-700 dark:text-teal-300' }
 ];
 
 export default function AlmanacApp({
@@ -110,6 +79,7 @@ export default function AlmanacApp({
   floodgateSnapshot,
   ledgerData,
   initialDate,
+  onMutateEvents,
   onSaveEvents,
   onOpenFloodgate,
   onNavigateApp
@@ -364,12 +334,15 @@ export default function AlmanacApp({
         createdAt: new Date().toISOString()
       };
       const next = [...(almanacEvents || []), newEvt];
-      await onSaveEvents(
-        next,
+      const msg =
         newEvt.recurrence !== 'none'
           ? `Added recurring (${newEvt.recurrence}) event "${newEvt.title}"`
-          : `Added "${newEvt.title}" to Almanac`
-      );
+          : `Added "${newEvt.title}" to Almanac`;
+      if (onMutateEvents) {
+        await onMutateEvents({ nextEvents: next, upserts: [newEvt] }, msg);
+      } else {
+        await onSaveEvents(next, msg);
+      }
     } else {
       const wasRecurring = Boolean(
         editingEventOriginal?.recurrence && editingEventOriginal.recurrence !== 'none'
@@ -390,18 +363,29 @@ export default function AlmanacApp({
           linkToGpReport: Boolean(linkGpReportInput || categoryInput === 'medical'),
           createdAt: new Date().toISOString()
         };
+        let modifiedParent = null;
         const next = (almanacEvents || []).map((item) => {
           if (item.id !== editingEventId) return item;
           const existingSkipped = Array.isArray(item.skippedDates) ? item.skippedDates : [];
-          return {
+          modifiedParent = {
             ...item,
             skippedDates: Array.from(new Set([...existingSkipped, selectedDate]))
           };
+          return modifiedParent;
         });
-        await onSaveEvents(
-          [...next, detachedEvt],
-          `Updated "${detachedEvt.title}" for ${targetDate} only`
-        );
+        const nextWithDetached = [...next, detachedEvt];
+        const msg = `Updated "${detachedEvt.title}" for ${targetDate} only`;
+        if (onMutateEvents) {
+          await onMutateEvents(
+            {
+              nextEvents: nextWithDetached,
+              upserts: modifiedParent ? [modifiedParent, detachedEvt] : [detachedEvt]
+            },
+            msg
+          );
+        } else {
+          await onSaveEvents(nextWithDetached, msg);
+        }
       } else if (wasRecurring && selectedDate > editingEventOriginal.date) {
         // Edit this & future occurrences while preserving past occurrences prior to selectedDate
         const prevDateStr = getPreviousDateStr(selectedDate);
@@ -423,13 +407,25 @@ export default function AlmanacApp({
           linkToGpReport: Boolean(linkGpReportInput || categoryInput === 'medical'),
           createdAt: new Date().toISOString()
         };
-        const next = (almanacEvents || []).map((item) =>
-          item.id === editingEventId ? { ...item, untilDate: prevDateStr } : item
-        );
-        await onSaveEvents(
-          [...next, futureSeriesEvt],
-          `Updated "${futureSeriesEvt.title}" from ${targetDate} onwards (past events preserved)`
-        );
+        let cappedParent = null;
+        const next = (almanacEvents || []).map((item) => {
+          if (item.id !== editingEventId) return item;
+          cappedParent = { ...item, untilDate: prevDateStr };
+          return cappedParent;
+        });
+        const nextWithFuture = [...next, futureSeriesEvt];
+        const msg = `Updated "${futureSeriesEvt.title}" from ${targetDate} onwards (past events preserved)`;
+        if (onMutateEvents) {
+          await onMutateEvents(
+            {
+              nextEvents: nextWithFuture,
+              upserts: cappedParent ? [cappedParent, futureSeriesEvt] : [futureSeriesEvt]
+            },
+            msg
+          );
+        } else {
+          await onSaveEvents(nextWithFuture, msg);
+        }
       } else {
         // One-off event OR editing on the first date of a recurring series
         const updatedEvt = {
@@ -447,7 +443,12 @@ export default function AlmanacApp({
         const next = (almanacEvents || []).map((item) =>
           item.id === editingEventId ? updatedEvt : item
         );
-        await onSaveEvents(next, `Updated "${updatedEvt.title}"`);
+        const msg = `Updated "${updatedEvt.title}"`;
+        if (onMutateEvents) {
+          await onMutateEvents({ nextEvents: next, upserts: [updatedEvt] }, msg);
+        } else {
+          await onSaveEvents(next, msg);
+        }
       }
     }
 
@@ -458,20 +459,32 @@ export default function AlmanacApp({
   };
 
   const handleSkipSingleOccurrence = async (evtId, dateToSkip) => {
+    let skippedTarget = null;
     const next = (almanacEvents || []).map((e) => {
       if (e.id !== evtId) return e;
       const existingSkipped = Array.isArray(e.skippedDates) ? e.skippedDates : [];
-      return {
+      skippedTarget = {
         ...e,
         skippedDates: Array.from(new Set([...existingSkipped, dateToSkip]))
       };
+      return skippedTarget;
     });
-    await onSaveEvents(next, `Skipped occurrence on ${dateToSkip}`);
+    const msg = `Skipped occurrence on ${dateToSkip}`;
+    if (onMutateEvents && skippedTarget) {
+      await onMutateEvents({ nextEvents: next, upserts: [skippedTarget] }, msg);
+    } else {
+      await onSaveEvents(next, msg);
+    }
   };
 
   const handleDeleteEvent = async (id) => {
     const next = (almanacEvents || []).filter((e) => e.id !== id);
-    await onSaveEvents(next, 'Removed event from Almanac');
+    const msg = 'Removed event from Almanac';
+    if (onMutateEvents) {
+      await onMutateEvents({ nextEvents: next, deleteIds: [id] }, msg);
+    } else {
+      await onSaveEvents(next, msg);
+    }
   };
 
   return (
@@ -485,7 +498,7 @@ export default function AlmanacApp({
         }`}
       >
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white flex items-center justify-center shadow-xs shrink-0">
+          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-indigo-600 to-blue-600 text-white flex items-center justify-center shadow-xs shrink-0">
             <CalendarIcon className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
           <div>
@@ -510,7 +523,7 @@ export default function AlmanacApp({
             onClick={() => setShowCadenceLayer(!showCadenceLayer)}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition cursor-pointer ${
               showCadenceLayer
-                ? 'bg-emerald-600 text-white border-emerald-600'
+                ? 'bg-purple-600 text-white border-purple-600'
                 : darkMode
                   ? 'bg-slate-800 border-slate-700 text-slate-400'
                   : 'bg-slate-100 border-slate-200 text-slate-500'
@@ -926,10 +939,10 @@ export default function AlmanacApp({
                 className={`p-3.5 rounded-2xl border space-y-1.5 text-xs ${
                   darkMode
                     ? 'bg-slate-800/40 border-slate-800'
-                    : 'bg-teal-50/50 border-teal-200/70'
+                    : 'bg-purple-50/50 border-purple-200/70'
                 }`}
               >
-                <div className="flex items-center justify-between font-bold text-teal-700 dark:text-teal-300">
+                <div className="flex items-center justify-between font-bold text-purple-700 dark:text-purple-300">
                   <span className="flex items-center gap-1.5">
                     <Cat className="w-3.5 h-3.5" /> {catName}&apos;s Medication
                   </span>

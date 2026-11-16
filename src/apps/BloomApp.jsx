@@ -58,29 +58,6 @@ const formatFriendlyDate = (dateKey, todayKey) => {
   });
 };
 
-const formatDurationAgo = (isoString, nowMs) => {
-  if (!isoString) return null;
-  const diffMs = Math.max(0, nowMs - new Date(isoString).getTime());
-  const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  const remMins = mins % 60;
-  if (hrs < 48) return remMins > 0 ? `${hrs}h ${remMins}m ago` : `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-};
-
-const formatCountdown = (targetIso, nowMs) => {
-  if (!targetIso) return '';
-  const diffMs = Math.max(0, new Date(targetIso).getTime() - nowMs);
-  const totalMins = Math.ceil(diffMs / 60000);
-  const hrs = Math.floor(totalMins / 60);
-  const mins = totalMins % 60;
-  if (hrs <= 0) return `${mins}m`;
-  return `${hrs}h ${mins}m`;
-};
-
 export const INSTAR_STAGES = [
   'L1',
   'L2',
@@ -217,259 +194,12 @@ const BEHAVIOR_TAGS = [
   'Swollen Wing Buds'
 ];
 
-export const DEFAULT_BLOOM_SETTINGS = {
-  mantisName: 'Mantis',
-  speciesPreset: 'spiny_flower',
-  commonName: 'Spiny Flower Mantis',
-  scientificName: 'Pseudocreobotra wahlbergii',
-  sex: 'Male',
-  pronouns: 'he/him',
-  currentInstar: 'L2',
-  arrivalDate: getLocalDateKey(new Date()),
-  hatchDate: '',
-  currentColorMorph: 'Spiky creamy-white & dark banded nymph',
-  lifecycleStatus: 'normal',
-  premoltStartedAt: null,
-  hardeningUntil: null,
-  hardeningHours: 36,
-  livePreyInside: false,
-  livePreyNote: '',
-  dayTempMinC: 25,
-  dayTempMaxC: 28,
-  nightTempMinC: 20,
-  humidityMinPct: 50,
-  humidityMaxPct: 65,
-  mistTargetHours: 24,
-  typicalInterMoltDays: 14,
-  enclosureInfo: {
-    currentSizeLabel: 'Ventilated Nymph Cup / Mini Tall Enclosure',
-    meshType: 'Soft nylon / fabric mesh (tarsal-safe)',
-    substrate: 'Paper towel / coco fibre + climbing twigs & blossoms',
-    lastDeepCleanDate: getLocalDateKey(new Date()),
-    currentBodyLengthMm: 10,
-    enclosureHeightMm: 110,
-    enclosureWidthMm: 75
-  },
-  caregivers: ['Partner 1', 'Partner 2', 'Caregiver'],
-  careNote:
-    'Mist one enclosure wall lightly once daily for drinking droplets—never spray the mantis directly, and let the enclosure dry between mists (Spiny Flower Mantises need cross-ventilation!). Do NOT offer live prey during Premolt Watch or Post-Molt Hardening.'
-};
+import {
+  DEFAULT_BLOOM_SETTINGS,
+  computeBloomSummary
+} from '../utils/householdHelpers.js';
 
-// Shared summary calculator used by BloomApp, FoyerApp, AlmanacApp, and BeaconApp
-export function computeBloomSummary(bloomSnapshot, now = new Date()) {
-  const nowMs = now.getTime();
-  const todayKey = getLocalDateKey(now);
-  const rawSettings = bloomSnapshot?.settings || {};
-  const settings = {
-    ...DEFAULT_BLOOM_SETTINGS,
-    ...rawSettings,
-    enclosureInfo: {
-      ...DEFAULT_BLOOM_SETTINGS.enclosureInfo,
-      ...rawSettings.enclosureInfo
-    }
-  };
-
-  const logsByDate = bloomSnapshot?.logsByDate || {};
-  const molts = [...(bloomSnapshot?.molts || [])].sort((a, b) =>
-    ((b.dateKey || '') + (b.timestamp || '')).localeCompare((a.dateKey || '') + (a.timestamp || ''))
-  );
-  const feeders = bloomSnapshot?.feeders || [];
-
-  // 1. Effective lifecycle status & post-molt hardening countdown
-  let effectiveStatus = 'normal';
-  let hardeningRemainingLabel = '';
-  if (settings.lifecycleStatus === 'premolt') {
-    effectiveStatus = 'premolt';
-  } else if (settings.lifecycleStatus === 'hardening') {
-    const untilMs = settings.hardeningUntil ? new Date(settings.hardeningUntil).getTime() : 0;
-    if (untilMs > nowMs) {
-      effectiveStatus = 'hardening';
-      hardeningRemainingLabel = formatCountdown(settings.hardeningUntil, nowMs);
-    } else {
-      effectiveStatus = 'hardened_ready';
-    }
-  }
-  const isNoFeedLockout = effectiveStatus === 'premolt' || effectiveStatus === 'hardening';
-
-  // 2. Scan daily care logs (newest date first) for latest mist, meal, refusal, abdomen, climate
-  const sortedDateKeys = Object.keys(logsByDate).sort().reverse();
-  let lastMist = null;
-  let lastMeal = null;
-  let lastRefusal = null;
-  let latestAbdomen = null;
-  let latestClimate = null;
-
-  for (const dKey of sortedDateKeys) {
-    const dayLog = logsByDate[dKey] || {};
-    if (!lastMist && Array.isArray(dayLog.mists) && dayLog.mists.length > 0) {
-      const m = [...dayLog.mists].sort((a, b) =>
-        (b.timestamp || '').localeCompare(a.timestamp || '')
-      )[0];
-      const mMs = m.timestamp ? new Date(m.timestamp).getTime() : parseLocalDateKey(dKey).getTime();
-      const hoursAgo = Math.max(0, (nowMs - mMs) / 3600000);
-      lastMist = {
-        ...m,
-        dateKey: dKey,
-        hoursAgo,
-        timeAgoLabel: m.timestamp ? formatDurationAgo(m.timestamp, nowMs) : formatFriendlyDate(dKey, todayKey),
-        isToday: dKey === todayKey
-      };
-    }
-
-    if (Array.isArray(dayLog.feedings) && dayLog.feedings.length > 0) {
-      const sortedFeeds = [...dayLog.feedings].sort((a, b) =>
-        (b.timestamp || '').localeCompare(a.timestamp || '')
-      );
-      for (const f of sortedFeeds) {
-        if (!latestAbdomen && f.abdomenAfter) {
-          latestAbdomen = f.abdomenAfter;
-        }
-        if (!lastMeal && (f.outcome === 'eaten' || f.outcome === 'partial' || !f.outcome)) {
-          const daysAgo = Math.max(
-            0,
-            Math.round(
-              (parseLocalDateKey(todayKey).getTime() - parseLocalDateKey(dKey).getTime()) /
-                86400000
-            )
-          );
-          lastMeal = {
-            ...f,
-            dateKey: dKey,
-            daysAgo,
-            friendlyWhen: formatFriendlyDate(dKey, todayKey)
-          };
-        }
-        if (!lastRefusal && f.outcome === 'refused') {
-          lastRefusal = { ...f, dateKey: dKey };
-        }
-      }
-    }
-
-    if (!latestAbdomen && dayLog.abdomenStatus) {
-      latestAbdomen = dayLog.abdomenStatus;
-    }
-
-    if (!latestClimate && Array.isArray(dayLog.climateChecks) && dayLog.climateChecks.length > 0) {
-      const c = [...dayLog.climateChecks].sort((a, b) =>
-        (b.timestamp || '').localeCompare(a.timestamp || '')
-      )[0];
-      latestClimate = { ...c, dateKey: dKey };
-    }
-  }
-
-  const todayLog = logsByDate[todayKey] || {
-    dateKey: todayKey,
-    mists: [],
-    feedings: [],
-    climateChecks: [],
-    behaviors: []
-  };
-  const todayMistCount = (todayLog.mists || []).length;
-  const mistTargetHours = Number(settings.mistTargetHours) || 24;
-  const isMistDue = !lastMist || lastMist.hoursAgo >= mistTargetHours;
-
-  // 3. Instar duration & projected next molt window
-  const latestMolt = molts[0] || null;
-  const stageAnchorDateStr = latestMolt?.dateKey || settings.arrivalDate || todayKey;
-  const daysInCurrentInstar = Math.max(
-    0,
-    Math.round(
-      (parseLocalDateKey(todayKey).getTime() - parseLocalDateKey(stageAnchorDateStr).getTime()) /
-        86400000
-    )
-  );
-
-  let avgInterMoltDays = Number(settings.typicalInterMoltDays) || 14;
-  if (molts.length >= 2) {
-    const ascMolts = [...molts].sort((a, b) => (a.dateKey || '').localeCompare(b.dateKey || ''));
-    let totalSpan = 0;
-    let intervals = 0;
-    for (let i = 1; i < ascMolts.length; i++) {
-      const diff = Math.round(
-        (parseLocalDateKey(ascMolts[i].dateKey).getTime() -
-          parseLocalDateKey(ascMolts[i - 1].dateKey).getTime()) /
-          86400000
-      );
-      if (diff > 2 && diff < 90) {
-        totalSpan += diff;
-        intervals += 1;
-      }
-    }
-    if (intervals > 0) {
-      avgInterMoltDays = Math.round(totalSpan / intervals);
-    }
-  }
-
-  const isAdult = settings.currentInstar === 'Adult';
-  const projectedNextMoltDateStr = isAdult
-    ? null
-    : shiftDateKey(stageAnchorDateStr, avgInterMoltDays);
-
-  // 4. Feeder culture shelf-life alerts
-  const enrichedFeeders = feeders
-    .filter((f) => f.active !== false)
-    .map((f) => {
-      const ageDays = Math.max(
-        0,
-        Math.round(
-          (parseLocalDateKey(todayKey).getTime() -
-            parseLocalDateKey(f.startedDate || todayKey).getTime()) /
-            86400000
-        )
-      );
-      const shelfLifeDays = Number(f.shelfLifeDays) || 28;
-      const daysRemaining = shelfLifeDays - ageDays;
-      const isAlert = f.status === 'low' || f.status === 'crashed' || daysRemaining <= 5;
-      return {
-        ...f,
-        ageDays,
-        shelfLifeDays,
-        daysRemaining,
-        isAlert
-      };
-    });
-
-  const feederAlerts = enrichedFeeders.filter((f) => f.isAlert);
-
-  // 5. Enclosure molting clearance rule (Height >= 3x length, Width >= 2x length)
-  const bodyLen = Number(settings.enclosureInfo?.currentBodyLengthMm) || 10;
-  const encH = Number(settings.enclosureInfo?.enclosureHeightMm) || 110;
-  const encW = Number(settings.enclosureInfo?.enclosureWidthMm) || 75;
-  const minSafeHeightMm = bodyLen * 3;
-  const minSafeWidthMm = bodyLen * 2;
-  const isEnclosureTight = encH < minSafeHeightMm || encW < minSafeWidthMm;
-
-  return {
-    settings,
-    molts,
-    feeders: enrichedFeeders,
-    feederAlerts,
-    effectiveStatus,
-    hardeningRemainingLabel,
-    isNoFeedLockout,
-    lastMist,
-    todayMistCount,
-    isMistDue,
-    lastMeal,
-    lastRefusal,
-    latestAbdomen,
-    latestClimate,
-    todayLog,
-    latestMolt,
-    daysInCurrentInstar,
-    avgInterMoltDays,
-    projectedNextMoltDateStr,
-    isAdult,
-    clearance: {
-      bodyLen,
-      encH,
-      encW,
-      minSafeHeightMm,
-      minSafeWidthMm,
-      isEnclosureTight
-    }
-  };
-}
+export { DEFAULT_BLOOM_SETTINGS, computeBloomSummary };
 
 export default function BloomApp({
   activeProfile,
@@ -604,7 +334,7 @@ export default function BloomApp({
       });
       if (!res.ok) throw new Error('Failed to save Bloom settings');
       if (toastMsg) notify(toastMsg);
-      if (onGlobalSync) onGlobalSync();
+      if (onGlobalSync) onGlobalSync({ force: true });
     } catch {
       notify('Could not save Bloom settings', 'error');
     }
@@ -641,7 +371,7 @@ export default function BloomApp({
       });
       if (!res.ok) throw new Error('Failed to save Bloom log');
       if (toastMsg) notify(toastMsg);
-      if (onGlobalSync) onGlobalSync();
+      if (onGlobalSync) onGlobalSync({ force: true });
     } catch {
       notify('Could not save care log to server', 'error');
     }
