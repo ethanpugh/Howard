@@ -54,7 +54,7 @@ const APP_REGISTRY = [
   {
     id: 'cadence',
     name: 'Cadence',
-    subtitle: "Mochi's Meds",
+    subtitle: 'Pet Meds',
     icon: Cat,
     accent: 'bg-emerald-600 text-white',
     badgeClass: 'text-emerald-600 dark:text-emerald-400'
@@ -207,12 +207,11 @@ export default function App() {
     recurring: [],
     expenses: []
   });
-  const [monzoStatus, setMonzoStatus] = useState(null);
   const [beaconInfo, setBeaconInfo] = useState(null);
 
   const [cadenceSnapshot, setCadenceSnapshot] = useState({
     settings: {
-      catName: 'Mochi',
+      catName: 'Pet',
       medicationName: 'Oral Solution',
       dosageLabel: '2.5 mg / 0.5 ml',
       morningTargetTime: '08:00',
@@ -338,7 +337,6 @@ export default function App() {
         }
         if (Array.isArray(data.howard.almanacEvents)) setAlmanacEvents(data.howard.almanacEvents);
         if (data.howard.ledgerData) setLedgerData(data.howard.ledgerData);
-        if (data.howard.monzoStatus) setMonzoStatus(data.howard.monzoStatus);
         if (data.howard.beaconInfo) setBeaconInfo(data.howard.beaconInfo);
       }
 
@@ -580,7 +578,7 @@ export default function App() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       showToast(
-        `Logged ${cadenceSnapshot.settings?.catName || 'Mochi'}'s ${slot === 'morning' ? 'Morning' : 'Evening'} dose (${caregiverName})`
+        `Logged ${cadenceSnapshot.settings?.catName || 'Pet'}'s ${slot === 'morning' ? 'Morning' : 'Evening'} dose (${caregiverName})`
       );
       fetchUnifiedSync();
     } catch {
@@ -940,10 +938,7 @@ export default function App() {
             profiles={profiles}
             darkMode={darkMode}
             ledgerData={ledgerData}
-            monzoStatus={monzoStatus}
             onSaveLedgerData={handleSaveLedgerData}
-            onGlobalSync={fetchUnifiedSync}
-            showToast={showToast}
           />
         )}
 
@@ -955,6 +950,7 @@ export default function App() {
             cadenceSettings={cadenceSnapshot.settings}
             onSaveBeacon={handleSaveBeaconInfo}
             onNavigateApp={(appId) => setActiveAppId(appId)}
+            showToast={showToast}
           />
         )}
       </div>
@@ -1371,7 +1367,7 @@ export default function App() {
                 </code>
               </div>
               <div className="flex items-center justify-between">
-                <span className="font-semibold">Cadence DB ({cadenceSnapshot.settings?.catName || 'Mochi'}):</span>
+                <span className="font-semibold">Cadence DB ({cadenceSnapshot.settings?.catName || 'Pet'}):</span>
                 <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono">
                   data/cadence.db ({Object.keys(cadenceSnapshot.logsByDate || {}).length} days)
                 </code>

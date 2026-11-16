@@ -5,7 +5,7 @@ import {
   Phone,
   Stethoscope,
   Wifi,
-  Home,
+  Copy,
   Edit3,
   Check,
   X
@@ -17,11 +17,13 @@ export default function BeaconApp({
   beaconInfo,
   cadenceSettings,
   onSaveBeacon,
-  onNavigateApp
+  onNavigateApp,
+  showToast
 }) {
   const canEdit = activeProfile.id !== 'caregiver';
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(beaconInfo || {});
+  const [copiedWifi, setCopiedWifi] = useState(false);
 
   useEffect(() => {
     if (beaconInfo && !isEditing) {
@@ -29,7 +31,20 @@ export default function BeaconApp({
     }
   }, [beaconInfo, isEditing]);
 
-  const catName = cadenceSettings?.catName || beaconInfo?.petCare?.petName || 'Mochi';
+  const catName = cadenceSettings?.catName || 'Pet';
+
+  const handleCopyWifiPassword = async () => {
+    const pwd = beaconInfo?.houseGuide?.wifiPassword;
+    if (!pwd) return;
+    try {
+      await navigator.clipboard.writeText(pwd);
+      setCopiedWifi(true);
+      if (showToast) showToast('Copied Wi-Fi password to clipboard');
+      setTimeout(() => setCopiedWifi(false), 2000);
+    } catch {
+      // ignore clipboard errors
+    }
+  };
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -38,34 +53,37 @@ export default function BeaconApp({
   };
 
   return (
-    <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-5 space-y-6">
+    <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4 space-y-4 sm:space-y-5">
       {/* HEADER */}
       <section
-        className={`rounded-3xl p-5 sm:p-6 border shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+        className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex items-center justify-between gap-3 ${
           darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
         }`}
       >
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-sky-500 to-blue-600 text-white flex items-center justify-center shadow-xs">
-            <ShieldAlert className="w-6 h-6" />
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-sky-500 to-blue-600 text-white flex items-center justify-center shadow-xs shrink-0">
+            <ShieldAlert className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
-          <div>
-            <h1 className="text-xl font-extrabold tracking-tight">
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-extrabold tracking-tight">
               Beacon • Emergency, Vet &amp; House Guide
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Everything a pet sitter, guest, or household member needs for {catName} and the house
+              Everything a pet sitter, guest, or household member needs for the pets and the house
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <button
             type="button"
             onClick={() => onNavigateApp('cadence')}
-            className="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold cursor-pointer"
+            className="px-2.5 sm:px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+            title={`Open ${catName}'s Medicine (Cadence)`}
           >
-            Open {catName}&apos;s Medicine (Cadence)
+            <Cat className="w-4 h-4 shrink-0" />
+            <span className="sm:hidden">Cadence</span>
+            <span className="hidden sm:inline">Open {catName}&apos;s Medicine (Cadence)</span>
           </button>
           {canEdit && (
             <button
@@ -74,14 +92,15 @@ export default function BeaconApp({
                 setDraft(beaconInfo || {});
                 setIsEditing(!isEditing);
               }}
-              className={`px-3.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
+              className={`p-2.5 sm:px-3.5 sm:py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
                 darkMode
                   ? 'bg-slate-800 border-slate-700 text-slate-200'
                   : 'bg-slate-100 border-slate-200 text-slate-700'
               }`}
+              title={isEditing ? 'Cancel Edit' : 'Edit Guide'}
             >
-              <Edit3 className="w-3.5 h-3.5" />
-              <span>{isEditing ? 'Cancel Edit' : 'Edit Guide'}</span>
+              <Edit3 className="w-4 h-4" />
+              <span className="hidden sm:inline">{isEditing ? 'Cancel Edit' : 'Edit Guide'}</span>
             </button>
           )}
         </div>
@@ -90,7 +109,7 @@ export default function BeaconApp({
       {isEditing && canEdit ? (
         <form
           onSubmit={handleSave}
-          className={`rounded-3xl p-6 border shadow-xs space-y-5 ${
+          className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${
             darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
           }`}
         >
@@ -168,7 +187,7 @@ export default function BeaconApp({
 
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
-              {catName}&apos;s Feeding &amp; Daily Routine
+              Pet Feeding &amp; Daily Routine
             </label>
             <textarea
               rows={2}
@@ -185,7 +204,7 @@ export default function BeaconApp({
 
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
-              Where Carrier, Syringes &amp; Supplies Are Kept
+              Where Carriers, Enclosures, Syringes &amp; Supplies Are Kept
             </label>
             <textarea
               rows={2}
@@ -196,6 +215,24 @@ export default function BeaconApp({
                   petCare: { ...draft.petCare, carrierAndSupplies: e.target.value }
                 })
               }
+              className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
+              Pet Quirks &amp; Notes
+            </label>
+            <textarea
+              rows={2}
+              value={draft.petCare?.quirksAndNotes || ''}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  petCare: { ...draft.petCare, quirksAndNotes: e.target.value }
+                })
+              }
+              placeholder="Habits, personalities, enclosure/misting notes, or special care instructions..."
               className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
             />
           </div>
@@ -348,10 +385,10 @@ export default function BeaconApp({
           </div>
         </form>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
           {/* 1. PET CARE & MEDICATION INSTRUCTIONS */}
           <section
-            className={`rounded-3xl p-5 sm:p-6 border shadow-xs space-y-4 ${
+            className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-3.5 ${
               darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
             }`}
           >
@@ -360,24 +397,24 @@ export default function BeaconApp({
                 <Cat className="w-5 h-5" />
               </div>
               <div>
-                <h2 className="text-base font-extrabold">
-                  {catName}&apos;s Care, Feeding &amp; Supplies
-                </h2>
+                <h2 className="text-base font-extrabold">Pet Care</h2>
                 <p className="text-xs text-slate-500">
-                  Prescribed: {cadenceSettings?.medicationName || 'Oral Solution'} (
+                  Feeding, supplies &amp; {catName}&apos;s prescribed{' '}
+                  {cadenceSettings?.medicationName || 'Oral Solution'} (
                   {cadenceSettings?.dosageLabel || '2.5 mg / 0.5 ml'})
                 </p>
               </div>
             </div>
 
-            <div className="space-y-3 text-xs sm:text-sm">
+            <div className="space-y-2.5 text-xs sm:text-sm">
               <div
-                className={`p-3.5 rounded-2xl border ${
+                className={`p-3 sm:p-3.5 rounded-xl sm:rounded-2xl border ${
                   darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-teal-50/50 border-teal-200/70'
                 }`}
               >
                 <div className="font-bold text-teal-700 dark:text-teal-300 mb-1">
-                  Medication Schedule (~{cadenceSettings?.morningTargetTime || '08:00'} &amp; ~
+                  💊 {catName}&apos;s Medication Schedule (~
+                  {cadenceSettings?.morningTargetTime || '08:00'} &amp; ~
                   {cadenceSettings?.eveningTargetTime || '20:00'})
                 </div>
                 <p className="leading-relaxed">
@@ -386,32 +423,43 @@ export default function BeaconApp({
               </div>
 
               <div
-                className={`p-3.5 rounded-2xl border ${
+                className={`p-3 sm:p-3.5 rounded-xl sm:rounded-2xl border ${
                   darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
                 }`}
               >
                 <div className="font-bold mb-1">🍽️ Feeding Routine</div>
                 <p className="leading-relaxed opacity-90">
-                  {beaconInfo?.petCare?.feedingGuide}
+                  {beaconInfo?.petCare?.feedingGuide || 'No feeding guide entered yet.'}
                 </p>
               </div>
 
               <div
-                className={`p-3.5 rounded-2xl border ${
+                className={`p-3 sm:p-3.5 rounded-xl sm:rounded-2xl border ${
                   darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
                 }`}
               >
                 <div className="font-bold mb-1">🧰 Carrier &amp; Medicine Supplies</div>
                 <p className="leading-relaxed opacity-90">
-                  {beaconInfo?.petCare?.carrierAndSupplies}
+                  {beaconInfo?.petCare?.carrierAndSupplies || 'No supply locations entered yet.'}
+                </p>
+              </div>
+
+              <div
+                className={`p-3 sm:p-3.5 rounded-xl sm:rounded-2xl border ${
+                  darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                <div className="font-bold mb-1">🐾 Pet Quirks &amp; Notes</div>
+                <p className="leading-relaxed opacity-90">
+                  {beaconInfo?.petCare?.quirksAndNotes || 'No extra pet notes entered yet.'}
                 </p>
               </div>
             </div>
           </section>
 
-          {/* 2. EMERGENCY VET & HOUSEHOLD CONTACTS */}
+          {/* 2. EMERGENCY VET, HOUSEHOLD CONTACTS & UTILITIES */}
           <section
-            className={`rounded-3xl p-5 sm:p-6 border shadow-xs space-y-4 ${
+            className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-3.5 ${
               darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
             }`}
           >
@@ -428,7 +476,7 @@ export default function BeaconApp({
             </div>
 
             <div
-              className={`p-4 rounded-2xl border space-y-2 text-xs sm:text-sm ${
+              className={`p-3.5 rounded-xl sm:rounded-2xl border space-y-2 text-xs sm:text-sm ${
                 darkMode ? 'bg-rose-950/20 border-rose-800/60' : 'bg-rose-50/50 border-rose-200'
               }`}
             >
@@ -447,7 +495,7 @@ export default function BeaconApp({
                   className="px-3 py-2 rounded-xl bg-rose-600 text-white font-bold text-xs flex items-center gap-1.5"
                 >
                   <Phone className="w-3.5 h-3.5" />
-                  <span>{beaconInfo?.vetInfo?.emergencyPhone}</span>
+                  <span>Emergency: {beaconInfo?.vetInfo?.emergencyPhone}</span>
                 </a>
               </div>
               {beaconInfo?.vetInfo?.notes && (
@@ -485,24 +533,89 @@ export default function BeaconApp({
               </div>
             </div>
 
-            {/* Wi-Fi & Utilities */}
-            <div
-              className={`p-4 rounded-2xl border space-y-2 text-xs ${
-                darkMode ? 'bg-slate-800/40 border-slate-700' : 'bg-slate-50 border-slate-200'
-              }`}
-            >
-              <div className="font-bold flex items-center gap-1.5 text-sky-600 dark:text-sky-400">
-                <Wifi className="w-4 h-4" />
+            {/* Structured Home Wi-Fi & Utilities Sub-Cards */}
+            <div className="space-y-3 pt-1">
+              <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-sky-600 dark:text-sky-400">
+                <Wifi className="w-3.5 h-3.5" />
                 <span>Home Wi-Fi &amp; Utilities</span>
               </div>
-              <div>
-                <strong>Wi-Fi:</strong> {beaconInfo?.houseGuide?.wifiName} ({beaconInfo?.houseGuide?.wifiPassword})
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs sm:text-sm">
+                <div
+                  className={`p-3.5 rounded-2xl border space-y-1 ${
+                    darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Wi-Fi Network (SSID)
+                  </div>
+                  <div className="font-extrabold text-sm break-all">
+                    {beaconInfo?.houseGuide?.wifiName || 'Not set'}
+                  </div>
+                </div>
+
+                <div
+                  className={`p-3.5 rounded-2xl border flex items-center justify-between gap-2 ${
+                    darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <div className="min-w-0 space-y-1">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Wi-Fi Password
+                    </div>
+                    <div className="font-mono font-bold text-xs sm:text-sm break-all text-sky-600 dark:text-sky-300">
+                      {beaconInfo?.houseGuide?.wifiPassword || 'Not set'}
+                    </div>
+                  </div>
+                  {beaconInfo?.houseGuide?.wifiPassword && (
+                    <button
+                      type="button"
+                      onClick={handleCopyWifiPassword}
+                      className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1 shrink-0 transition cursor-pointer ${
+                        copiedWifi
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : darkMode
+                            ? 'bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800'
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                      title="Copy Wi-Fi Password"
+                    >
+                      {copiedWifi ? (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Copy</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
               </div>
-              <div>
-                <strong>Bins:</strong> {beaconInfo?.houseGuide?.binDayInfo}
+
+              <div
+                className={`p-3.5 rounded-2xl border text-xs sm:text-sm ${
+                  darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                <div className="font-bold mb-1">🗑️ Bin Collection</div>
+                <p className="leading-relaxed opacity-90">
+                  {beaconInfo?.houseGuide?.binDayInfo || 'No bin collection details entered yet.'}
+                </p>
               </div>
-              <div>
-                <strong>Utilities:</strong> {beaconInfo?.houseGuide?.utilitiesInfo}
+
+              <div
+                className={`p-3.5 rounded-2xl border text-xs sm:text-sm ${
+                  darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                <div className="font-bold mb-1">🔧 Utilities, Stopcock &amp; Fuse Box</div>
+                <p className="leading-relaxed opacity-90">
+                  {beaconInfo?.houseGuide?.utilitiesInfo || 'No utilities info entered yet.'}
+                </p>
               </div>
             </div>
           </section>

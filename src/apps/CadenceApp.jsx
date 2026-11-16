@@ -17,7 +17,6 @@ import {
   Edit3,
   Trash2,
   RefreshCw,
-  Wifi,
   ChevronLeft,
   ChevronRight,
   Info,
@@ -141,7 +140,7 @@ const getHoursSince = (isoString, nowMs) => {
 };
 
 const DEFAULT_SETTINGS = {
-  catName: 'Mochi',
+  catName: 'Pet',
   medicationName: 'Oral Solution',
   dosageLabel: '2.5 mg / 0.5 ml',
   morningTargetTime: '08:00',
@@ -183,7 +182,6 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
   const [manualTimeInput, setManualTimeInput] = useState('08:00');
   const [manualCaregiverInput, setManualCaregiverInput] = useState('');
   const [manualNoteInput, setManualNoteInput] = useState('');
-  const [showDeviceInfoModal, setShowDeviceInfoModal] = useState(false);
 
   // Keep clock fresh every 30 seconds for automatic midnight rollover & "time since last dose"
   useEffect(() => {
@@ -623,48 +621,32 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
 
   const cardSurface = darkMode
     ? 'bg-slate-900 border-slate-800 text-slate-100'
-    : 'bg-white border-slate-200 text-slate-800';
+    : 'bg-white border-slate-200/90 text-slate-800';
 
   return (
-    <div className="pb-10 font-sans selection:bg-teal-500 selection:text-white">
-      <main className="max-w-4xl mx-auto px-4 pt-5 space-y-5">
+    <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4 space-y-4 sm:space-y-5">
         {/* ========================================== */}
         {/* CADENCE MODULE HEADER BAR                  */}
         {/* ========================================== */}
-        <div
-          className={`rounded-3xl p-4 sm:p-5 border shadow-xs flex items-center justify-between gap-2 ${cardSurface}`}
+        <section
+          className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex items-center justify-between gap-3 ${cardSurface}`}
         >
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-teal-500 to-emerald-600 flex items-center justify-center text-white shadow-sm">
-              <Cat className="w-6 h-6" />
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-teal-500 to-emerald-600 flex items-center justify-center text-white shadow-xs shrink-0">
+              <Cat className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="font-bold text-lg sm:text-xl tracking-tight leading-none">
+                <h1 className="text-lg sm:text-xl font-extrabold tracking-tight">
                   Cadence • {settings.catName}&apos;s {settings.medicationName}
                 </h1>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] sm:text-xs font-bold bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30">
                   <Droplets className="w-3 h-3" />
                   {settings.dosageLabel}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1.5">
-                <span>
-                  {now.toLocaleDateString([], {
-                    weekday: 'long',
-                    month: 'short',
-                    day: 'numeric'
-                  })}
-                </span>
-                <span>•</span>
-                <button
-                  type="button"
-                  onClick={() => setShowDeviceInfoModal(true)}
-                  className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 hover:underline font-medium cursor-pointer"
-                >
-                  <Wifi className="w-3 h-3" />
-                  {isConnected ? 'Live 2.5s Household Sync' : 'Connecting...'}
-                </button>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Twice-daily dose check-in, bottle shelf-life tracker &amp; household adherence history
               </p>
             </div>
           </div>
@@ -675,7 +657,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
               setSettingsForm(settings);
               setSettingsModalOpen(true);
             }}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-semibold text-xs sm:text-sm border transition cursor-pointer ${
+            className={`flex items-center gap-1.5 p-2.5 sm:px-3.5 sm:py-2 rounded-xl font-bold text-xs border transition cursor-pointer shrink-0 ${
               darkMode
                 ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
                 : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
@@ -685,7 +667,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
             <Settings className="w-4 h-4" />
             <span className="hidden sm:inline">Medication Settings</span>
           </button>
-        </div>
+        </section>
 
         {/* SYNC ERROR NOTICE IF ANY */}
         {syncError && (
@@ -709,7 +691,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
         {/* ========================================== */}
         <section
           aria-label="Current Dose Status"
-          className={`rounded-3xl p-5 sm:p-6 border shadow-lg transition-colors duration-300 ${statusBanner.theme}`}
+          className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-lg transition-colors duration-300 ${statusBanner.theme}`}
         >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
             <span
@@ -755,7 +737,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
         >
           {/* ---------------- MORNING DOSE CARD ---------------- */}
           <div
-            className={`rounded-3xl p-5 border-2 transition-all flex flex-col justify-between ${
+            className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border-2 transition-all flex flex-col justify-between ${
               morningDose?.given
                 ? darkMode
                   ? 'bg-emerald-950/30 border-emerald-600 shadow-sm'
@@ -897,7 +879,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
 
           {/* ---------------- EVENING DOSE CARD ---------------- */}
           <div
-            className={`rounded-3xl p-5 border-2 transition-all flex flex-col justify-between ${
+            className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border-2 transition-all flex flex-col justify-between ${
               eveningDose?.given
                 ? darkMode
                   ? 'bg-emerald-950/30 border-emerald-600 shadow-sm'
@@ -1043,7 +1025,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
         {/* ========================================== */}
         <section
           aria-label="Bottle Shelf-Life & Dosage Tracker"
-          className={`rounded-3xl p-5 border shadow-xs space-y-4 ${cardSurface}`}
+          className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${cardSurface}`}
         >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-start gap-3">
@@ -1151,7 +1133,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
         {/* ========================================== */}
         <section
           aria-label="Medication History"
-          className={`rounded-3xl p-5 border shadow-xs ${cardSurface}`}
+          className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${cardSurface}`}
         >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 mb-4 border-b border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-2.5">
@@ -1382,7 +1364,6 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
             </div>
           )}
         </section>
-      </main>
 
       {/* ========================================== */}
       {/* MODAL 1: UNDO CONFIRMATION MODAL           */}
@@ -1586,7 +1567,7 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
                     onChange={(e) =>
                       setSettingsForm({ ...settingsForm, catName: e.target.value })
                     }
-                    placeholder="e.g., Mochi"
+                    placeholder="e.g., Milo, Luna"
                     required
                     className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
                   />
@@ -1723,61 +1704,6 @@ export default function CadenceApp({ activeProfile, darkMode, onGlobalSync }) {
           </div>
         </div>
       )}
-
-      {/* ========================================== */}
-      {/* MODAL 4: HOUSEHOLD SYNC & DEVICE ID INFO   */}
-      {/* ========================================== */}
-      {showDeviceInfoModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className={`rounded-3xl max-w-md w-full p-6 shadow-xl border space-y-4 ${cardSurface}`}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-                  <Wifi className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold">Local Household Server Sync</h3>
-                  <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
-                    {isConnected
-                      ? 'Connected to Local SQLite Server (2.5s Live Polling)'
-                      : 'Reconnecting to Local Server...'}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowDeviceInfoModal(false)}
-                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <p className="text-xs sm:text-sm opacity-80 leading-relaxed">
-              All medication history and bottle settings are stored privately on your home server
-              in <code className="font-mono">data/cadence.db</code>. Connected phones and tablets
-              automatically sync every 2.5 seconds.
-            </p>
-
-            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1.5 text-xs">
-              <div className="text-slate-500 font-semibold">Local Device Identifier:</div>
-              <div className="font-mono break-all select-all p-2 rounded-lg border border-slate-200 dark:border-slate-800">
-                {deviceId}
-              </div>
-            </div>
-
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={() => setShowDeviceInfoModal(false)}
-                className="px-4 py-2 rounded-xl bg-teal-600 text-white text-xs font-semibold"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    </main>
   );
 }

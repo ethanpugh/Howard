@@ -906,24 +906,24 @@ export default function FloodgateApp({
       )}
 
       {/* ====================================================================
-          FLOODGATE MODULE SUB-HEADER & INTERNAL TAB BAR
+          MAIN CONTENT CONTAINER + FLOODGATE HEADER & SUB-TABS
       ==================================================================== */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-5 no-print">
-        <div
-          className={`rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+      <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4 space-y-4 sm:space-y-5">
+        <section
+          className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 no-print ${
             darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
           }`}
         >
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-rose-500 to-rose-700 flex items-center justify-center text-white shadow-xs">
-              <Heart className="w-5 h-5 fill-rose-200/30" />
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-rose-500 to-rose-700 flex items-center justify-center text-white shadow-xs shrink-0">
+              <Heart className="w-5 h-5 sm:w-6 sm:h-6 fill-rose-200/30" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-lg sm:text-xl font-extrabold tracking-tight">
                   Floodgate • {ownerName}&apos;s Journal
                 </h1>
-                <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+                <span className="text-[10px] sm:text-xs px-2 py-0.5 rounded-full font-semibold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 whitespace-nowrap">
                   Private Module
                 </span>
               </div>
@@ -933,12 +933,17 @@ export default function FloodgateApp({
             </div>
           </div>
 
-          {/* Internal Sub-Tabs */}
-          <div className="flex flex-wrap items-center gap-1.5 bg-stone-100 dark:bg-stone-800 p-1 rounded-2xl">
+          {/* Internal Sub-Tabs: 2x2 Grid on Mobile, 1x4 Horizontal Row on Tablet/Desktop */}
+          <div className="w-full lg:w-auto grid grid-cols-2 sm:flex sm:items-center gap-1.5 bg-stone-100 dark:bg-stone-800 p-1.5 rounded-2xl">
             {[
               { id: 'log', label: 'Daily Log', icon: Droplets },
               { id: 'calendar', label: 'Cycle Calendar', icon: CalendarIcon },
-              { id: 'insights', label: 'Insights & GP Report', icon: Stethoscope },
+              {
+                id: 'insights',
+                label: 'Insights & GP Report',
+                shortLabel: 'GP & Insights',
+                icon: Stethoscope
+              },
               { id: 'data', label: 'Export & Data', icon: ShieldCheck }
             ].map((tab) => {
               const Icon = tab.icon;
@@ -947,7 +952,7 @@ export default function FloodgateApp({
                 <button
                   key={tab.id}
                   onClick={() => handleSwitchTab(tab.id)}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                  className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
                     active
                       ? 'bg-rose-600 text-white shadow-xs'
                       : darkMode
@@ -955,33 +960,29 @@ export default function FloodgateApp({
                         : 'text-stone-600 hover:bg-white'
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
-                  <span>{tab.label}</span>
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className="sm:hidden">{tab.shortLabel || tab.label}</span>
+                  <span className="hidden sm:inline">{tab.label}</span>
                 </button>
               );
             })}
           </div>
-        </div>
-      </div>
+        </section>
 
-      {/* ====================================================================
-          MAIN CONTENT CONTAINER
-      ==================================================================== */}
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-5">
         {/* ==================================================================
             TAB 1: DAILY SYMPTOM & PERIOD LOG
         ================================================================== */}
         {activeTab === 'log' && (
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-5">
             {/* DATE NAVIGATOR & 7-DAY STRIP */}
-            <div className={`rounded-3xl p-4 sm:p-5 border shadow-xs ${
+            <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${
               darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
             }`}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-stone-200/60 dark:border-stone-800">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-stone-200/60 dark:border-stone-800">
+                <div className="flex items-center justify-between sm:justify-start gap-2 w-full sm:w-auto">
                   <button
                     onClick={() => handleSelectDate(addDays(selectedDate, -1))}
-                    className={`p-2.5 rounded-xl border ${
+                    className={`p-2.5 rounded-xl border shrink-0 ${
                       darkMode ? 'border-stone-700 hover:bg-stone-800' : 'border-stone-200 hover:bg-stone-50'
                     }`}
                     aria-label="Previous day"
@@ -989,13 +990,13 @@ export default function FloodgateApp({
                     <ChevronLeft className="w-5 h-5" />
                   </button>
 
-                  <div className="px-2">
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-lg sm:text-xl font-bold">
+                  <div className="px-2 text-center sm:text-left">
+                    <div className="flex items-center justify-center sm:justify-start gap-2">
+                      <h2 className="text-base sm:text-xl font-bold">
                         {formatDateFriendly(selectedDate)}
                       </h2>
                       {selectedDate === getTodayStr() && (
-                        <span className="text-xs font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">
+                        <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">
                           Today
                         </span>
                       )}
@@ -1007,7 +1008,7 @@ export default function FloodgateApp({
 
                   <button
                     onClick={() => handleSelectDate(addDays(selectedDate, 1))}
-                    className={`p-2.5 rounded-xl border ${
+                    className={`p-2.5 rounded-xl border shrink-0 ${
                       darkMode ? 'border-stone-700 hover:bg-stone-800' : 'border-stone-200 hover:bg-stone-50'
                     }`}
                     aria-label="Next day"
@@ -1017,7 +1018,7 @@ export default function FloodgateApp({
                 </div>
 
                 {/* Date Picker & Quick Today Button */}
-                <div className="flex items-center gap-2 self-start sm:self-auto">
+                <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
                   {selectedDate !== getTodayStr() && (
                     <button
                       onClick={() => handleSelectDate(getTodayStr())}
@@ -1098,9 +1099,9 @@ export default function FloodgateApp({
             </div>
 
             {/* MAIN TWO-COLUMN LOGGING GRID FOR TABLET & DESKTOP */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
               {/* 1. BLEEDING & CLOTS CARD */}
-              <section className={`rounded-3xl p-5 sm:p-6 border shadow-xs space-y-6 ${
+              <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-5 ${
                 darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
               }`}>
                 <div className="flex items-center justify-between">
@@ -1337,7 +1338,7 @@ export default function FloodgateApp({
               </section>
 
               {/* 2. PAIN & PELVIC SYMPTOMS CARD */}
-              <section className={`rounded-3xl p-5 sm:p-6 border shadow-xs space-y-6 ${
+              <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-5 ${
                 darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
               }`}>
                 <div className="flex items-center justify-between">
@@ -1453,7 +1454,7 @@ export default function FloodgateApp({
               </section>
 
               {/* 3. BOWEL & GI ISSUES CARD */}
-              <section className={`rounded-3xl p-5 sm:p-6 border shadow-xs space-y-6 ${
+              <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-5 ${
                 darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
               }`}>
                 <div className="flex items-center justify-between">
@@ -1557,7 +1558,7 @@ export default function FloodgateApp({
               </section>
 
               {/* 4. MEDICATIONS & EXTERNAL FACTORS CARD */}
-              <section className={`rounded-3xl p-5 sm:p-6 border shadow-xs space-y-6 ${
+              <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-5 ${
                 darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
               }`}>
                 <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1745,7 +1746,7 @@ export default function FloodgateApp({
             </div>
 
             {/* DAILY NOTES & SAVE BAR */}
-            <section className={`rounded-3xl p-5 sm:p-6 border shadow-xs ${
+            <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${
               darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
             }`}>
               <div className="flex items-center gap-2 mb-3">
@@ -1790,8 +1791,8 @@ export default function FloodgateApp({
             TAB 2: INTERACTIVE CALENDAR & HISTORY VIEW
         ================================================================== */}
         {activeTab === 'calendar' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className={`lg:col-span-8 rounded-3xl p-5 sm:p-6 border shadow-xs ${
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
+            <div className={`lg:col-span-8 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${
               darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
             }`}>
               <div className="flex items-center justify-between mb-6">
@@ -1933,7 +1934,7 @@ export default function FloodgateApp({
               </div>
             </div>
 
-            <div className={`lg:col-span-4 rounded-3xl p-5 sm:p-6 border shadow-xs flex flex-col justify-between ${
+            <div className={`lg:col-span-4 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between ${
               darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
             }`}>
               <div className="space-y-5">
@@ -2033,8 +2034,8 @@ export default function FloodgateApp({
             TAB 3: INSIGHTS & DOCTOR (GP / GYNECOLOGIST) REPORT VIEW
         ================================================================== */}
         {activeTab === 'insights' && (
-          <div className="space-y-6">
-            <div className={`rounded-3xl p-5 border shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 no-print ${
+          <div className="space-y-4 sm:space-y-5">
+            <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 no-print ${
               darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
             }`}>
               <div>
@@ -2092,57 +2093,57 @@ export default function FloodgateApp({
               </p>
             </div>
 
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className={`p-5 rounded-3xl border shadow-xs ${
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
+              <div className={`p-4 sm:p-5 rounded-2xl sm:rounded-3xl border shadow-xs ${
                 darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100'
               }`}>
                 <div className="text-xs font-semibold uppercase tracking-wider text-rose-600 mb-1">
                   Bleeding Days
                 </div>
-                <div className="text-3xl font-extrabold">{insightsData.bleedingDaysCount}</div>
+                <div className="text-2xl sm:text-3xl font-extrabold">{insightsData.bleedingDaysCount}</div>
                 <div className="text-xs opacity-75 mt-1">
                   {insightsData.heavyDaysCount} heavy or flooding day(s)
                 </div>
               </div>
 
-              <div className={`p-5 rounded-3xl border shadow-xs ${
+              <div className={`p-4 sm:p-5 rounded-2xl sm:rounded-3xl border shadow-xs ${
                 darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100'
               }`}>
                 <div className="text-xs font-semibold uppercase tracking-wider text-purple-600 mb-1">
                   Blood Clot Episodes
                 </div>
-                <div className="text-3xl font-extrabold">{insightsData.totalClotsCount}</div>
+                <div className="text-2xl sm:text-3xl font-extrabold">{insightsData.totalClotsCount}</div>
                 <div className="text-xs opacity-75 mt-1">
                   Across {insightsData.clotDaysCount} day(s) • {insightsData.largeClotDaysCount} with &gt;2cm clots
                 </div>
               </div>
 
-              <div className={`p-5 rounded-3xl border shadow-xs ${
+              <div className={`p-4 sm:p-5 rounded-2xl sm:rounded-3xl border shadow-xs ${
                 darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100'
               }`}>
                 <div className="text-xs font-semibold uppercase tracking-wider text-amber-600 mb-1">
                   Average Pain Score
                 </div>
-                <div className="text-3xl font-extrabold">{insightsData.avgPainAll} <span className="text-base font-normal">/ 10</span></div>
+                <div className="text-2xl sm:text-3xl font-extrabold">{insightsData.avgPainAll} <span className="text-base font-normal">/ 10</span></div>
                 <div className="text-xs opacity-75 mt-1">
                   {insightsData.highPainDaysCount} severe pain day(s) (≥6/10)
                 </div>
               </div>
 
-              <div className={`p-5 rounded-3xl border shadow-xs ${
+              <div className={`p-4 sm:p-5 rounded-2xl sm:rounded-3xl border shadow-xs ${
                 darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100'
               }`}>
                 <div className="text-xs font-semibold uppercase tracking-wider text-orange-600 mb-1">
                   Bowel / GI Flare Days
                 </div>
-                <div className="text-3xl font-extrabold">{insightsData.bowelFlareDaysCount}</div>
+                <div className="text-2xl sm:text-3xl font-extrabold">{insightsData.bowelFlareDaysCount}</div>
                 <div className="text-xs opacity-75 mt-1">
                   Moderate or severe GI distress days
                 </div>
               </div>
             </div>
 
-            <div className={`rounded-3xl p-5 sm:p-6 border shadow-xs ${
+            <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${
               darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
             }`}>
               <h3 className="text-base sm:text-lg font-bold mb-4">
@@ -2212,9 +2213,9 @@ export default function FloodgateApp({
             TAB 4: EXPORT, SAMPLE DATA & HOWARD UNIFIED BACKUP
         ================================================================== */}
         {activeTab === 'data' && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className={`rounded-3xl p-5 sm:p-6 border shadow-xs flex flex-col justify-between space-y-4 ${
+          <div className="space-y-4 sm:space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+              <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between space-y-4 ${
                 darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
               }`}>
                 <div>
@@ -2255,7 +2256,7 @@ export default function FloodgateApp({
               </div>
 
               {/* Howard Unified Backstage Card (Replaces Legacy Webhook) */}
-              <div className={`rounded-3xl p-5 sm:p-6 border shadow-xs flex flex-col justify-between space-y-4 ${
+              <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between space-y-4 ${
                 darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
               }`}>
                 <div>

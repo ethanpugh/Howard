@@ -48,7 +48,7 @@ for (const dbInstance of [howardDb, cadenceDb, floodgateDb]) {
 // A. CADENCE DATABASE SCHEMA & DEFAULTS (Pet Medication)
 // ----------------------------------------------------------------------------
 const DEFAULT_CADENCE_SETTINGS = {
-  catName: 'Mochi',
+  catName: 'Pet',
   medicationName: 'Oral Solution',
   dosageLabel: '2.5 mg / 0.5 ml',
   morningTargetTime: '08:00',
@@ -269,7 +269,6 @@ const DEFAULT_LEDGER_DATA = {
 
 const DEFAULT_BEACON_INFO = {
   petCare: {
-    petName: 'Mochi',
     summary: '',
     feedingGuide: '',
     carrierAndSupplies: '',
@@ -296,17 +295,6 @@ const DEFAULT_BEACON_INFO = {
   }
 };
 
-const DEFAULT_MONZO_CONFIG = {
-  clientId: '',
-  clientSecret: '',
-  redirectUri: 'http://localhost:5170/api/howard/monzo/oauth/callback',
-  webhookBaseUrl: '',
-  connections: {
-    partner1: null,
-    partner2: null
-  }
-};
-
 function ensureHowardSeed(key, defaultVal) {
   const existing = howardGetStmt.get(key);
   if (!existing) {
@@ -318,7 +306,6 @@ ensureHowardSeed('profiles', DEFAULT_PROFILES);
 ensureHowardSeed('almanac_events', DEFAULT_ALMANAC_EVENTS);
 ensureHowardSeed('ledger_data', DEFAULT_LEDGER_DATA);
 ensureHowardSeed('beacon_info', DEFAULT_BEACON_INFO);
-ensureHowardSeed('monzo_config', DEFAULT_MONZO_CONFIG);
 
 function readHowardKey(key, fallback) {
   const row = howardGetStmt.get(key);
@@ -362,170 +349,17 @@ function normalizeLedgerData(raw) {
   };
 }
 
-function sanitizeMonzoConfigForClient(rawConfig) {
-  const cfg = { ...DEFAULT_MONZO_CONFIG, ...(rawConfig || {}) };
-  const conns = cfg.connections || {};
-  const sanitizeConn = (c) => {
-    if (!c || !c.accessToken) return null;
-    return {
-      connected: true,
-      accountId: c.accountId || '',
-      accountName: c.accountName || 'Monzo Account',
-      accountType: c.accountType || '',
-      lastSyncedAt: c.lastSyncedAt || null,
-      webhookId: c.webhookId || null,
-      webhookUrl: c.webhookUrl || null
-    };
-  };
-  return {
-    hasOAuthClient: Boolean(cfg.clientId && cfg.clientSecret),
-    clientId: cfg.clientId || '',
-    redirectUri: cfg.redirectUri || 'http://localhost:5170/api/howard/monzo/oauth/callback',
-    webhookBaseUrl: cfg.webhookBaseUrl || '',
-    connections: {
-      partner1: sanitizeConn(conns.partner1),
-      partner2: sanitizeConn(conns.partner2)
-    }
-  };
-}
-
-const MONZO_CATEGORY_MAP = {
-  bills: 'Utilities & Bills',
-  groceries: 'Groceries & Household',
-  eating_out: 'Dining & Leisure',
-  entertainment: 'Subscriptions & Media',
-  transport: 'Transport',
-  personal_care: 'Health & Pharmacy',
-  health: 'Health & Pharmacy',
-  pets: 'Pet & Vet Care',
-  shopping: 'Personal',
-  general: 'Other'
-};
-
-// Ingest a single Monzo API transaction object into LedgerData (de-duplicated by monzoTxId)
-function ingestMonzoTransaction(ledgerData, tx, slotOwner = 'joint') {
-  if (!tx || !tx.id) return { added: false, reason: 'missing_id' };
-  // Skip declined transactions or zero-amount active card checks
-  if (tx.decline_reason || !tx.amount || tx.amount === 0) {
-    return { added: false, reason: 'zero_or_declined' };
-  }
-  // Skip internal Monzo pot transfers unless user wants them
-  if (tx.scheme === 'uk_retail_pot' || (tx.metadata && tx.metadata.pot_id)) {
-    return { added: false, reason: 'pot_transfer' };
-  }
-
-  const txId = String(tx.id);
-  const alreadyInExpenses = (ledgerData.expenses || []).some((e) => e.monzoTxId === txId);
-  const alreadyInIncomes = (ledgerData.incomes || []).some((i) => i.monzoTxId === txId);
-  if (alreadyInExpenses || alreadyInIncomes) {
-    return { added: false, reason: 'duplicate' };
-  }
-
-  const createdIso = tx.created || new Date().toISOString();
-  const dateStr = createdIso.slice(0, 10);
-  const amountGBP = Math.round((Math.abs(Number(tx.amount)) / 100) * 100) / 100;
-  const merchantName =
-    tx.merchant?.name ||
-    tx.counterparty?.name ||
-    tx.description ||
-    'Monzo Transaction';
-  const mappedCategory =
-    MONZO_CATEGORY_MAP[tx.category] ||
-    (tx.merchant?.category ? MONZO_CATEGORY_MAP[tx.merchant.category] : null) ||
-    'Other';
-
-  const isDirectDebit =
-    tx.scheme === 'bacs' ||
-    Boolean(tx.metadata?.mastercard_Original_message_type) ||
-    (tx.description || '').toUpperCase().includes('DIRECT DEBIT');
-
-  // Positive amount in Monzo = Money In (One-Off / Variable Income or Salary)
-  if (Number(tx.amount) > 0) {
-    const newInc = {
-      id: `inc-mz-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      monzoTxId: txId,
-      title: merchantName,
-      amount: amountGBP,
-      frequency: 'one-off',
-      date: dateStr,
-      owner: slotOwner === 'joint' ? 'joint' : slotOwner,
-      category: 'One-Off / Variable',
-      notes: `Synced from Monzo (${dateStr})${tx.notes ? ` • ${tx.notes}` : ''}`
-    };
-    ledgerData.incomes = [newInc, ...(ledgerData.incomes || [])];
-    return { added: true, kind: 'income', record: newInc };
-  }
-
-  // Negative amount in Monzo = Outgoing (Direct Debit, Subscription, or Expense)
-  // Check if this matches an existing recurring Direct Debit or Subscription to update its lastPaidDate & amount
-  const normMerchant = merchantName.toLowerCase().trim();
-  const matchedRecIdx = (ledgerData.recurring || []).findIndex((r) => {
-    const rTitle = (r.title || '').toLowerCase();
-    return (
-      normMerchant.length >= 3 &&
-      (rTitle.includes(normMerchant) || normMerchant.includes(rTitle.split(' ')[0]))
-    );
-  });
-
-  if (matchedRecIdx !== -1) {
-    const existingRec = ledgerData.recurring[matchedRecIdx];
-    ledgerData.recurring[matchedRecIdx] = {
-      ...existingRec,
-      lastPaidDate: dateStr,
-      lastPaidAmount: amountGBP,
-      monzoLastTxId: txId
-    };
-  } else if (isDirectDebit) {
-    // Automatically register newly discovered Direct Debit in recurring list
-    const billingDay = Number(dateStr.split('-')[2]) || 1;
-    ledgerData.recurring = [
-      ...(ledgerData.recurring || []),
-      {
-        id: `rec-mz-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        title: merchantName,
-        amount: amountGBP,
-        cycle: 'monthly',
-        billingDay,
-        type: 'direct-debit',
-        owner: slotOwner,
-        category: mappedCategory === 'Other' ? 'Utilities & Bills' : mappedCategory,
-        active: true,
-        lastPaidDate: dateStr,
-        lastPaidAmount: amountGBP,
-        monzoLastTxId: txId,
-        notes: 'Auto-detected Direct Debit from Monzo'
-      }
-    ];
-  }
-
-  const newExp = {
-    id: `exp-mz-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    monzoTxId: txId,
-    title: merchantName,
-    amount: amountGBP,
-    date: dateStr,
-    paidBy: slotOwner,
-    owner: slotOwner,
-    category: mappedCategory,
-    notes: `${isDirectDebit ? '[Direct Debit] ' : ''}Synced from Monzo${tx.notes ? ` • ${tx.notes}` : ''}`
-  };
-  ledgerData.expenses = [newExp, ...(ledgerData.expenses || [])];
-  return { added: true, kind: 'expense', record: newExp };
-}
-
 function readHowardState() {
   const profilesObj = readHowardKey('profiles', DEFAULT_PROFILES);
   const eventsObj = readHowardKey('almanac_events', DEFAULT_ALMANAC_EVENTS);
   const ledgerObj = readHowardKey('ledger_data', DEFAULT_LEDGER_DATA);
   const beaconObj = readHowardKey('beacon_info', DEFAULT_BEACON_INFO);
-  const monzoObj = readHowardKey('monzo_config', DEFAULT_MONZO_CONFIG);
 
   const latest = [
     profilesObj.updatedAt,
     eventsObj.updatedAt,
     ledgerObj.updatedAt,
-    beaconObj.updatedAt,
-    monzoObj.updatedAt
+    beaconObj.updatedAt
   ].sort().pop() || new Date().toISOString();
 
   return {
@@ -533,7 +367,6 @@ function readHowardState() {
     almanacEvents: eventsObj.data,
     ledgerData: normalizeLedgerData(ledgerObj.data),
     beaconInfo: beaconObj.data,
-    monzoStatus: sanitizeMonzoConfigForClient(monzoObj.data),
     updatedAt: latest
   };
 }
@@ -785,363 +618,6 @@ const server = http.createServer(async (req, res) => {
       const normalized = normalizeLedgerData(rawLedger);
       const updatedAt = writeHowardKey('ledger_data', normalized);
       return sendJson(res, 200, { ledgerData: normalized, updatedAt });
-    }
-
-    // ------------------------------------------------------------------------
-    // MONZO DEVELOPER API & REAL-TIME WEBHOOK INTEGRATION (OPTION B)
-    // ------------------------------------------------------------------------
-    // 1. Save Monzo OAuth Client Credentials (client_id, client_secret, redirectUri, webhookBaseUrl)
-    if (pathname === '/api/howard/monzo/config' && req.method === 'PUT') {
-      const incoming = await parseJsonBody(req);
-      const { data: current } = readHowardKey('monzo_config', DEFAULT_MONZO_CONFIG);
-      const updated = {
-        ...DEFAULT_MONZO_CONFIG,
-        ...current,
-        clientId: typeof incoming.clientId === 'string' ? incoming.clientId.trim() : current.clientId,
-        clientSecret:
-          typeof incoming.clientSecret === 'string' && incoming.clientSecret.trim()
-            ? incoming.clientSecret.trim()
-            : current.clientSecret,
-        redirectUri:
-          typeof incoming.redirectUri === 'string' && incoming.redirectUri.trim()
-            ? incoming.redirectUri.trim()
-            : current.redirectUri,
-        webhookBaseUrl:
-          typeof incoming.webhookBaseUrl === 'string'
-            ? incoming.webhookBaseUrl.trim()
-            : current.webhookBaseUrl
-      };
-      writeHowardKey('monzo_config', updated);
-      return sendJson(res, 200, { monzoStatus: sanitizeMonzoConfigForClient(updated) });
-    }
-
-    // 2. Connect a Monzo Account via Direct Access Token (e.g. from developers.monzo.com Playground)
-    if (pathname === '/api/howard/monzo/connect-token' && req.method === 'POST') {
-      const { slot: rawSlot = 'partner1', accessToken, accountId: manualAccountId } = await parseJsonBody(req);
-      const slot = rawSlot === 'partner2' ? 'partner2' : 'partner1';
-      if (!accessToken || !String(accessToken).trim()) {
-        return sendJson(res, 400, { error: 'Please provide a valid Monzo Access Token' });
-      }
-      const token = String(accessToken).trim();
-      const { data: monzoCfg } = readHowardKey('monzo_config', DEFAULT_MONZO_CONFIG);
-
-      // Fetch accounts from Monzo API to discover retail account_id
-      const accRes = await fetch('https://api.monzo.com/accounts', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!accRes.ok) {
-        const errText = await accRes.text().catch(() => '');
-        return sendJson(res, 400, {
-          error: `Monzo API rejected token (HTTP ${accRes.status}). Remember to approve access in your Monzo app first! ${errText}`
-        });
-      }
-      const accData = await accRes.json();
-      const accounts = (accData.accounts || []).filter((a) => !a.closed);
-      if (accounts.length === 0) {
-        return sendJson(res, 400, { error: 'No open Monzo accounts found for this token.' });
-      }
-
-      let chosen = accounts.find((a) => a.id === manualAccountId);
-      if (!chosen) {
-        chosen = accounts.find((a) => a.type === 'uk_retail') || accounts[0];
-      }
-
-      const updatedConnections = {
-        ...(monzoCfg.connections || {}),
-        [slot]: {
-          accountId: chosen.id,
-          accountName: `Monzo Personal (${chosen.description || slot})`,
-          accountType: chosen.type,
-          accessToken: token,
-          refreshToken: monzoCfg.connections?.[slot]?.refreshToken || '',
-          lastSyncedAt: null,
-          webhookId: monzoCfg.connections?.[slot]?.webhookId || null,
-          webhookUrl: monzoCfg.connections?.[slot]?.webhookUrl || null
-        }
-      };
-
-      const nextCfg = { ...monzoCfg, connections: updatedConnections };
-      writeHowardKey('monzo_config', nextCfg);
-      return sendJson(res, 200, {
-        monzoStatus: sanitizeMonzoConfigForClient(nextCfg),
-        availableAccounts: accounts.map((a) => ({
-          id: a.id,
-          type: a.type,
-          description: a.description
-        }))
-      });
-    }
-
-    // 3. Start Monzo OAuth2 Redirect Flow
-    if (pathname === '/api/howard/monzo/oauth/start' && req.method === 'GET') {
-      const rawSlot = parsedUrl.searchParams.get('slot') || 'partner1';
-      const slot = rawSlot === 'partner2' ? 'partner2' : 'partner1';
-      const { data: monzoCfg } = readHowardKey('monzo_config', DEFAULT_MONZO_CONFIG);
-      if (!monzoCfg.clientId) {
-        return sendJson(res, 400, { error: 'Set your Monzo OAuth Client ID first' });
-      }
-      const redirectUri =
-        monzoCfg.redirectUri || `http://${req.headers.host || 'localhost:5170'}/api/howard/monzo/oauth/callback`;
-      const stateToken = `${slot}:${Date.now().toString(36)}`;
-      const authUrl = `https://auth.monzo.com/?client_id=${encodeURIComponent(
-        monzoCfg.clientId
-      )}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&state=${encodeURIComponent(
-        stateToken
-      )}`;
-      res.writeHead(302, { Location: authUrl });
-      res.end();
-      return;
-    }
-
-    // 4. Monzo OAuth2 Callback (Exchanges code -> access_token + refresh_token)
-    if (pathname === '/api/howard/monzo/oauth/callback' && req.method === 'GET') {
-      const code = parsedUrl.searchParams.get('code');
-      const stateParam = parsedUrl.searchParams.get('state') || 'partner1:0';
-      const rawSlot = stateParam.split(':')[0] || 'partner1';
-      const slot = rawSlot === 'partner2' ? 'partner2' : 'partner1';
-      const { data: monzoCfg } = readHowardKey('monzo_config', DEFAULT_MONZO_CONFIG);
-
-      if (!code || !monzoCfg.clientId || !monzoCfg.clientSecret) {
-        res.writeHead(302, { Location: '/?monzo_error=missing_code_or_client' });
-        res.end();
-        return;
-      }
-
-      const redirectUri =
-        monzoCfg.redirectUri || `http://${req.headers.host || 'localhost:5170'}/api/howard/monzo/oauth/callback`;
-
-      const params = new URLSearchParams({
-        grant_type: 'authorization_code',
-        client_id: monzoCfg.clientId,
-        client_secret: monzoCfg.clientSecret,
-        redirect_uri: redirectUri,
-        code
-      });
-
-      const tokenRes = await fetch('https://api.monzo.com/oauth2/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params.toString()
-      });
-
-      if (!tokenRes.ok) {
-        res.writeHead(302, { Location: '/?monzo_error=token_exchange_failed' });
-        res.end();
-        return;
-      }
-
-      const tokenData = await tokenRes.json();
-      const updatedConnections = {
-        ...(monzoCfg.connections || {}),
-        [slot]: {
-          accountId: '',
-          accountName: `Monzo (${slot}) — Approve in Monzo App then click Sync`,
-          accountType: '',
-          accessToken: tokenData.access_token,
-          refreshToken: tokenData.refresh_token || '',
-          lastSyncedAt: null,
-          webhookId: null
-        }
-      };
-      writeHowardKey('monzo_config', { ...monzoCfg, connections: updatedConnections });
-      res.writeHead(302, { Location: '/?monzo_connected=' + encodeURIComponent(slot) });
-      res.end();
-      return;
-    }
-
-    // 5. Pull / Sync Latest Transactions from Monzo API (`GET https://api.monzo.com/transactions`)
-    if (pathname === '/api/howard/monzo/sync' && req.method === 'POST') {
-      const { slot: rawSlot = 'partner1', daysBack = 85 } = await parseJsonBody(req);
-      const slot = rawSlot === 'partner2' ? 'partner2' : 'partner1';
-      const { data: monzoCfg } = readHowardKey('monzo_config', DEFAULT_MONZO_CONFIG);
-      const conn = monzoCfg.connections?.[slot];
-      if (!conn || !conn.accessToken) {
-        return sendJson(res, 400, { error: `No Monzo connection configured for ${slot}` });
-      }
-
-      let accessToken = conn.accessToken;
-      let accountId = conn.accountId;
-      let accountName = conn.accountName;
-      let accountType = conn.accountType;
-
-      // If accountId wasn't resolved yet (e.g. right after OAuth SCA approval in Monzo app), resolve it now
-      if (!accountId) {
-        const accRes = await fetch('https://api.monzo.com/accounts', {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        });
-        if (!accRes.ok) {
-          return sendJson(res, 400, {
-            error: `Could not list Monzo accounts (HTTP ${accRes.status}). Make sure you tapped "Approve" in your Monzo phone app!`
-          });
-        }
-        const accData = await accRes.json();
-        const openAccounts = (accData.accounts || []).filter((a) => !a.closed);
-        const chosen = openAccounts.find((a) => a.type === 'uk_retail') || openAccounts[0];
-        if (!chosen) {
-          return sendJson(res, 400, { error: 'No open Monzo account found.' });
-        }
-        accountId = chosen.id;
-        accountType = chosen.type;
-        accountName = `Monzo Personal (${chosen.description || slot})`;
-      }
-
-      const sinceDate = new Date(Date.now() - Math.min(89, Math.max(1, Number(daysBack) || 85)) * 86400000).toISOString();
-      const txUrl = `https://api.monzo.com/transactions?expand[]=merchant&account_id=${encodeURIComponent(
-        accountId
-      )}&since=${encodeURIComponent(sinceDate)}`;
-
-      const txRes = await fetch(txUrl, {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      });
-
-      if (!txRes.ok) {
-        const errBody = await txRes.text().catch(() => '');
-        return sendJson(res, 400, {
-          error: `Monzo transactions fetch failed (HTTP ${txRes.status}). If using a newly issued token, ensure you approved SCA in the Monzo app. ${errBody}`
-        });
-      }
-
-      const txData = await txRes.json();
-      const transactions = txData.transactions || [];
-      const { data: rawLedger } = readHowardKey('ledger_data', DEFAULT_LEDGER_DATA);
-      const ledgerData = normalizeLedgerData(rawLedger);
-
-      let addedExpenses = 0;
-      let addedIncomes = 0;
-      let skippedDuplicates = 0;
-
-      for (const tx of transactions) {
-        const resIngest = ingestMonzoTransaction(ledgerData, tx, slot);
-        if (resIngest.added) {
-          if (resIngest.kind === 'income') addedIncomes += 1;
-          else addedExpenses += 1;
-        } else if (resIngest.reason === 'duplicate') {
-          skippedDuplicates += 1;
-        }
-      }
-
-      writeHowardKey('ledger_data', ledgerData);
-
-      const nowIso = new Date().toISOString();
-      const nextCfg = {
-        ...monzoCfg,
-        connections: {
-          ...(monzoCfg.connections || {}),
-          [slot]: {
-            ...conn,
-            accountId,
-            accountName,
-            accountType,
-            lastSyncedAt: nowIso
-          }
-        }
-      };
-      writeHowardKey('monzo_config', nextCfg);
-
-      return sendJson(res, 200, {
-        synced: true,
-        fetchedCount: transactions.length,
-        addedExpenses,
-        addedIncomes,
-        skippedDuplicates,
-        ledgerData,
-        monzoStatus: sanitizeMonzoConfigForClient(nextCfg)
-      });
-    }
-
-    // 6. Register a Real-Time Monzo Webhook (`POST https://api.monzo.com/webhooks`)
-    if (pathname === '/api/howard/monzo/register-webhook' && req.method === 'POST') {
-      const { slot: rawSlot = 'partner1', webhookBaseUrl } = await parseJsonBody(req);
-      const slot = rawSlot === 'partner2' ? 'partner2' : 'partner1';
-      const { data: monzoCfg } = readHowardKey('monzo_config', DEFAULT_MONZO_CONFIG);
-      const conn = monzoCfg.connections?.[slot];
-      if (!conn || !conn.accessToken || !conn.accountId) {
-        return sendJson(res, 400, { error: `Connect & sync ${slot}'s Monzo account first.` });
-      }
-      const baseUrl = String(webhookBaseUrl || monzoCfg.webhookBaseUrl || '').trim().replace(/\/+$/, '');
-      if (!baseUrl.startsWith('http')) {
-        return sendJson(res, 400, {
-          error: 'Provide a reachable base URL (e.g. your Cloudflare Tunnel or Tailscale Funnel URL)'
-        });
-      }
-
-      const targetWebhookUrl = `${baseUrl}/api/howard/monzo/webhook?slot=${encodeURIComponent(slot)}`;
-      const params = new URLSearchParams({
-        account_id: conn.accountId,
-        url: targetWebhookUrl
-      });
-
-      const whRes = await fetch('https://api.monzo.com/webhooks', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${conn.accessToken}`,
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: params.toString()
-      });
-
-      if (!whRes.ok) {
-        const errText = await whRes.text().catch(() => '');
-        return sendJson(res, 400, { error: `Failed to register Monzo webhook: ${errText}` });
-      }
-
-      const whData = await whRes.json();
-      const nextCfg = {
-        ...monzoCfg,
-        webhookBaseUrl: baseUrl,
-        connections: {
-          ...(monzoCfg.connections || {}),
-          [slot]: {
-            ...conn,
-            webhookId: whData.webhook?.id || 'registered',
-            webhookUrl: targetWebhookUrl
-          }
-        }
-      };
-      writeHowardKey('monzo_config', nextCfg);
-      return sendJson(res, 200, { monzoStatus: sanitizeMonzoConfigForClient(nextCfg) });
-    }
-
-    // 7. Disconnect a Monzo Account Slot
-    if (pathname === '/api/howard/monzo/disconnect' && req.method === 'POST') {
-      const { slot: rawSlot = 'partner1' } = await parseJsonBody(req);
-      const slot = rawSlot === 'partner2' ? 'partner2' : 'partner1';
-      const { data: monzoCfg } = readHowardKey('monzo_config', DEFAULT_MONZO_CONFIG);
-      const nextCfg = {
-        ...monzoCfg,
-        connections: {
-          ...(monzoCfg.connections || {}),
-          [slot]: null
-        }
-      };
-      writeHowardKey('monzo_config', nextCfg);
-      return sendJson(res, 200, { monzoStatus: sanitizeMonzoConfigForClient(nextCfg) });
-    }
-
-    // 8. Incoming Real-Time Monzo Webhook Receiver (`transaction.created`)
-    if (pathname === '/api/howard/monzo/webhook' && req.method === 'POST') {
-      const rawSlot = parsedUrl.searchParams.get('slot') || 'partner1';
-      const slot = rawSlot === 'partner2' ? 'partner2' : 'partner1';
-      const payload = await parseJsonBody(req);
-      const tx = payload.data || payload.transaction || payload;
-
-      if (!tx || !tx.id) {
-        return sendJson(res, 400, { error: 'Expected Monzo transaction.created payload' });
-      }
-
-      const { data: rawLedger } = readHowardKey('ledger_data', DEFAULT_LEDGER_DATA);
-      const ledgerData = normalizeLedgerData(rawLedger);
-      const result = ingestMonzoTransaction(ledgerData, tx, slot);
-
-      if (result.added) {
-        writeHowardKey('ledger_data', ledgerData);
-      }
-
-      return sendJson(res, 200, {
-        received: true,
-        ...result,
-        ledgerData
-      });
     }
 
     // Beacon Emergency & House Guide CRUD

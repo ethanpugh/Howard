@@ -16,12 +16,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Users,
-  Landmark,
-  RefreshCw,
-  Webhook,
-  Link2,
-  Unlink,
-  ExternalLink,
   X
 } from 'lucide-react';
 
@@ -71,20 +65,97 @@ const toMonthlyAmount = (amount, cycleOrFreq) => {
   }
 };
 
-const getDaysUntilBillingDay = (billingDay) => {
+const WEEKDAY_OPTIONS = [
+  { id: 1, label: 'Monday', shortLabel: 'Mon' },
+  { id: 2, label: 'Tuesday', shortLabel: 'Tue' },
+  { id: 3, label: 'Wednesday', shortLabel: 'Wed' },
+  { id: 4, label: 'Thursday', shortLabel: 'Thu' },
+  { id: 5, label: 'Friday', shortLabel: 'Fri' },
+  { id: 6, label: 'Saturday', shortLabel: 'Sat' },
+  { id: 7, label: 'Sunday', shortLabel: 'Sun' }
+];
+
+export const getLedgerScheduleInfo = (item, isIncome = false) => {
   const now = new Date();
   const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const rawDay = Math.min(31, Math.max(1, Number(billingDay) || 1));
+  const cycle = (isIncome ? item?.frequency : item?.cycle) || 'monthly';
+  const rawDay = Math.min(
+    31,
+    Math.max(1, Number(isIncome ? item?.payDay : item?.billingDay) || (isIncome ? 28 : 1))
+  );
+  const weekday = Math.min(
+    7,
+    Math.max(
+      1,
+      Number(isIncome ? item?.payWeekday : item?.billingWeekday) || (isIncome ? 5 : 1)
+    )
+  );
+  const anchorDateStr = (isIncome ? item?.payDate : item?.billingDate) || '';
 
-  const getClampedDate = (yr, mo, d) => {
-    const maxDay = new Date(yr, mo + 1, 0).getDate();
-    return new Date(yr, mo, Math.min(maxDay, d));
+  const getClampedDate = (yr, moIndex, d) => {
+    const maxDay = new Date(yr, moIndex + 1, 0).getDate();
+    return new Date(yr, moIndex, Math.min(maxDay, Math.max(1, d)));
   };
 
-  let candidate = getClampedDate(now.getFullYear(), now.getMonth(), rawDay);
-  if (candidate < todayDate) {
-    candidate = getClampedDate(now.getFullYear(), now.getMonth() + 1, rawDay);
+  let candidate = todayDate;
+  let scheduleLabel = '';
+
+  if (cycle === 'weekly') {
+    const todayIsoWeekday = ((todayDate.getDay() + 6) % 7) + 1;
+    const diff = (weekday - todayIsoWeekday + 7) % 7;
+    candidate = new Date(
+      todayDate.getFullYear(),
+      todayDate.getMonth(),
+      todayDate.getDate() + diff
+    );
+    const weekdayMeta = WEEKDAY_OPTIONS.find((w) => w.id === weekday) || WEEKDAY_OPTIONS[0];
+    scheduleLabel = `Every ${weekdayMeta.label}`;
+  } else if (cycle === 'annual') {
+    let am = now.getMonth() + 1;
+    let ad = rawDay;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(anchorDateStr)) {
+      const parts = anchorDateStr.split('-').map(Number);
+      am = parts[1];
+      ad = parts[2];
+    }
+    candidate = getClampedDate(now.getFullYear(), am - 1, ad);
+    if (candidate < todayDate) {
+      candidate = getClampedDate(now.getFullYear() + 1, am - 1, ad);
+    }
+    const dayMonthText = candidate.toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short'
+    });
+    scheduleLabel = `Annually on ${dayMonthText}`;
+  } else if (cycle === 'quarterly') {
+    let am = now.getMonth() + 1;
+    let ad = rawDay;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(anchorDateStr)) {
+      const parts = anchorDateStr.split('-').map(Number);
+      am = parts[1];
+      ad = parts[2];
+    }
+    for (let offset = 0; offset <= 4; offset++) {
+      const probe = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+      const py = probe.getFullYear();
+      const pm = probe.getMonth() + 1;
+      if (((pm - am) % 3 + 3) % 3 === 0) {
+        const cand = getClampedDate(py, pm - 1, ad);
+        if (cand >= todayDate) {
+          candidate = cand;
+          break;
+        }
+      }
+    }
+    scheduleLabel = `Quarterly (${formatOrdinalDay(ad)})`;
+  } else {
+    candidate = getClampedDate(now.getFullYear(), now.getMonth(), rawDay);
+    if (candidate < todayDate) {
+      candidate = getClampedDate(now.getFullYear(), now.getMonth() + 1, rawDay);
+    }
+    scheduleLabel = `${formatOrdinalDay(rawDay)} of month`;
   }
+
   const diffDays = Math.round(
     (candidate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24)
   );
@@ -92,9 +163,66 @@ const getDaysUntilBillingDay = (billingDay) => {
     daysUntil: diffDays,
     nextDateFormatted: candidate.toLocaleDateString('en-GB', {
       day: 'numeric',
-      month: 'short'
-    })
+      month: 'short',
+      ...(candidate.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {})
+    }),
+    scheduleLabel
   };
+};
+
+export const doesLedgerItemOccurOnDate = (item, targetDateStr, isIncome = false) => {
+  if (!item || !targetDateStr || !/^\d{4}-\d{2}-\d{2}$/.test(targetDateStr)) return false;
+  if (isIncome && item.frequency === 'one-off') {
+    return item.date === targetDateStr;
+  }
+
+  const [ty, tm, td] = targetDateStr.split('-').map(Number);
+  const cycle = (isIncome ? item.frequency : item.cycle) || 'monthly';
+  const rawDay = Math.min(
+    31,
+    Math.max(1, Number(isIncome ? item.payDay : item.billingDay) || (isIncome ? 28 : 1))
+  );
+
+  if (cycle === 'weekly') {
+    const weekday = Math.min(
+      7,
+      Math.max(
+        1,
+        Number(isIncome ? item.payWeekday : item.billingWeekday) || (isIncome ? 5 : 1)
+      )
+    );
+    const dt = new Date(ty, tm - 1, td);
+    const targetIsoWeekday = ((dt.getDay() + 6) % 7) + 1;
+    return targetIsoWeekday === weekday;
+  }
+
+  const anchorDateStr = (isIncome ? item.payDate : item.billingDate) || '';
+  const maxDayInTargetMonth = new Date(ty, tm, 0).getDate();
+
+  if (cycle === 'annual') {
+    let am = tm;
+    let ad = rawDay;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(anchorDateStr)) {
+      const parts = anchorDateStr.split('-').map(Number);
+      am = parts[1];
+      ad = parts[2];
+    }
+    return tm === am && td === Math.min(maxDayInTargetMonth, ad);
+  }
+
+  if (cycle === 'quarterly') {
+    let am = 1;
+    let ad = rawDay;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(anchorDateStr)) {
+      const parts = anchorDateStr.split('-').map(Number);
+      am = parts[1];
+      ad = parts[2];
+    }
+    const monthDiff = ((tm - am) % 3 + 3) % 3;
+    return monthDiff === 0 && td === Math.min(maxDayInTargetMonth, ad);
+  }
+
+  return td === Math.min(maxDayInTargetMonth, rawDay);
 };
 
 const EXPENSE_CATEGORIES = [
@@ -150,10 +278,7 @@ export default function LedgerApp({
   profiles,
   darkMode,
   ledgerData,
-  monzoStatus,
-  onSaveLedgerData,
-  onGlobalSync,
-  showToast
+  onSaveLedgerData
 }) {
   const todayStr = getTodayStr();
   const partner1Name = (profiles || []).find((p) => p.id === 'partner1')?.name || 'Partner 1';
@@ -178,7 +303,7 @@ export default function LedgerApp({
 
   // Perspective: 'unified' | 'joint' | 'partner1' | 'partner2'
   const [perspective, setPerspective] = useState('unified');
-  // Internal Sub-Tab: 'overview' | 'recurring' | 'expenses' | 'income' | 'monzo'
+  // Internal Sub-Tab: 'overview' | 'recurring' | 'expenses' | 'income'
   const [activeTab, setActiveTab] = useState('overview');
   // Selected Month (YYYY-MM) for Expenses Log & Monthly Summary
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthStr);
@@ -208,6 +333,8 @@ export default function LedgerApp({
   const [recType, setRecType] = useState('direct-debit');
   const [recCycle, setRecCycle] = useState('monthly');
   const [recBillingDay, setRecBillingDay] = useState(1);
+  const [recBillingWeekday, setRecBillingWeekday] = useState(1);
+  const [recBillingDate, setRecBillingDate] = useState(todayStr);
   const [recOwner, setRecOwner] = useState('joint');
   const [recCategory, setRecCategory] = useState('Utilities & Bills');
   const [recNotes, setRecNotes] = useState('');
@@ -222,26 +349,10 @@ export default function LedgerApp({
     activeProfile?.id === 'partner2' ? 'partner2' : 'partner1'
   );
   const [incPayDay, setIncPayDay] = useState(28);
+  const [incPayWeekday, setIncPayWeekday] = useState(5);
+  const [incPayDate, setIncPayDate] = useState(todayStr);
   const [incCategory, setIncCategory] = useState('Salary');
   const [incNotes, setIncNotes] = useState('');
-
-  // Monzo API & Webhook Tab State
-  const [monzoTokenSlot, setMonzoTokenSlot] = useState(
-    activeProfile?.id === 'partner2' ? 'partner2' : 'partner1'
-  );
-  const [monzoTokenInput, setMonzoTokenInput] = useState('');
-  const [monzoSyncingSlot, setMonzoSyncingSlot] = useState(null);
-  const [monzoClientIdInput, setMonzoClientIdInput] = useState(
-    monzoStatus?.clientId || ''
-  );
-  const [monzoClientSecretInput, setMonzoClientSecretInput] = useState('');
-  const [monzoRedirectUriInput, setMonzoRedirectUriInput] = useState(
-    monzoStatus?.redirectUri ||
-      `${window.location.origin}/api/howard/monzo/oauth/callback`
-  );
-  const [monzoWebhookBaseInput, setMonzoWebhookBaseInput] = useState(
-    monzoStatus?.webhookBaseUrl || ''
-  );
 
   const incomes = useMemo(() => ledgerData?.incomes || [], [ledgerData]);
   const recurring = useMemo(() => ledgerData?.recurring || [], [ledgerData]);
@@ -491,9 +602,8 @@ export default function LedgerApp({
   const filteredRecurring = useMemo(() => {
     return recurring
       .map((item) => {
-        const { daysUntil, nextDateFormatted } = getDaysUntilBillingDay(
-          item.billingDay
-        );
+        const { daysUntil, nextDateFormatted, scheduleLabel } =
+          getLedgerScheduleInfo(item, false);
         const monthlyEquiv = toMonthlyAmount(item.amount, item.cycle);
         let perspectiveShareFactor = 1;
         if (perspective === 'partner1' && item.owner === 'joint') {
@@ -505,6 +615,7 @@ export default function LedgerApp({
           ...item,
           daysUntil,
           nextDateFormatted,
+          scheduleLabel,
           monthlyEquiv,
           perspectiveShareFactor,
           perspectiveMonthlyEquiv: monthlyEquiv * perspectiveShareFactor
@@ -523,7 +634,7 @@ export default function LedgerApp({
           return false;
         return true;
       })
-      .sort((a, b) => (Number(a.billingDay) || 1) - (Number(b.billingDay) || 1));
+      .sort((a, b) => a.daysUntil - b.daysUntil);
   }, [
     recurring,
     perspective,
@@ -655,7 +766,7 @@ export default function LedgerApp({
       .filter((r) => r.active !== false)
       .map((r) => ({
         ...r,
-        ...getDaysUntilBillingDay(r.billingDay)
+        ...getLedgerScheduleInfo(r, false)
       }))
       .filter((r) => {
         if (perspective === 'joint' && r.owner !== 'joint') return false;
@@ -746,6 +857,8 @@ export default function LedgerApp({
     setRecType(defaultType);
     setRecCycle('monthly');
     setRecBillingDay(1);
+    setRecBillingWeekday(1);
+    setRecBillingDate(todayStr);
     setRecOwner(
       perspective === 'partner1' || perspective === 'partner2' || perspective === 'joint'
         ? perspective
@@ -765,6 +878,11 @@ export default function LedgerApp({
     setRecType(rec.type || 'direct-debit');
     setRecCycle(rec.cycle || 'monthly');
     setRecBillingDay(rec.billingDay || 1);
+    setRecBillingWeekday(rec.billingWeekday || 1);
+    const defaultAnchor =
+      rec.billingDate ||
+      `${todayStr.slice(0, 8)}${String(Math.min(28, Math.max(1, Number(rec.billingDay) || 1))).padStart(2, '0')}`;
+    setRecBillingDate(defaultAnchor);
     setRecOwner(rec.owner || 'joint');
     setRecCategory(rec.category || 'Utilities & Bills');
     setRecNotes(rec.notes || '');
@@ -776,13 +894,28 @@ export default function LedgerApp({
     const amt = parseFloat(recAmount);
     if (!recTitle.trim() || Number.isNaN(amt) || amt <= 0) return;
 
+    const scheduleFields =
+      recCycle === 'weekly'
+        ? {
+            billingWeekday: Math.min(7, Math.max(1, Number(recBillingWeekday) || 1)),
+            billingDay: Math.min(7, Math.max(1, Number(recBillingWeekday) || 1))
+          }
+        : recCycle === 'annual' || recCycle === 'quarterly'
+          ? {
+              billingDate: recBillingDate || todayStr,
+              billingDay: Number((recBillingDate || todayStr).split('-')[2]) || 1
+            }
+          : {
+              billingDay: Math.min(31, Math.max(1, Number(recBillingDay) || 1))
+            };
+
     const record = {
       id: editingRecurringId || `rec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title: recTitle.trim(),
       amount: Math.round(amt * 100) / 100,
       type: recType,
       cycle: recCycle,
-      billingDay: Math.min(31, Math.max(1, Number(recBillingDay) || 1)),
+      ...scheduleFields,
       owner: recOwner,
       category: recCategory,
       active: true,
@@ -828,6 +961,8 @@ export default function LedgerApp({
     setIncDate(todayStr);
     setIncOwner(activeProfile?.id === 'partner2' ? 'partner2' : 'partner1');
     setIncPayDay(28);
+    setIncPayWeekday(5);
+    setIncPayDate(todayStr);
     setIncCategory(defaultFreq === 'one-off' ? 'One-Off / Variable' : 'Salary');
     setIncNotes('');
     setIncomeModalOpen(true);
@@ -841,6 +976,11 @@ export default function LedgerApp({
     setIncDate(inc.date || todayStr);
     setIncOwner(inc.owner || 'partner1');
     setIncPayDay(inc.payDay || 28);
+    setIncPayWeekday(inc.payWeekday || 5);
+    const defaultAnchor =
+      inc.payDate ||
+      `${todayStr.slice(0, 8)}${String(Math.min(28, Math.max(1, Number(inc.payDay) || 28))).padStart(2, '0')}`;
+    setIncPayDate(defaultAnchor);
     setIncCategory(
       inc.category || (inc.frequency === 'one-off' ? 'One-Off / Variable' : 'Salary')
     );
@@ -854,14 +994,28 @@ export default function LedgerApp({
     if (!incTitle.trim() || Number.isNaN(amt) || amt <= 0) return;
 
     const isOneOff = incFrequency === 'one-off';
+    const scheduleFields = isOneOff
+      ? { date: incDate || todayStr }
+      : incFrequency === 'weekly'
+        ? {
+            payWeekday: Math.min(7, Math.max(1, Number(incPayWeekday) || 5)),
+            payDay: Math.min(7, Math.max(1, Number(incPayWeekday) || 5))
+          }
+        : incFrequency === 'annual' || incFrequency === 'quarterly'
+          ? {
+              payDate: incPayDate || todayStr,
+              payDay: Number((incPayDate || todayStr).split('-')[2]) || 28
+            }
+          : {
+              payDay: Math.min(31, Math.max(1, Number(incPayDay) || 28))
+            };
+
     const record = {
       id: editingIncomeId || `inc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title: incTitle.trim(),
       amount: Math.round(amt * 100) / 100,
       frequency: incFrequency,
-      ...(isOneOff
-        ? { date: incDate || todayStr }
-        : { payDay: Math.min(31, Math.max(1, Number(incPayDay) || 28)) }),
+      ...scheduleFields,
       owner: incOwner,
       category: incCategory || (isOneOff ? 'One-Off / Variable' : 'Salary'),
       notes: incNotes.trim()
@@ -897,117 +1051,6 @@ export default function LedgerApp({
     );
   };
 
-  // --------------------------------------------------------------------------
-  // MONZO DEVELOPER API & WEBHOOK HANDLERS (OPTION B)
-  // --------------------------------------------------------------------------
-  const handleSaveMonzoOAuthConfig = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await fetch('/api/howard/monzo/config', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clientId: monzoClientIdInput,
-          clientSecret: monzoClientSecretInput,
-          redirectUri: monzoRedirectUriInput,
-          webhookBaseUrl: monzoWebhookBaseInput
-        })
-      });
-      if (!res.ok) throw new Error('Failed to save Monzo OAuth config');
-      if (onGlobalSync) await onGlobalSync();
-      if (showToast) showToast('Saved Monzo Developer API credentials');
-    } catch {
-      if (showToast) showToast('Could not save Monzo credentials', 'error');
-    }
-  };
-
-  const handleConnectMonzoToken = async (e) => {
-    e.preventDefault();
-    if (!monzoTokenInput.trim()) return;
-    try {
-      const res = await fetch('/api/howard/monzo/connect-token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          slot: monzoTokenSlot,
-          accessToken: monzoTokenInput.trim()
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        if (showToast) showToast(data.error || 'Could not link Monzo token', 'error');
-        return;
-      }
-      setMonzoTokenInput('');
-      if (onGlobalSync) await onGlobalSync();
-      if (showToast) showToast(`Linked ${monzoTokenSlot.toUpperCase()} Monzo account!`);
-    } catch {
-      if (showToast) showToast('Error linking Monzo token', 'error');
-    }
-  };
-
-  const handleSyncMonzoSlot = async (slot) => {
-    setMonzoSyncingSlot(slot);
-    try {
-      const res = await fetch('/api/howard/monzo/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slot, daysBack: 85 })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        if (showToast) showToast(data.error || 'Monzo sync failed', 'error');
-        return;
-      }
-      if (onGlobalSync) await onGlobalSync();
-      if (showToast) {
-        showToast(
-          `Monzo Synced: +${data.addedExpenses} expenses, +${data.addedIncomes} incomes (${data.skippedDuplicates} duplicates skipped)`
-        );
-      }
-    } catch {
-      if (showToast) showToast('Failed to reach Monzo API', 'error');
-    } finally {
-      setMonzoSyncingSlot(null);
-    }
-  };
-
-  const handleRegisterMonzoWebhook = async (slot) => {
-    try {
-      const res = await fetch('/api/howard/monzo/register-webhook', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          slot,
-          webhookBaseUrl: monzoWebhookBaseInput
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        if (showToast) showToast(data.error || 'Could not register webhook', 'error');
-        return;
-      }
-      if (onGlobalSync) await onGlobalSync();
-      if (showToast) showToast(`Registered live Monzo webhook for ${slot}!`);
-    } catch {
-      if (showToast) showToast('Error registering Monzo webhook', 'error');
-    }
-  };
-
-  const handleDisconnectMonzoSlot = async (slot) => {
-    try {
-      await fetch('/api/howard/monzo/disconnect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slot })
-      });
-      if (onGlobalSync) await onGlobalSync();
-      if (showToast) showToast(`Disconnected ${slot} Monzo account`);
-    } catch {
-      if (showToast) showToast('Error disconnecting Monzo account', 'error');
-    }
-  };
-
   const handleExportMonthCSV = () => {
     const headers = [
       'Type',
@@ -1026,7 +1069,7 @@ export default function LedgerApp({
         .filter((r) => r.active !== false)
         .map((r) => [
           escapeCSV(r.type === 'direct-debit' ? 'Direct Debit' : 'Subscription'),
-          escapeCSV(`Day ${r.billingDay} (${r.cycle})`),
+          escapeCSV(`${getLedgerScheduleInfo(r, false).scheduleLabel} (${r.cycle})`),
           escapeCSV(r.title),
           escapeCSV(r.category),
           escapeCSV(r.owner),
@@ -1061,18 +1104,18 @@ export default function LedgerApp({
     : 'bg-white border-slate-200/90 text-slate-800';
 
   return (
-    <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-5 space-y-6">
+    <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4 space-y-4 sm:space-y-5">
       {/* ====================================================================
           1. TOP HEADER BAR, QUICK ACTIONS & PERSPECTIVE SWITCHER
       ==================================================================== */}
-      <section className={`rounded-3xl p-5 sm:p-6 border shadow-xs space-y-5 ${cardSurface}`}>
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${cardSurface}`}>
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-emerald-600 text-white flex items-center justify-center shadow-xs">
-              <Wallet className="w-6 h-6" />
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0">
+              <Wallet className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div>
-              <h1 className="text-xl font-extrabold tracking-tight">
+              <h1 className="text-lg sm:text-xl font-extrabold tracking-tight">
                 Ledger • Household Bookkeeping &amp; Subscriptions
               </h1>
               <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -1198,9 +1241,9 @@ export default function LedgerApp({
       {/* ====================================================================
           2. FOUR FINANCIAL KPI SUMMARY CARDS (DYNAMIC BY PERSPECTIVE)
       ==================================================================== */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
         {/* Card 1: Monthly Income */}
-        <div className={`rounded-3xl p-5 border shadow-xs ${cardSurface}`}>
+        <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${cardSurface}`}>
           <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mb-1">
             <span>
               {perspective === 'joint' ? 'Joint Pool / Split' : 'Monthly Income'}
@@ -1222,7 +1265,7 @@ export default function LedgerApp({
         </div>
 
         {/* Card 2: Direct Debits & Subscriptions */}
-        <div className={`rounded-3xl p-5 border shadow-xs ${cardSurface}`}>
+        <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${cardSurface}`}>
           <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 mb-1">
             <span>Direct Debits &amp; Subs</span>
             <Repeat className="w-4 h-4" />
@@ -1238,7 +1281,7 @@ export default function LedgerApp({
         </div>
 
         {/* Card 3: Selected Month Logged Expenses */}
-        <div className={`rounded-3xl p-5 border shadow-xs ${cardSurface}`}>
+        <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${cardSurface}`}>
           <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 mb-1">
             <span>{selectedMonthLabel} Expenses</span>
             <Receipt className="w-4 h-4" />
@@ -1252,7 +1295,7 @@ export default function LedgerApp({
         </div>
 
         {/* Card 4: Net Monthly Remainder / Shared Settlement */}
-        <div className={`rounded-3xl p-5 border shadow-xs ${cardSurface}`}>
+        <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${cardSurface}`}>
           <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-teal-600 dark:text-teal-400 mb-1">
             <span>
               {perspective === 'joint'
@@ -1283,7 +1326,7 @@ export default function LedgerApp({
       {/* ====================================================================
           3. INTERNAL SUB-NAVIGATION TABS
       ==================================================================== */}
-      <div className="flex flex-wrap items-center gap-1.5 bg-slate-200/70 dark:bg-slate-900 p-1.5 rounded-2xl w-fit border border-slate-200 dark:border-slate-800">
+      <div className="w-full grid grid-cols-2 lg:grid-cols-4 gap-1.5 bg-slate-200/70 dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800">
         {[
           { id: 'overview', label: 'Overview & Split', icon: Scale },
           {
@@ -1300,11 +1343,6 @@ export default function LedgerApp({
             id: 'income',
             label: `Income & Split Rules (${incomes.length})`,
             icon: TrendingUp
-          },
-          {
-            id: 'monzo',
-            label: 'Monzo API & Webhooks',
-            icon: Landmark
           }
         ].map((t) => {
           const Icon = t.icon;
@@ -1314,7 +1352,7 @@ export default function LedgerApp({
               key={t.id}
               type="button"
               onClick={() => setActiveTab(t.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
+              className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
                 active
                   ? darkMode
                     ? 'bg-emerald-600 text-white shadow-xs'
@@ -1322,8 +1360,8 @@ export default function LedgerApp({
                   : 'text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800'
               }`}
             >
-              <Icon className="w-4 h-4" />
-              <span>{t.label}</span>
+              <Icon className="w-4 h-4 shrink-0" />
+              <span className="truncate">{t.label}</span>
             </button>
           );
         })}
@@ -1333,11 +1371,11 @@ export default function LedgerApp({
           TAB 1: OVERVIEW, HOUSEHOLD SPLIT & CATEGORY BREAKDOWN
       ==================================================================== */}
       {activeTab === 'overview' && (
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-5">
           {/* Side-by-Side Comparison: Partner 1 vs Partner 2 vs Joint */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 sm:gap-4">
             {/* Joint Household Pool */}
-            <div className={`rounded-3xl p-5 border shadow-xs space-y-3 ${cardSurface}`}>
+            <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-3 ${cardSurface}`}>
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">
                   🤝 Joint / Household Bills
@@ -1381,7 +1419,7 @@ export default function LedgerApp({
             </div>
 
             {/* Partner 1's Breakdown */}
-            <div className={`rounded-3xl p-5 border shadow-xs space-y-3 ${cardSurface}`}>
+            <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-3 ${cardSurface}`}>
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-teal-500/15 text-teal-700 dark:text-teal-300">
                   ⚡ {partner1Name}&apos;s Ledger
@@ -1433,7 +1471,7 @@ export default function LedgerApp({
             </div>
 
             {/* Partner 2's Breakdown */}
-            <div className={`rounded-3xl p-5 border shadow-xs space-y-3 ${cardSurface}`}>
+            <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-3 ${cardSurface}`}>
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300">
                   🌸 {partner2Name}&apos;s Ledger
@@ -1486,9 +1524,9 @@ export default function LedgerApp({
           </div>
 
           {/* Two-Column Lower Grid: Category Breakdown + Upcoming Direct Debits/Subs */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
             {/* Category Breakdown (7 cols) */}
-            <div className={`lg:col-span-7 rounded-3xl p-5 sm:p-6 border shadow-xs space-y-4 ${cardSurface}`}>
+            <div className={`lg:col-span-7 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${cardSurface}`}>
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-base font-extrabold">
@@ -1527,7 +1565,7 @@ export default function LedgerApp({
             </div>
 
             {/* Upcoming Billing Days (5 cols) */}
-            <div className={`lg:col-span-5 rounded-3xl p-5 sm:p-6 border shadow-xs space-y-4 ${cardSurface}`}>
+            <div className={`lg:col-span-5 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${cardSurface}`}>
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-base font-extrabold">
@@ -1563,7 +1601,7 @@ export default function LedgerApp({
                           <span className="truncate">{bill.title}</span>
                         </div>
                         <div className="text-[11px] text-slate-500 mt-0.5">
-                          {formatOrdinalDay(bill.billingDay)} of month •{' '}
+                          {bill.scheduleLabel} •{' '}
                           <span className="font-semibold text-indigo-600 dark:text-indigo-400">
                             {bill.daysUntil === 0
                               ? 'Due Today'
@@ -1596,7 +1634,7 @@ export default function LedgerApp({
           TAB 2: SUBSCRIPTIONS & DIRECT DEBITS MANAGER
       ==================================================================== */}
       {activeTab === 'recurring' && (
-        <section className={`rounded-3xl p-5 sm:p-6 border shadow-xs space-y-5 ${cardSurface}`}>
+        <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${cardSurface}`}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
             <div>
               <h2 className="text-lg font-extrabold">
@@ -1703,7 +1741,7 @@ export default function LedgerApp({
 
                   <div className="flex items-center justify-between pt-2.5 border-t border-slate-200/60 dark:border-slate-800 text-xs">
                     <div className="text-slate-500">
-                      Bills on <strong>{formatOrdinalDay(item.billingDay)}</strong> • Next:{' '}
+                      <strong>{item.scheduleLabel}</strong> • Next:{' '}
                       <strong className="text-slate-700 dark:text-slate-200">
                         {item.nextDateFormatted}
                       </strong>{' '}
@@ -1751,7 +1789,7 @@ export default function LedgerApp({
           TAB 3: DAY-TO-DAY EXPENSES LOG
       ==================================================================== */}
       {activeTab === 'expenses' && (
-        <section className={`rounded-3xl p-5 sm:p-6 border shadow-xs space-y-5 ${cardSurface}`}>
+        <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${cardSurface}`}>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
             <div>
               <h2 className="text-lg font-extrabold">
@@ -1897,9 +1935,9 @@ export default function LedgerApp({
           TAB 4: INCOME & HOUSEHOLD SPLIT RULES
       ==================================================================== */}
       {activeTab === 'income' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
           {/* Income Streams List (7 cols) */}
-          <section className={`lg:col-span-7 rounded-3xl p-5 sm:p-6 border shadow-xs space-y-4 ${cardSurface}`}>
+          <section className={`lg:col-span-7 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${cardSurface}`}>
             <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
               <div>
                 <h2 className="text-lg font-extrabold">
@@ -1967,7 +2005,7 @@ export default function LedgerApp({
                         </span>
                         {!isOneOff && (
                           <span className="text-xs text-slate-500">
-                            Payday: {formatOrdinalDay(inc.payDay || 28)} of month
+                            Payday: {getLedgerScheduleInfo(inc, true).scheduleLabel}
                           </span>
                         )}
                       </div>
@@ -2014,7 +2052,7 @@ export default function LedgerApp({
           </section>
 
           {/* Joint Bill Split Configuration (5 cols) */}
-          <section className={`lg:col-span-5 rounded-3xl p-5 sm:p-6 border shadow-xs space-y-4 ${cardSurface}`}>
+          <section className={`lg:col-span-5 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${cardSurface}`}>
             <div className="flex items-center gap-2.5">
               <div className="w-10 h-10 rounded-2xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
                 <Users className="w-5 h-5" />
@@ -2090,297 +2128,6 @@ export default function LedgerApp({
               </div>
             </div>
           </section>
-        </div>
-      )}
-
-      {/* ====================================================================
-          TAB 5: MONZO DEVELOPER API & REAL-TIME WEBHOOKS (OPTION B)
-      ==================================================================== */}
-      {activeTab === 'monzo' && (
-        <div className="space-y-6">
-          {/* 1. Connected Monzo Accounts & 1-Tap On-Demand Sync */}
-          <section className={`rounded-3xl p-5 sm:p-6 border shadow-xs space-y-5 ${cardSurface}`}>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-rose-500 to-orange-500 text-white flex items-center justify-center shadow-xs">
-                  <Landmark className="w-6 h-6" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-extrabold">
-                    Monzo Developer API &amp; Real-Time Webhooks
-                  </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Link {partner1Name} and {partner2Name}&apos;s Monzo accounts to automatically monitor Direct Debits, expenses, and incoming payments
-                  </p>
-                </div>
-              </div>
-              <a
-                href="https://developers.monzo.com/"
-                target="_blank"
-                rel="noreferrer"
-                className="px-3.5 py-2 rounded-xl bg-slate-900 dark:bg-slate-800 text-white text-xs font-bold inline-flex items-center gap-1.5 w-fit"
-              >
-                <span>Open developers.monzo.com</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-            </div>
-
-            {/* 2 Account Slots: Partner 1 & Partner 2 */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {[
-                { slot: 'partner1', label: `⚡ ${partner1Name}'s Monzo`, desc: `Auto-tags transactions under ${partner1Name}'s Ledger` },
-                { slot: 'partner2', label: `🌸 ${partner2Name}'s Monzo`, desc: `Auto-tags transactions under ${partner2Name}'s Ledger` }
-              ].map((card) => {
-                const conn = monzoStatus?.connections?.[card.slot];
-                const isSyncing = monzoSyncingSlot === card.slot;
-
-                return (
-                  <div
-                    key={card.slot}
-                    className={`rounded-2xl p-4 border flex flex-col justify-between gap-4 ${
-                      conn?.connected
-                        ? darkMode
-                          ? 'bg-emerald-950/20 border-emerald-700/70'
-                          : 'bg-emerald-50/50 border-emerald-300'
-                        : darkMode
-                          ? 'bg-slate-800/40 border-slate-800'
-                          : 'bg-slate-50 border-slate-200'
-                    }`}
-                  >
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-extrabold text-sm">{card.label}</span>
-                        <span
-                          className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                            conn?.connected
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                          }`}
-                        >
-                          {conn?.connected ? 'Linked' : 'Not Linked'}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-500">{card.desc}</p>
-
-                      {conn?.connected && (
-                        <div className="pt-2 space-y-1 text-xs border-t border-slate-200/60 dark:border-slate-800">
-                          <div className="font-semibold truncate">
-                            {conn.accountName}
-                          </div>
-                          {conn.accountId && (
-                            <div className="font-mono text-[11px] opacity-70 truncate">
-                              ID: {conn.accountId}
-                            </div>
-                          )}
-                          <div className="text-[11px] opacity-75">
-                            Last synced:{' '}
-                            {conn.lastSyncedAt
-                              ? new Date(conn.lastSyncedAt).toLocaleString('en-GB')
-                              : 'Ready to sync'}
-                          </div>
-                          {conn.webhookId && (
-                            <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold">
-                              ✓ Live Webhook Active
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {conn?.connected ? (
-                      <div className="space-y-2">
-                        <button
-                          type="button"
-                          disabled={isSyncing}
-                          onClick={() => handleSyncMonzoSlot(card.slot)}
-                          className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-                        >
-                          <RefreshCw
-                            className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`}
-                          />
-                          <span>
-                            {isSyncing ? 'Syncing with Monzo...' : 'Sync Latest Transactions'}
-                          </span>
-                        </button>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleRegisterMonzoWebhook(card.slot)}
-                            className="flex-1 py-1.5 px-2 rounded-lg border border-slate-300 dark:border-slate-700 text-[11px] font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                          >
-                            Register Webhook
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDisconnectMonzoSlot(card.slot)}
-                            className="py-1.5 px-2.5 rounded-lg bg-rose-500/15 text-rose-600 text-[11px] font-bold cursor-pointer"
-                            title="Disconnect"
-                          >
-                            <Unlink className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {monzoStatus?.hasOAuthClient && (
-                          <a
-                            href={`/api/howard/monzo/oauth/start?slot=${card.slot}`}
-                            className="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center justify-center gap-1.5"
-                          >
-                            <Link2 className="w-3.5 h-3.5" />
-                            <span>Connect via Monzo OAuth</span>
-                          </a>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setMonzoTokenSlot(card.slot)}
-                          className="w-full py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                        >
-                          Use Playground Access Token &darr;
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          {/* 2. Two-Column Setup: Quick Access Token Paste + OAuth Client / Webhook Config */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Fast Path: Paste Monzo Playground Token */}
-            <form
-              onSubmit={handleConnectMonzoToken}
-              className={`rounded-3xl p-5 sm:p-6 border shadow-xs flex flex-col justify-between space-y-4 ${cardSurface}`}
-            >
-              <div className="space-y-2">
-                <h3 className="text-base font-extrabold">
-                  Option 1: Quick Connect via Monzo Playground Token
-                </h3>
-                <p className="text-xs text-slate-500 leading-relaxed">
-                  Log into <code className="font-mono">developers.monzo.com</code>, approve access in your Monzo phone app, copy your <strong>Access Token</strong> from the Playground, and paste it below to immediately pull the last 90 days of Direct Debits, income, and expenses.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
-                    Which Account Slot?
-                  </label>
-                  <select
-                    value={monzoTokenSlot}
-                    onChange={(e) => setMonzoTokenSlot(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  >
-                    <option value="partner1">⚡ {partner1Name}&apos;s Personal Monzo</option>
-                    <option value="partner2">🌸 {partner2Name}&apos;s Personal Monzo</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
-                    Monzo Bearer Access Token
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    value={monzoTokenInput}
-                    onChange={(e) => setMonzoTokenInput(e.target.value)}
-                    placeholder="eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9..."
-                    className="w-full px-3.5 py-2 rounded-xl text-xs font-mono border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
-                >
-                  Link Token &amp; Discover Monzo Account
-                </button>
-              </div>
-            </form>
-
-            {/* Permanent Path: OAuth2 Client & Real-Time Webhook Receiver */}
-            <form
-              onSubmit={handleSaveMonzoOAuthConfig}
-              className={`rounded-3xl p-5 sm:p-6 border shadow-xs flex flex-col justify-between space-y-4 ${cardSurface}`}
-            >
-              <div className="space-y-2">
-                <h3 className="text-base font-extrabold flex items-center gap-2">
-                  <Webhook className="w-4 h-4 text-indigo-500" />
-                  <span>Option 2: OAuth2 Client &amp; Real-Time Webhooks</span>
-                </h3>
-                <p className="text-xs text-slate-500 leading-relaxed">
-                  Create a confidential OAuth client in the Monzo Developer Portal for permanent access, or configure your webhook receiver URL (<code className="font-mono">/api/howard/monzo/webhook?slot=partner1|partner2</code>).
-                </p>
-              </div>
-
-              <div className="space-y-2.5">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase opacity-70 mb-1">
-                      OAuth Client ID
-                    </label>
-                    <input
-                      type="text"
-                      value={monzoClientIdInput}
-                      onChange={(e) => setMonzoClientIdInput(e.target.value)}
-                      placeholder="oauth2client_0000..."
-                      className="w-full px-3 py-2 rounded-xl text-xs font-mono border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase opacity-70 mb-1">
-                      OAuth Client Secret
-                    </label>
-                    <input
-                      type="password"
-                      value={monzoClientSecretInput}
-                      onChange={(e) => setMonzoClientSecretInput(e.target.value)}
-                      placeholder={
-                        monzoStatus?.hasOAuthClient
-                          ? '•••••••• (Saved)'
-                          : 'mnzconf.0000...'
-                      }
-                      className="w-full px-3 py-2 rounded-xl text-xs font-mono border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase opacity-70 mb-1">
-                    OAuth Redirect URI
-                  </label>
-                  <input
-                    type="text"
-                    value={monzoRedirectUriInput}
-                    onChange={(e) => setMonzoRedirectUriInput(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl text-xs font-mono border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase opacity-70 mb-1">
-                    Public Webhook Base URL (Optional — Cloudflare Tunnel / Tailscale Funnel)
-                  </label>
-                  <input
-                    type="text"
-                    value={monzoWebhookBaseInput}
-                    onChange={(e) => setMonzoWebhookBaseInput(e.target.value)}
-                    placeholder="https://howard.your-domain.com"
-                    className="w-full px-3 py-2 rounded-xl text-xs font-mono border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer"
-                >
-                  Save OAuth &amp; Webhook Configuration
-                </button>
-              </div>
-            </form>
-          </div>
         </div>
       )}
 
@@ -2623,17 +2370,43 @@ export default function LedgerApp({
 
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
-                    Day (1–31)
+                    {recCycle === 'weekly'
+                      ? 'Billing Day'
+                      : recCycle === 'annual' || recCycle === 'quarterly'
+                        ? 'Next / Anchor Date'
+                        : 'Day (1–31)'}
                   </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="31"
-                    required
-                    value={recBillingDay}
-                    onChange={(e) => setRecBillingDay(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  />
+                  {recCycle === 'weekly' ? (
+                    <select
+                      value={recBillingWeekday}
+                      onChange={(e) => setRecBillingWeekday(Number(e.target.value))}
+                      className="w-full px-2.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                    >
+                      {WEEKDAY_OPTIONS.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : recCycle === 'annual' || recCycle === 'quarterly' ? (
+                    <input
+                      type="date"
+                      required
+                      value={recBillingDate}
+                      onChange={(e) => setRecBillingDate(e.target.value)}
+                      className="w-full px-2.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                    />
+                  ) : (
+                    <input
+                      type="number"
+                      min="1"
+                      max="31"
+                      required
+                      value={recBillingDay}
+                      onChange={(e) => setRecBillingDay(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                    />
+                  )}
                 </div>
               </div>
 
@@ -2842,16 +2615,42 @@ export default function LedgerApp({
 
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
-                      Payday (1–31)
+                      {incFrequency === 'weekly'
+                        ? 'Payday'
+                        : incFrequency === 'annual' || incFrequency === 'quarterly'
+                          ? 'Next / Anchor Date'
+                          : 'Payday (1–31)'}
                     </label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="31"
-                      value={incPayDay}
-                      onChange={(e) => setIncPayDay(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                    />
+                    {incFrequency === 'weekly' ? (
+                      <select
+                        value={incPayWeekday}
+                        onChange={(e) => setIncPayWeekday(Number(e.target.value))}
+                        className="w-full px-2.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                      >
+                        {WEEKDAY_OPTIONS.map((w) => (
+                          <option key={w.id} value={w.id}>
+                            {w.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : incFrequency === 'annual' || incFrequency === 'quarterly' ? (
+                      <input
+                        type="date"
+                        required
+                        value={incPayDate}
+                        onChange={(e) => setIncPayDate(e.target.value)}
+                        className="w-full px-2.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                      />
+                    ) : (
+                      <input
+                        type="number"
+                        min="1"
+                        max="31"
+                        value={incPayDay}
+                        onChange={(e) => setIncPayDay(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                      />
+                    )}
                   </div>
                 </div>
               )}
