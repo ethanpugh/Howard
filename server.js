@@ -14,6 +14,7 @@ const DIST_DIR = path.join(__dirname, 'dist');
 const HOWARD_DB_PATH = path.join(DATA_DIR, 'howard.db');
 const CADENCE_DB_PATH = path.join(DATA_DIR, 'cadence.db');
 const FLOODGATE_DB_PATH = path.join(DATA_DIR, 'floodgate.db');
+const BLOOM_DB_PATH = path.join(DATA_DIR, 'bloom.db');
 
 // Ensure persistent data directory exists
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -33,13 +34,14 @@ const shiftDateKey = (dateKey, deltaDays) => {
 };
 
 // ============================================================================
-// 1. INITIALIZE THREE SEPARATE SQLITE DATABASES (DROP-IN COMPATIBLE)
+// 1. INITIALIZE FOUR SEPARATE SQLITE DATABASES (DROP-IN COMPATIBLE)
 // ============================================================================
 const howardDb = new DatabaseSync(HOWARD_DB_PATH);
 const cadenceDb = new DatabaseSync(CADENCE_DB_PATH);
 const floodgateDb = new DatabaseSync(FLOODGATE_DB_PATH);
+const bloomDb = new DatabaseSync(BLOOM_DB_PATH);
 
-for (const dbInstance of [howardDb, cadenceDb, floodgateDb]) {
+for (const dbInstance of [howardDb, cadenceDb, floodgateDb, bloomDb]) {
   dbInstance.exec('PRAGMA journal_mode = DELETE;');
   dbInstance.exec('PRAGMA synchronous = NORMAL;');
 }
@@ -200,7 +202,199 @@ function readFloodgateLogs() {
 }
 
 // ----------------------------------------------------------------------------
-// C. HOWARD DATABASE SCHEMA & DEFAULTS (Profiles, Almanac, Ledger, Beacon)
+// C. BLOOM DATABASE SCHEMA & DEFAULTS (Flower Mantis Growth, Feeding & Habitat)
+// ----------------------------------------------------------------------------
+const DEFAULT_BLOOM_SETTINGS = {
+  mantisName: 'Mantis',
+  speciesPreset: 'spiny_flower',
+  commonName: 'Spiny Flower Mantis',
+  scientificName: 'Pseudocreobotra wahlbergii',
+  sex: 'Male',
+  pronouns: 'he/him',
+  currentInstar: 'L2',
+  arrivalDate: getLocalDateKey(new Date()),
+  hatchDate: '',
+  currentColorMorph: 'Spiky creamy-white & dark banded nymph',
+  lifecycleStatus: 'normal', // 'normal' | 'premolt' | 'hardening'
+  premoltStartedAt: null,
+  hardeningUntil: null,
+  hardeningHours: 36,
+  livePreyInside: false,
+  livePreyNote: '',
+  dayTempMinC: 25,
+  dayTempMaxC: 28,
+  nightTempMinC: 20,
+  humidityMinPct: 50,
+  humidityMaxPct: 65,
+  mistTargetHours: 24,
+  typicalInterMoltDays: 14,
+  enclosureInfo: {
+    currentSizeLabel: 'Ventilated Nymph Cup / Mini Tall Enclosure',
+    meshType: 'Soft nylon / fabric mesh (tarsal-safe)',
+    substrate: 'Paper towel / coco fibre + climbing twigs & blossoms',
+    lastDeepCleanDate: getLocalDateKey(new Date()),
+    currentBodyLengthMm: 10,
+    enclosureHeightMm: 110,
+    enclosureWidthMm: 75
+  },
+  caregivers: ['Partner 1', 'Partner 2', 'Caregiver'],
+  careNote:
+    'Mist one enclosure wall lightly once daily for drinking droplets—never spray the mantis directly, and let the enclosure dry between mists (Spiny Flower Mantises need cross-ventilation!). Do NOT offer live prey during Premolt Watch or Post-Molt Hardening.'
+};
+
+bloomDb.exec(`
+  CREATE TABLE IF NOT EXISTS bloom_settings (
+    id TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS care_logs (
+    date_key TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS molt_logs (
+    id TEXT PRIMARY KEY,
+    date_key TEXT NOT NULL,
+    data TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS feeder_cultures (
+    id TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`);
+
+const bloomGetSettingsStmt = bloomDb.prepare('SELECT data, updated_at FROM bloom_settings WHERE id = ?');
+const bloomUpsertSettingsStmt = bloomDb.prepare(`
+  INSERT INTO bloom_settings (id, data, updated_at)
+  VALUES (?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    data = excluded.data,
+    updated_at = excluded.updated_at
+`);
+const bloomGetAllLogsStmt = bloomDb.prepare('SELECT date_key, data, updated_at FROM care_logs');
+const bloomGetLogByDateStmt = bloomDb.prepare('SELECT data FROM care_logs WHERE date_key = ?');
+const bloomUpsertLogStmt = bloomDb.prepare(`
+  INSERT INTO care_logs (date_key, data, updated_at)
+  VALUES (?, ?, ?)
+  ON CONFLICT(date_key) DO UPDATE SET
+    data = excluded.data,
+    updated_at = excluded.updated_at
+`);
+const bloomGetAllMoltsStmt = bloomDb.prepare(
+  'SELECT id, date_key, data, updated_at FROM molt_logs ORDER BY date_key DESC, updated_at DESC'
+);
+const bloomUpsertMoltStmt = bloomDb.prepare(`
+  INSERT INTO molt_logs (id, date_key, data, updated_at)
+  VALUES (?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    date_key = excluded.date_key,
+    data = excluded.data,
+    updated_at = excluded.updated_at
+`);
+const bloomDeleteMoltStmt = bloomDb.prepare('DELETE FROM molt_logs WHERE id = ?');
+const bloomGetAllFeedersStmt = bloomDb.prepare(
+  'SELECT id, data, updated_at FROM feeder_cultures ORDER BY updated_at DESC'
+);
+const bloomUpsertFeederStmt = bloomDb.prepare(`
+  INSERT INTO feeder_cultures (id, data, updated_at)
+  VALUES (?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    data = excluded.data,
+    updated_at = excluded.updated_at
+`);
+const bloomDeleteFeederStmt = bloomDb.prepare('DELETE FROM feeder_cultures WHERE id = ?');
+
+if (!bloomGetSettingsStmt.get('config')) {
+  bloomUpsertSettingsStmt.run('config', JSON.stringify(DEFAULT_BLOOM_SETTINGS), new Date().toISOString());
+}
+
+function normalizeBloomSettings(parsed = {}) {
+  return {
+    ...DEFAULT_BLOOM_SETTINGS,
+    ...parsed,
+    enclosureInfo: {
+      ...DEFAULT_BLOOM_SETTINGS.enclosureInfo,
+      ...(parsed.enclosureInfo && typeof parsed.enclosureInfo === 'object' ? parsed.enclosureInfo : {})
+    }
+  };
+}
+
+function readBloomSettings() {
+  const row = bloomGetSettingsStmt.get('config');
+  if (!row) return { settings: normalizeBloomSettings(), updatedAt: new Date().toISOString() };
+  try {
+    const parsed = JSON.parse(row.data);
+    return {
+      settings: normalizeBloomSettings(parsed),
+      updatedAt: row.updated_at
+    };
+  } catch {
+    return { settings: normalizeBloomSettings(), updatedAt: row.updated_at };
+  }
+}
+
+function readBloomLogs() {
+  const rows = bloomGetAllLogsStmt.all();
+  const logsByDate = {};
+  let latestLogUpdate = '';
+  for (const row of rows) {
+    try {
+      logsByDate[row.date_key] = JSON.parse(row.data);
+      if (row.updated_at > latestLogUpdate) latestLogUpdate = row.updated_at;
+    } catch {
+      // skip malformed row
+    }
+  }
+  return { logsByDate, latestLogUpdate };
+}
+
+function readBloomMolts() {
+  const rows = bloomGetAllMoltsStmt.all();
+  const molts = [];
+  let latestMoltUpdate = '';
+  for (const row of rows) {
+    try {
+      molts.push({ id: row.id, dateKey: row.date_key, ...JSON.parse(row.data) });
+      if (row.updated_at > latestMoltUpdate) latestMoltUpdate = row.updated_at;
+    } catch {
+      // skip malformed row
+    }
+  }
+  return { molts, latestMoltUpdate };
+}
+
+function readBloomFeeders() {
+  const rows = bloomGetAllFeedersStmt.all();
+  const feeders = [];
+  let latestFeederUpdate = '';
+  for (const row of rows) {
+    try {
+      feeders.push({ id: row.id, ...JSON.parse(row.data) });
+      if (row.updated_at > latestFeederUpdate) latestFeederUpdate = row.updated_at;
+    } catch {
+      // skip malformed row
+    }
+  }
+  return { feeders, latestFeederUpdate };
+}
+
+function readBloomState() {
+  const { settings, updatedAt: sUpd } = readBloomSettings();
+  const { logsByDate, latestLogUpdate: lUpd } = readBloomLogs();
+  const { molts, latestMoltUpdate: mUpd } = readBloomMolts();
+  const { feeders, latestFeederUpdate: fUpd } = readBloomFeeders();
+  const updatedAt = [sUpd, lUpd, mUpd, fUpd].filter(Boolean).sort().pop() || new Date().toISOString();
+  return { settings, logsByDate, molts, feeders, updatedAt };
+}
+
+// ----------------------------------------------------------------------------
+// D. HOWARD DATABASE SCHEMA & DEFAULTS (Profiles, Almanac, Ledger, Beacon)
 // ----------------------------------------------------------------------------
 howardDb.exec(`
   CREATE TABLE IF NOT EXISTS howard_store (
@@ -230,7 +424,7 @@ const DEFAULT_PROFILES = [
     badgeEmoji: '⚡',
     pinEnabled: false,
     pin: '',
-    allowedApps: ['foyer', 'cadence', 'almanac', 'ledger', 'beacon'],
+    allowedApps: ['foyer', 'cadence', 'bloom', 'almanac', 'ledger', 'beacon'],
     caregiverName: 'Partner 1'
   },
   {
@@ -241,7 +435,7 @@ const DEFAULT_PROFILES = [
     badgeEmoji: '🌸',
     pinEnabled: false,
     pin: '',
-    allowedApps: ['foyer', 'cadence', 'almanac', 'floodgate', 'ledger', 'beacon'],
+    allowedApps: ['foyer', 'cadence', 'bloom', 'almanac', 'floodgate', 'ledger', 'beacon'],
     caregiverName: 'Partner 2'
   },
   {
@@ -253,7 +447,7 @@ const DEFAULT_PROFILES = [
     pinEnabled: false,
     pin: '',
     lockedOutOfPin: true,
-    allowedApps: ['foyer', 'cadence', 'beacon'],
+    allowedApps: ['foyer', 'cadence', 'bloom', 'beacon'],
     caregiverName: 'Caregiver'
   }
 ];
@@ -307,6 +501,39 @@ ensureHowardSeed('almanac_events', DEFAULT_ALMANAC_EVENTS);
 ensureHowardSeed('ledger_data', DEFAULT_LEDGER_DATA);
 ensureHowardSeed('beacon_info', DEFAULT_BEACON_INFO);
 
+// Non-destructively grant newly introduced household modules to existing saved profiles
+function ensureProfileAppAccess(appId, targetProfileIds) {
+  const row = howardGetStmt.get('profiles');
+  if (!row) return;
+  try {
+    const parsed = JSON.parse(row.data);
+    if (!Array.isArray(parsed)) return;
+    let changed = false;
+    const migrated = parsed.map((prof) => {
+      if (!targetProfileIds.includes(prof.id)) return prof;
+      const currentApps = Array.isArray(prof.allowedApps)
+        ? [...prof.allowedApps]
+        : ['foyer', 'cadence', 'beacon'];
+      if (currentApps.includes(appId)) return prof;
+      changed = true;
+      const cadenceIdx = currentApps.indexOf('cadence');
+      if (cadenceIdx !== -1) {
+        currentApps.splice(cadenceIdx + 1, 0, appId);
+      } else {
+        currentApps.push(appId);
+      }
+      return { ...prof, allowedApps: currentApps };
+    });
+    if (changed) {
+      howardUpsertStmt.run('profiles', JSON.stringify(migrated), new Date().toISOString());
+    }
+  } catch {
+    // ignore malformed profile JSON
+  }
+}
+
+ensureProfileAppAccess('bloom', ['partner1', 'partner2', 'caregiver']);
+
 function readHowardKey(key, fallback) {
   const row = howardGetStmt.get(key);
   if (!row) return { data: fallback, updatedAt: new Date().toISOString() };
@@ -332,7 +559,7 @@ function sanitizeProfilesForClient(profiles) {
     badgeEmoji: p.badgeEmoji,
     pinEnabled: Boolean(p.pinEnabled && p.pin),
     lockedOutOfPin: Boolean(p.lockedOutOfPin || p.id === 'caregiver'),
-    allowedApps: Array.isArray(p.allowedApps) ? p.allowedApps : ['foyer', 'cadence', 'beacon'],
+    allowedApps: Array.isArray(p.allowedApps) ? p.allowedApps : ['foyer', 'cadence', 'bloom', 'beacon'],
     caregiverName: p.caregiverName || p.name
   }));
 }
@@ -482,6 +709,8 @@ const server = http.createServer(async (req, res) => {
       const { logsByDate: cadenceLogs, latestLogUpdate: cLogUpd } = readCadenceLogs();
       const cadenceUpdatedAt = cLogUpd > cSetUpd ? cLogUpd : cSetUpd;
 
+      const bloom = readBloomState();
+
       let floodgate = null;
       if (activeProfile === 'partner2') {
         const { settings: fgSettings, updatedAt: fSetUpd } = readFloodgateSettings();
@@ -501,6 +730,7 @@ const server = http.createServer(async (req, res) => {
           logsByDate: cadenceLogs,
           updatedAt: cadenceUpdatedAt
         },
+        bloom,
         floodgate,
         serverTime: new Date().toISOString()
       });
@@ -590,6 +820,17 @@ const server = http.createServer(async (req, res) => {
         nowIso
       );
 
+      // Sync updated caregiver names into Bloom settings
+      const { settings: blSettings } = readBloomSettings();
+      const nextBloomCaregivers = Array.isArray(blSettings.caregivers)
+        ? blSettings.caregivers.map((c) => (c === oldName ? cleanedName : c))
+        : profiles.map((p) => p.name);
+      bloomUpsertSettingsStmt.run(
+        'config',
+        JSON.stringify({ ...blSettings, caregivers: nextBloomCaregivers }),
+        nowIso
+      );
+
       // If renaming Partner 2, also update Floodgate ownerName
       if (profileId === 'partner2') {
         const { settings: fgSettings } = readFloodgateSettings();
@@ -635,10 +876,11 @@ const server = http.createServer(async (req, res) => {
       const howardState = readHowardState();
       const cadenceSettings = readCadenceSettings().settings;
       const cadenceLogs = readCadenceLogs().logsByDate;
+      const bloomState = readBloomState();
 
       const payload = {
         app: 'Howard',
-        version: '1.0.0',
+        version: '1.1.0',
         exportedAt: new Date().toISOString(),
         howard: {
           almanacEvents: howardState.almanacEvents,
@@ -648,6 +890,12 @@ const server = http.createServer(async (req, res) => {
         cadence: {
           settings: cadenceSettings,
           logsByDate: cadenceLogs
+        },
+        bloom: {
+          settings: bloomState.settings,
+          logsByDate: bloomState.logsByDate,
+          molts: bloomState.molts,
+          feeders: bloomState.feeders
         }
       };
 
@@ -694,6 +942,55 @@ const server = http.createServer(async (req, res) => {
             cadenceDb.exec('COMMIT');
           } catch (e) {
             cadenceDb.exec('ROLLBACK');
+            throw e;
+          }
+        }
+      }
+
+      if (incoming.bloom) {
+        if (incoming.bloom.settings) {
+          const merged = normalizeBloomSettings(incoming.bloom.settings);
+          bloomUpsertSettingsStmt.run('config', JSON.stringify(merged), nowIso);
+        }
+        if (incoming.bloom.logsByDate && typeof incoming.bloom.logsByDate === 'object') {
+          bloomDb.exec('BEGIN IMMEDIATE');
+          try {
+            for (const [dateKey, rec] of Object.entries(incoming.bloom.logsByDate)) {
+              if (/^\d{4}-\d{2}-\d{2}$/.test(dateKey) && rec && typeof rec === 'object') {
+                bloomUpsertLogStmt.run(dateKey, JSON.stringify({ ...rec, dateKey }), rec.updatedAt || nowIso);
+              }
+            }
+            bloomDb.exec('COMMIT');
+          } catch (e) {
+            bloomDb.exec('ROLLBACK');
+            throw e;
+          }
+        }
+        if (Array.isArray(incoming.bloom.molts)) {
+          bloomDb.exec('BEGIN IMMEDIATE');
+          try {
+            for (const m of incoming.bloom.molts) {
+              if (m && typeof m === 'object' && m.id && /^\d{4}-\d{2}-\d{2}$/.test(m.dateKey || '')) {
+                bloomUpsertMoltStmt.run(m.id, m.dateKey, JSON.stringify(m), m.updatedAt || nowIso);
+              }
+            }
+            bloomDb.exec('COMMIT');
+          } catch (e) {
+            bloomDb.exec('ROLLBACK');
+            throw e;
+          }
+        }
+        if (Array.isArray(incoming.bloom.feeders)) {
+          bloomDb.exec('BEGIN IMMEDIATE');
+          try {
+            for (const f of incoming.bloom.feeders) {
+              if (f && typeof f === 'object' && f.id) {
+                bloomUpsertFeederStmt.run(f.id, JSON.stringify(f), f.updatedAt || nowIso);
+              }
+            }
+            bloomDb.exec('COMMIT');
+          } catch (e) {
+            bloomDb.exec('ROLLBACK');
             throw e;
           }
         }
@@ -891,6 +1188,184 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { deleted: true, dateKey });
     }
 
+    // ------------------------------------------------------------------------
+    // 4. BLOOM API ROUTES (/api/bloom/*)
+    // ------------------------------------------------------------------------
+    if (pathname === '/api/bloom/state' && req.method === 'GET') {
+      return sendJson(res, 200, readBloomState());
+    }
+
+    if (pathname === '/api/bloom/settings' && req.method === 'PUT') {
+      const incoming = await parseJsonBody(req);
+      const { settings: currentSettings } = readBloomSettings();
+      const nowIso = new Date().toISOString();
+      const updatedSettings = normalizeBloomSettings({
+        ...currentSettings,
+        ...incoming,
+        enclosureInfo: {
+          ...currentSettings.enclosureInfo,
+          ...(incoming.enclosureInfo && typeof incoming.enclosureInfo === 'object'
+            ? incoming.enclosureInfo
+            : {})
+        }
+      });
+      bloomUpsertSettingsStmt.run('config', JSON.stringify(updatedSettings), nowIso);
+      return sendJson(res, 200, { settings: updatedSettings, updatedAt: nowIso });
+    }
+
+    if (pathname.startsWith('/api/bloom/logs/') && req.method === 'PUT') {
+      const dateKey = decodeURIComponent(pathname.slice('/api/bloom/logs/'.length));
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+        return sendJson(res, 400, { error: 'Invalid dateKey format (expected YYYY-MM-DD)' });
+      }
+      const incoming = await parseJsonBody(req);
+      const { settingsPatch, ...logPayload } = incoming || {};
+      const nowIso = new Date().toISOString();
+
+      bloomDb.exec('BEGIN IMMEDIATE');
+      try {
+        const existingRow = bloomGetLogByDateStmt.get(dateKey);
+        let currentRecord = { dateKey, mists: [], feedings: [], climateChecks: [], behaviors: [] };
+        if (existingRow) {
+          try {
+            currentRecord = { ...currentRecord, ...JSON.parse(existingRow.data), dateKey };
+          } catch {
+            // keep clean default record
+          }
+        }
+        const updatedRecord = {
+          ...currentRecord,
+          ...logPayload,
+          dateKey,
+          updatedAt: logPayload.updatedAt || nowIso
+        };
+        bloomUpsertLogStmt.run(dateKey, JSON.stringify(updatedRecord), updatedRecord.updatedAt);
+
+        let updatedSettings = null;
+        if (settingsPatch && typeof settingsPatch === 'object') {
+          const { settings: currentSettings } = readBloomSettings();
+          updatedSettings = normalizeBloomSettings({
+            ...currentSettings,
+            ...settingsPatch,
+            enclosureInfo: {
+              ...currentSettings.enclosureInfo,
+              ...settingsPatch.enclosureInfo
+            }
+          });
+          bloomUpsertSettingsStmt.run('config', JSON.stringify(updatedSettings), nowIso);
+        }
+
+        bloomDb.exec('COMMIT');
+        return sendJson(res, 200, {
+          dateKey,
+          record: updatedRecord,
+          ...(updatedSettings ? { settings: updatedSettings } : {})
+        });
+      } catch (txErr) {
+        bloomDb.exec('ROLLBACK');
+        throw txErr;
+      }
+    }
+
+    if (pathname === '/api/bloom/molts' && req.method === 'POST') {
+      const incoming = await parseJsonBody(req);
+      const nowIso = new Date().toISOString();
+      const dateKey =
+        incoming.dateKey && /^\d{4}-\d{2}-\d{2}$/.test(incoming.dateKey)
+          ? incoming.dateKey
+          : getLocalDateKey(new Date());
+      const moltId = incoming.id || `molt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+      const moltRecord = {
+        id: moltId,
+        dateKey,
+        timestamp: incoming.timestamp || nowIso,
+        fromInstar: incoming.fromInstar || 'L2',
+        toInstar: incoming.toInstar || 'L3',
+        lengthMm: incoming.lengthMm ? Number(incoming.lengthMm) : null,
+        colorShift: String(incoming.colorShift || '').trim(),
+        quality: incoming.quality || 'clean',
+        loggedBy: incoming.loggedBy || 'Household',
+        note: String(incoming.note || '').trim(),
+        updatedAt: nowIso
+      };
+
+      bloomDb.exec('BEGIN IMMEDIATE');
+      try {
+        bloomUpsertMoltStmt.run(moltId, dateKey, JSON.stringify(moltRecord), nowIso);
+
+        let { settings: currentSettings } = readBloomSettings();
+        if (incoming.advanceInstar !== false) {
+          const hardHours = Number(currentSettings.hardeningHours) || 36;
+          const startHardening = incoming.startHardening !== false;
+          const hardeningUntilIso = startHardening
+            ? new Date(Date.now() + hardHours * 3600000).toISOString()
+            : currentSettings.hardeningUntil;
+
+          currentSettings = normalizeBloomSettings({
+            ...currentSettings,
+            currentInstar: moltRecord.toInstar || currentSettings.currentInstar,
+            ...(moltRecord.colorShift ? { currentColorMorph: moltRecord.colorShift } : {}),
+            lifecycleStatus: startHardening ? 'hardening' : 'normal',
+            premoltStartedAt: null,
+            hardeningUntil: startHardening ? hardeningUntilIso : null,
+            enclosureInfo: {
+              ...currentSettings.enclosureInfo,
+              ...(moltRecord.lengthMm ? { currentBodyLengthMm: moltRecord.lengthMm } : {})
+            }
+          });
+          bloomUpsertSettingsStmt.run('config', JSON.stringify(currentSettings), nowIso);
+        }
+
+        bloomDb.exec('COMMIT');
+        const { molts } = readBloomMolts();
+        return sendJson(res, 200, { molt: moltRecord, molts, settings: currentSettings, updatedAt: nowIso });
+      } catch (txErr) {
+        bloomDb.exec('ROLLBACK');
+        throw txErr;
+      }
+    }
+
+    if (pathname.startsWith('/api/bloom/molts/') && req.method === 'DELETE') {
+      const moltId = decodeURIComponent(pathname.slice('/api/bloom/molts/'.length));
+      if (!moltId) return sendJson(res, 400, { error: 'Missing molt ID' });
+      bloomDeleteMoltStmt.run(moltId);
+      const { molts } = readBloomMolts();
+      return sendJson(res, 200, { deleted: true, id: moltId, molts });
+    }
+
+    if (pathname.startsWith('/api/bloom/feeders/') && req.method === 'PUT') {
+      const feederId = decodeURIComponent(pathname.slice('/api/bloom/feeders/'.length));
+      if (!feederId) return sendJson(res, 400, { error: 'Missing feeder ID' });
+      const incoming = await parseJsonBody(req);
+      const nowIso = new Date().toISOString();
+      const feederRecord = {
+        id: feederId,
+        name: String(incoming.name || 'Feeder Culture').trim(),
+        feederType: incoming.feederType || 'hydei',
+        startedDate:
+          incoming.startedDate && /^\d{4}-\d{2}-\d{2}$/.test(incoming.startedDate)
+            ? incoming.startedDate
+            : getLocalDateKey(new Date()),
+        shelfLifeDays: Number(incoming.shelfLifeDays) || 28,
+        status: incoming.status || 'booming',
+        storageNote: String(incoming.storageNote || '').trim(),
+        active: incoming.active !== false,
+        updatedAt: nowIso
+      };
+      bloomUpsertFeederStmt.run(feederId, JSON.stringify(feederRecord), nowIso);
+      const { feeders } = readBloomFeeders();
+      return sendJson(res, 200, { feeder: feederRecord, feeders, updatedAt: nowIso });
+    }
+
+    if (pathname.startsWith('/api/bloom/feeders/') && req.method === 'DELETE') {
+      const feederId = decodeURIComponent(pathname.slice('/api/bloom/feeders/'.length));
+      if (!feederId) return sendJson(res, 400, { error: 'Missing feeder ID' });
+      bloomDeleteFeederStmt.run(feederId);
+      const { feeders } = readBloomFeeders();
+      return sendJson(res, 200, { deleted: true, id: feederId, feeders });
+    }
+
     if (pathname.startsWith('/api/')) {
       return sendJson(res, 404, { error: 'API endpoint not found' });
     }
@@ -930,12 +1405,13 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`💾 Databases:`);
   console.log(`   • Howard:    ${HOWARD_DB_PATH}`);
   console.log(`   • Cadence:   ${CADENCE_DB_PATH}`);
+  console.log(`   • Bloom:     ${BLOOM_DB_PATH}`);
   console.log(`   • Floodgate: ${FLOODGATE_DB_PATH}`);
 });
 
 const shutdown = () => {
   server.close(() => {
-    for (const dbInstance of [howardDb, cadenceDb, floodgateDb]) {
+    for (const dbInstance of [howardDb, cadenceDb, floodgateDb, bloomDb]) {
       try {
         dbInstance.close();
       } catch {

@@ -1,9 +1,13 @@
 import React, { useMemo } from 'react';
 import { doesAlmanacEventOccurOnDate } from './AlmanacApp.jsx';
 import { getLedgerScheduleInfo } from './LedgerApp.jsx';
+import { computeBloomSummary } from './BloomApp.jsx';
 import {
   Home,
   Cat,
+  Flower2,
+  Droplets,
+  Bug,
   Sun,
   Moon,
   CheckCircle2,
@@ -57,12 +61,15 @@ export default function FoyerApp({
   profiles,
   darkMode,
   cadenceSnapshot,
+  bloomSnapshot,
   floodgateSnapshot,
   almanacEvents,
   ledgerData,
   beaconInfo,
   onNavigateApp,
   onQuickRecordDose,
+  onQuickMistMantis,
+  onClearMantisLivePrey,
   onOpenFloodgate,
   onOpenAlmanacDate,
   onOpenProfileModal
@@ -75,6 +82,11 @@ export default function FoyerApp({
     hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   const catName = cadenceSnapshot?.settings?.catName || 'Pet';
+  const bloomSummary = useMemo(
+    () => computeBloomSummary(bloomSnapshot, now),
+    [bloomSnapshot, todayKey]
+  );
+  const mantisName = bloomSummary.settings.mantisName || 'Mantis';
   const partner1Name = (profiles || []).find((p) => p.id === 'partner1')?.name || 'Partner 1';
   const partner2Name = (profiles || []).find((p) => p.id === 'partner2')?.name || 'Partner 2';
   const medName = cadenceSnapshot?.settings?.medicationName || 'Oral Solution';
@@ -218,8 +230,8 @@ export default function FoyerApp({
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {activeProfile.id === 'caregiver'
-                ? `Caregiver & Pet Sitter View — ${catName}'s live medication schedule, pet care, and household emergency guide.`
-                : `Here is your live household briefing across ${catName}'s medicine, calendar events, and household finances.`}
+                ? `Caregiver & Pet Sitter View — ${catName}'s medicine, ${mantisName}'s mantis habitat, and emergency house guide.`
+                : `Here is your live household briefing across ${catName}'s medicine, ${mantisName}'s growth & habitat, calendar events, and finances.`}
             </p>
           </div>
         </div>
@@ -265,6 +277,86 @@ export default function FoyerApp({
             className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shrink-0 cursor-pointer"
           >
             Manage Bottle in Cadence &rarr;
+          </button>
+        </section>
+      )}
+
+      {/* BLOOM SAFETY ALERTS: UNEATEN LIVE PREY, PREMOLT/HARDENING LOCKOUT, OR FEEDER CULTURE LOW */}
+      {bloomSummary.settings.livePreyInside && (
+        <section className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border bg-rose-500/10 border-rose-500/40 text-rose-950 dark:text-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-rose-600 text-white flex items-center justify-center shrink-0">
+              <ShieldAlert className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-extrabold">
+                Uneaten Live Prey Inside {mantisName}&apos;s Enclosure
+              </h3>
+              <p className="text-xs opacity-85">
+                {bloomSummary.settings.livePreyNote || 'Live feeder left inside.'} Check that {mantisName} ate or remove before lights-out.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClearMantisLivePrey}
+            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shrink-0 cursor-pointer"
+          >
+            ✓ Prey Eaten / Removed
+          </button>
+        </section>
+      )}
+
+      {bloomSummary.isNoFeedLockout && (
+        <section className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border bg-fuchsia-500/10 border-fuchsia-500/40 text-fuchsia-950 dark:text-fuchsia-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-fuchsia-600 text-white flex items-center justify-center shrink-0">
+              <Flower2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-extrabold">
+                {bloomSummary.effectiveStatus === 'premolt'
+                  ? `⚠️ ${mantisName} is in Premolt Watch — Do NOT Offer Live Prey`
+                  : `🛡️ ${mantisName} Molted to ${bloomSummary.settings.currentInstar} — Hardening (${bloomSummary.hardeningRemainingLabel} left)`}
+              </h3>
+              <p className="text-xs opacity-85">
+                {bloomSummary.effectiveStatus === 'premolt'
+                  ? 'Keep enclosure unobstructed and mist wall gently; do not bump lid or leave feeders inside.'
+                  : 'New exoskeleton is hardening—gentle wall misting only, hold all live prey until timer finishes.'}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigateApp('bloom')}
+            className="px-4 py-2 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-700 text-white font-bold text-xs shrink-0 cursor-pointer"
+          >
+            Open Bloom &rarr;
+          </button>
+        </section>
+      )}
+
+      {bloomSummary.feederAlerts.length > 0 && activeProfile.id !== 'caregiver' && (
+        <section className="rounded-2xl sm:rounded-3xl p-4 border bg-lime-500/10 border-lime-500/40 text-lime-950 dark:text-lime-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-lime-600 text-white flex items-center justify-center shrink-0">
+              <Bug className="w-4 h-4" />
+            </div>
+            <div className="text-xs">
+              <div className="font-extrabold text-sm">
+                {mantisName}&apos;s Feeder Stash Alert ({bloomSummary.feederAlerts[0].name})
+              </div>
+              <p className="opacity-85">
+                {bloomSummary.feederAlerts.length} active feeder culture{bloomSummary.feederAlerts.length > 1 ? 's are' : ' is'} running low or nearing culture crash age.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigateApp('bloom')}
+            className="px-3.5 py-2 rounded-xl bg-lime-600 hover:bg-lime-700 text-white font-bold text-xs shrink-0 cursor-pointer"
+          >
+            Check Feeders in Bloom &rarr;
           </button>
         </section>
       )}
@@ -454,6 +546,181 @@ export default function FoyerApp({
                 <span>
                   Log {catName}&apos;s Evening Dose ({activeProfile.caregiverName || activeProfile.name})
                 </span>
+              </button>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* ====================================================================
+          3B. LIVE BLOOM FAST-ACTION WIDGET (MANTIS MISTING, FEEDING & STAGE)
+      ==================================================================== */}
+      <section
+        className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${
+          darkMode
+            ? 'bg-slate-900 border-slate-800'
+            : 'bg-white border-slate-200/90'
+        }`}
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200/70 dark:border-slate-800">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-lime-500 to-emerald-600 text-white flex items-center justify-center shadow-xs">
+              <Flower2 className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-extrabold">
+                  {mantisName} • {bloomSummary.settings.commonName}
+                </h2>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-lime-500/15 text-lime-700 dark:text-lime-300 border border-lime-500/30">
+                  {bloomSummary.settings.currentInstar} • Day {bloomSummary.daysInCurrentInstar}
+                </span>
+                {bloomSummary.isNoFeedLockout && (
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-fuchsia-600 text-white">
+                    {bloomSummary.effectiveStatus === 'premolt' ? 'Premolt (No Prey)' : 'Hardening'}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Habitat misting, prey log &amp; molt tracker (logs as{' '}
+                <strong className="text-slate-700 dark:text-slate-200">
+                  {activeProfile.caregiverName || activeProfile.name}
+                </strong>
+                )
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => onNavigateApp('bloom')}
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-lime-600 dark:text-lime-400 hover:underline cursor-pointer"
+          >
+            <span>Open Full Bloom Habitat &amp; Growth</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Quick Enclosure Mist Card */}
+          <div
+            className={`rounded-2xl p-4 border-2 flex flex-col justify-between gap-3 transition ${
+              bloomSummary.todayMistCount > 0
+                ? darkMode
+                  ? 'bg-emerald-950/30 border-emerald-700/70'
+                  : 'bg-emerald-50/70 border-emerald-300'
+                : darkMode
+                  ? 'bg-slate-800/50 border-slate-700'
+                  : 'bg-slate-50/80 border-slate-200'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    bloomSummary.todayMistCount > 0
+                      ? 'bg-sky-600 text-white'
+                      : 'bg-sky-500/20 text-sky-600 dark:text-sky-300'
+                  }`}
+                >
+                  <Droplets className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="font-bold text-sm">Enclosure Wall Mist</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    {bloomSummary.lastMist
+                      ? `Last misted ${bloomSummary.lastMist.timeAgoLabel} by ${bloomSummary.lastMist.by}`
+                      : 'No mists logged yet'}
+                  </div>
+                </div>
+              </div>
+
+              <span
+                className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase ${
+                  bloomSummary.isMistDue
+                    ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                    : 'bg-emerald-600 text-white'
+                }`}
+              >
+                {bloomSummary.isMistDue ? 'Due' : 'Hydrated'}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={onQuickMistMantis}
+              className={`w-full py-2.5 px-4 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer transition ${
+                bloomSummary.todayMistCount > 0
+                  ? darkMode
+                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                  : 'bg-gradient-to-r from-sky-600 to-teal-600 hover:from-sky-700 hover:to-teal-700 text-white shadow-sm'
+              }`}
+            >
+              <Droplets className="w-4 h-4" />
+              <span>
+                {bloomSummary.todayMistCount > 0
+                  ? `Log Another Mist (${bloomSummary.todayMistCount} today)`
+                  : `Mist ${mantisName}'s Enclosure (${activeProfile.caregiverName || activeProfile.name})`}
+              </span>
+            </button>
+          </div>
+
+          {/* Quick Feeding & Instar Status Card */}
+          <div
+            className={`rounded-2xl p-4 border-2 flex flex-col justify-between gap-3 transition ${
+              bloomSummary.isNoFeedLockout
+                ? darkMode
+                  ? 'bg-fuchsia-950/25 border-fuchsia-800/70'
+                  : 'bg-fuchsia-50/60 border-fuchsia-200'
+                : darkMode
+                  ? 'bg-slate-800/50 border-slate-700'
+                  : 'bg-slate-50/80 border-slate-200'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-lime-500/20 text-lime-600 dark:text-lime-300 flex items-center justify-center">
+                  <Bug className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="font-bold text-sm">Feeding &amp; Abdomen</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    {bloomSummary.lastMeal
+                      ? `Last ate ${bloomSummary.lastMeal.friendlyWhen} (${bloomSummary.lastMeal.count}× ${bloomSummary.lastMeal.preyLabel?.split(' (')[0]})`
+                      : 'No meals logged yet'}
+                  </div>
+                </div>
+              </div>
+
+              <span className="px-2.5 py-1 rounded-full text-[11px] font-bold capitalize bg-lime-500/15 text-lime-700 dark:text-lime-300">
+                {bloomSummary.latestAbdomen ? `Abdomen: ${bloomSummary.latestAbdomen}` : bloomSummary.settings.currentInstar}
+              </span>
+            </div>
+
+            {bloomSummary.isNoFeedLockout ? (
+              <div className="flex items-center justify-between text-xs pt-2 border-t border-fuchsia-500/20 text-fuchsia-700 dark:text-fuchsia-300 font-semibold">
+                <span>
+                  {bloomSummary.effectiveStatus === 'premolt'
+                    ? '⚠️ Premolt — Do not offer live prey'
+                    : `🛡️ Hardening (${bloomSummary.hardeningRemainingLabel} left)`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onNavigateApp('bloom')}
+                  className="underline cursor-pointer"
+                >
+                  Manage
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onNavigateApp('bloom')}
+                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-lime-600 to-emerald-600 hover:from-lime-700 hover:to-emerald-700 text-white font-extrabold text-xs sm:text-sm shadow-sm flex items-center justify-center gap-2 cursor-pointer transition"
+              >
+                <Bug className="w-4 h-4" />
+                <span>Log {mantisName}&apos;s Meal or Abdomen Check &rarr;</span>
               </button>
             )}
           </div>

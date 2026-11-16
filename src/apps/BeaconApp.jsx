@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   ShieldAlert,
   Cat,
+  Flower2,
   Phone,
   Stethoscope,
   Wifi,
@@ -16,6 +17,7 @@ export default function BeaconApp({
   darkMode,
   beaconInfo,
   cadenceSettings,
+  bloomSnapshot,
   onSaveBeacon,
   onNavigateApp,
   showToast
@@ -32,6 +34,8 @@ export default function BeaconApp({
   }, [beaconInfo, isEditing]);
 
   const catName = cadenceSettings?.catName || 'Pet';
+  const bloomSettings = bloomSnapshot?.settings || {};
+  const mantisName = bloomSettings.mantisName || 'Mantis';
 
   const handleCopyWifiPassword = async () => {
     const pwd = beaconInfo?.houseGuide?.wifiPassword;
@@ -78,12 +82,22 @@ export default function BeaconApp({
           <button
             type="button"
             onClick={() => onNavigateApp('cadence')}
-            className="px-2.5 sm:px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+            className="px-2.5 sm:px-3 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
             title={`Open ${catName}'s Medicine (Cadence)`}
           >
             <Cat className="w-4 h-4 shrink-0" />
             <span className="sm:hidden">Cadence</span>
-            <span className="hidden sm:inline">Open {catName}&apos;s Medicine (Cadence)</span>
+            <span className="hidden sm:inline">{catName} (Cadence)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigateApp('bloom')}
+            className="px-2.5 sm:px-3 py-2 rounded-xl bg-lime-600 hover:bg-lime-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+            title={`Open ${mantisName}'s Habitat & Care (Bloom)`}
+          >
+            <Flower2 className="w-4 h-4 shrink-0" />
+            <span className="sm:hidden">Bloom</span>
+            <span className="hidden sm:inline">{mantisName} (Bloom)</span>
           </button>
           {canEdit && (
             <button
@@ -419,6 +433,21 @@ export default function BeaconApp({
                 </div>
                 <p className="leading-relaxed">
                   {cadenceSettings?.administrationNote || beaconInfo?.petCare?.summary}
+                </p>
+              </div>
+
+              <div
+                className={`p-3 sm:p-3.5 rounded-xl sm:rounded-2xl border ${
+                  darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-lime-50/60 border-lime-200/70'
+                }`}
+              >
+                <div className="font-bold text-lime-700 dark:text-lime-300 mb-1">
+                  🌸 {mantisName} ({bloomSettings.commonName || 'Spiny Flower Mantis'} •{' '}
+                  {bloomSettings.currentInstar || 'L2'})
+                </div>
+                <p className="leading-relaxed">
+                  {bloomSettings.careNote ||
+                    'Mist one enclosure wall lightly once daily for drinking droplets; never feed live prey during Premolt Watch or Post-Molt Hardening.'}
                 </p>
               </div>
 

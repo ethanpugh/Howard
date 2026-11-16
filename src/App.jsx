@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Home,
   Cat,
+  Flower2,
   Calendar,
   Heart,
   Wallet,
@@ -26,6 +27,7 @@ import {
 
 import FoyerApp from './apps/FoyerApp.jsx';
 import CadenceApp from './apps/CadenceApp.jsx';
+import BloomApp, { DEFAULT_BLOOM_SETTINGS } from './apps/BloomApp.jsx';
 import AlmanacApp from './apps/AlmanacApp.jsx';
 import FloodgateApp from './apps/FloodgateApp.jsx';
 import LedgerApp from './apps/LedgerApp.jsx';
@@ -58,6 +60,14 @@ const APP_REGISTRY = [
     icon: Cat,
     accent: 'bg-emerald-600 text-white',
     badgeClass: 'text-emerald-600 dark:text-emerald-400'
+  },
+  {
+    id: 'bloom',
+    name: 'Bloom',
+    subtitle: 'Mantis Care',
+    icon: Flower2,
+    accent: 'bg-lime-600 text-white',
+    badgeClass: 'text-lime-600 dark:text-lime-400'
   },
   {
     id: 'almanac',
@@ -103,7 +113,7 @@ const FALLBACK_PROFILES = [
     badgeEmoji: '⚡',
     pinEnabled: false,
     lockedOutOfPin: false,
-    allowedApps: ['foyer', 'cadence', 'almanac', 'ledger', 'beacon'],
+    allowedApps: ['foyer', 'cadence', 'bloom', 'almanac', 'ledger', 'beacon'],
     caregiverName: 'Partner 1'
   },
   {
@@ -114,7 +124,7 @@ const FALLBACK_PROFILES = [
     badgeEmoji: '🌸',
     pinEnabled: false,
     lockedOutOfPin: false,
-    allowedApps: ['foyer', 'cadence', 'almanac', 'floodgate', 'ledger', 'beacon'],
+    allowedApps: ['foyer', 'cadence', 'bloom', 'almanac', 'floodgate', 'ledger', 'beacon'],
     caregiverName: 'Partner 2'
   },
   {
@@ -125,7 +135,7 @@ const FALLBACK_PROFILES = [
     badgeEmoji: '🐾',
     pinEnabled: false,
     lockedOutOfPin: true,
-    allowedApps: ['foyer', 'cadence', 'beacon'],
+    allowedApps: ['foyer', 'cadence', 'bloom', 'beacon'],
     caregiverName: 'Caregiver'
   }
 ];
@@ -229,6 +239,13 @@ export default function App() {
     logsByDate: {}
   });
 
+  const [bloomSnapshot, setBloomSnapshot] = useState({
+    settings: DEFAULT_BLOOM_SETTINGS,
+    logsByDate: {},
+    molts: [],
+    feeders: []
+  });
+
   // Track which PIN-protected profiles have been unlocked during this session
   const [unlockedProfiles, setUnlockedProfiles] = useState(() => ({
     caregiver: true
@@ -274,13 +291,13 @@ export default function App() {
 
   // Visible apps for the active profile
   const allowedApps = useMemo(() => {
-    const allowedIds = activeProfile?.allowedApps || ['foyer', 'cadence', 'beacon'];
+    const allowedIds = activeProfile?.allowedApps || ['foyer', 'cadence', 'bloom', 'beacon'];
     return APP_REGISTRY.filter((app) => allowedIds.includes(app.id));
   }, [activeProfile]);
 
   // Ensure activeAppId is always permitted for the active profile
   useEffect(() => {
-    const allowedIds = activeProfile?.allowedApps || ['foyer', 'cadence', 'beacon'];
+    const allowedIds = activeProfile?.allowedApps || ['foyer', 'cadence', 'bloom', 'beacon'];
     if (!allowedIds.includes(activeAppId)) {
       setActiveAppId('foyer');
     }
@@ -344,6 +361,15 @@ export default function App() {
         setCadenceSnapshot({
           settings: data.cadence.settings || {},
           logsByDate: data.cadence.logsByDate || {}
+        });
+      }
+
+      if (data.bloom) {
+        setBloomSnapshot({
+          settings: data.bloom.settings || DEFAULT_BLOOM_SETTINGS,
+          logsByDate: data.bloom.logsByDate || {},
+          molts: data.bloom.molts || [],
+          feeders: data.bloom.feeders || []
         });
       }
 
@@ -583,6 +609,80 @@ export default function App() {
       fetchUnifiedSync();
     } catch {
       showToast('Failed to save dose to server', 'error');
+    }
+  };
+
+  const handleQuickMistMantis = async () => {
+    const todayKey = getLocalDateKey(new Date());
+    const nowIso = new Date().toISOString();
+    const caregiverName = activeProfile.caregiverName || activeProfile.name;
+    const mantisName = bloomSnapshot.settings?.mantisName || 'Mantis';
+    const currentDay = bloomSnapshot.logsByDate?.[todayKey] || {
+      dateKey: todayKey,
+      mists: [],
+      feedings: [],
+      climateChecks: [],
+      behaviors: []
+    };
+
+    const newMist = {
+      id: `mist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: nowIso,
+      by: caregiverName,
+      dropletDrinkObserved: false,
+      note: ''
+    };
+
+    const updatedDay = {
+      ...currentDay,
+      dateKey: todayKey,
+      mists: [...(currentDay.mists || []), newMist],
+      updatedAt: nowIso
+    };
+
+    setBloomSnapshot((prev) => ({
+      ...prev,
+      logsByDate: {
+        ...prev.logsByDate,
+        [todayKey]: updatedDay
+      }
+    }));
+
+    try {
+      const res = await fetch(`/api/bloom/logs/${encodeURIComponent(todayKey)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedDay)
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      showToast(`Logged ${mantisName}'s enclosure mist (${caregiverName})`);
+      fetchUnifiedSync();
+    } catch {
+      showToast('Failed to save mist log to server', 'error');
+    }
+  };
+
+  const handleClearMantisLivePrey = async () => {
+    const mantisName = bloomSnapshot.settings?.mantisName || 'Mantis';
+    setBloomSnapshot((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        livePreyInside: false,
+        livePreyNote: ''
+      }
+    }));
+    try {
+      const res = await fetch('/api/bloom/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ livePreyInside: false, livePreyNote: '' })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      showToast(`Marked ${mantisName}'s enclosure clear of live prey`);
+      fetchUnifiedSync();
+    } catch {
+      showToast('Failed to update Bloom enclosure status', 'error');
     }
   };
 
@@ -886,12 +986,15 @@ export default function App() {
             profiles={profiles}
             darkMode={darkMode}
             cadenceSnapshot={cadenceSnapshot}
+            bloomSnapshot={bloomSnapshot}
             floodgateSnapshot={floodgateSnapshot}
             almanacEvents={almanacEvents}
             ledgerData={ledgerData}
             beaconInfo={beaconInfo}
             onNavigateApp={(appId) => setActiveAppId(appId)}
             onQuickRecordDose={handleQuickRecordPetDose}
+            onQuickMistMantis={handleQuickMistMantis}
+            onClearMantisLivePrey={handleClearMantisLivePrey}
             onOpenFloodgate={openFloodgateWithIntent}
             onOpenAlmanacDate={openAlmanacOnDate}
             onOpenProfileModal={() => setProfileModalOpen(true)}
@@ -906,6 +1009,16 @@ export default function App() {
           />
         )}
 
+        {activeAppId === 'bloom' && (
+          <BloomApp
+            activeProfile={activeProfile}
+            darkMode={darkMode}
+            bloomSnapshot={bloomSnapshot}
+            onGlobalSync={fetchUnifiedSync}
+            showToast={showToast}
+          />
+        )}
+
         {activeAppId === 'almanac' && (
           <AlmanacApp
             activeProfile={activeProfile}
@@ -913,6 +1026,7 @@ export default function App() {
             darkMode={darkMode}
             almanacEvents={almanacEvents}
             cadenceSnapshot={cadenceSnapshot}
+            bloomSnapshot={bloomSnapshot}
             floodgateSnapshot={floodgateSnapshot}
             ledgerData={ledgerData}
             initialDate={almanacIntentDate}
@@ -948,6 +1062,7 @@ export default function App() {
             darkMode={darkMode}
             beaconInfo={beaconInfo}
             cadenceSettings={cadenceSnapshot.settings}
+            bloomSnapshot={bloomSnapshot}
             onSaveBeacon={handleSaveBeaconInfo}
             onNavigateApp={(appId) => setActiveAppId(appId)}
             showToast={showToast}
@@ -978,14 +1093,14 @@ export default function App() {
                 key={appItem.id}
                 type="button"
                 onClick={() => setActiveAppId(appItem.id)}
-                className={`flex flex-col items-center justify-center gap-1 text-[11px] font-bold transition-colors ${
+                className={`flex flex-col items-center justify-center gap-0.5 px-0.5 text-[10px] sm:text-[11px] font-bold transition-colors min-w-0 ${
                   isActive
                     ? appItem.badgeClass
                     : 'text-slate-400 dark:text-slate-500 hover:text-slate-700'
                 }`}
               >
-                <Icon className="w-5 h-5" />
-                <span className="truncate max-w-[64px]">{appItem.name}</span>
+                <Icon className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+                <span className="truncate max-w-full">{appItem.name}</span>
               </button>
             );
           })}
@@ -1384,6 +1499,14 @@ export default function App() {
                   data/cadence.db ({Object.keys(cadenceSnapshot.logsByDate || {}).length} days)
                 </code>
               </div>
+              <div className="flex items-center justify-between">
+                <span className="font-semibold">
+                  Bloom DB ({bloomSnapshot.settings?.mantisName || 'Mantis'}):
+                </span>
+                <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono">
+                  data/bloom.db ({Object.keys(bloomSnapshot.logsByDate || {}).length} days, {(bloomSnapshot.molts || []).length} molts • {bloomSnapshot.settings?.currentInstar || 'L2'})
+                </code>
+              </div>
               {activeProfile.id === 'partner2' && (
                 <div className="flex items-center justify-between">
                   <span className="font-semibold">Floodgate DB ({activeProfile.name}):</span>
@@ -1404,8 +1527,8 @@ export default function App() {
                 <span>
                   Download Full Household Backup (
                   {activeProfile.id === 'partner2'
-                    ? 'Howard + Cadence + Floodgate'
-                    : 'Howard + Cadence'}
+                    ? 'Howard + Cadence + Bloom + Floodgate'
+                    : 'Howard + Cadence + Bloom'}
                   )
                 </span>
               </button>

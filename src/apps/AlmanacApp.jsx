@@ -7,6 +7,7 @@ import {
   Edit3,
   Trash2,
   Cat,
+  Flower2,
   Heart,
   Stethoscope,
   Wallet,
@@ -16,6 +17,7 @@ import {
   X
 } from 'lucide-react';
 import { doesLedgerItemOccurOnDate } from './LedgerApp.jsx';
+import { computeBloomSummary } from './BloomApp.jsx';
 
 const getTodayStr = () => {
   const now = new Date();
@@ -104,6 +106,7 @@ export default function AlmanacApp({
   darkMode,
   almanacEvents,
   cadenceSnapshot,
+  bloomSnapshot,
   floodgateSnapshot,
   ledgerData,
   initialDate,
@@ -134,6 +137,7 @@ export default function AlmanacApp({
 
   // Overlay Toggles
   const [showCadenceLayer, setShowCadenceLayer] = useState(true);
+  const [showBloomLayer, setShowBloomLayer] = useState(true);
   const [showLedgerLayer, setShowLedgerLayer] = useState(true);
   const [showFloodgateLayer, setShowFloodgateLayer] = useState(
     activeProfile.id === 'partner2'
@@ -154,6 +158,11 @@ export default function AlmanacApp({
   const [linkGpReportInput, setLinkGpReportInput] = useState(false);
 
   const catName = cadenceSnapshot?.settings?.catName || 'Pet';
+  const bloomSummary = useMemo(
+    () => computeBloomSummary(bloomSnapshot),
+    [bloomSnapshot]
+  );
+  const mantisName = bloomSummary.settings.mantisName || 'Mantis';
 
   // Calculate projected bottle expiry date for calendar overlay
   const bottleExpiryDateStr = useMemo(() => {
@@ -225,6 +234,9 @@ export default function AlmanacApp({
           )
       );
       const cadenceLog = cadenceSnapshot?.logsByDate?.[dateStr] || null;
+      const bloomLog = bloomSnapshot?.logsByDate?.[dateStr] || null;
+      const bloomMoltsOnDay = (bloomSnapshot?.molts || []).filter((m) => m.dateKey === dateStr);
+      const isProjectedMolt = bloomSummary.projectedNextMoltDateStr === dateStr;
       const floodgateLog =
         activeProfile.allowedApps.includes('floodgate')
           ? floodgateSnapshot?.logsByDate?.[dateStr] || null
@@ -237,6 +249,9 @@ export default function AlmanacApp({
         dateStr,
         dayEvents,
         cadenceLog,
+        bloomLog,
+        bloomMoltsOnDay,
+        isProjectedMolt,
         floodgateLog,
         ledgerDue,
         isBottleExpiry
@@ -247,6 +262,8 @@ export default function AlmanacApp({
     calendarMonth,
     almanacEvents,
     cadenceSnapshot,
+    bloomSnapshot,
+    bloomSummary.projectedNextMoltDateStr,
     floodgateSnapshot,
     getLedgerItemsForDate,
     bottleExpiryDateStr,
@@ -263,17 +280,33 @@ export default function AlmanacApp({
         )
     );
     const cadenceLog = cadenceSnapshot?.logsByDate?.[selectedDate] || null;
+    const bloomLog = bloomSnapshot?.logsByDate?.[selectedDate] || null;
+    const bloomMoltsOnDay = (bloomSnapshot?.molts || []).filter(
+      (m) => m.dateKey === selectedDate
+    );
+    const isProjectedMolt = bloomSummary.projectedNextMoltDateStr === selectedDate;
     const floodgateLog =
       activeProfile.allowedApps.includes('floodgate')
         ? floodgateSnapshot?.logsByDate?.[selectedDate] || null
         : null;
     const ledgerDue = getLedgerItemsForDate(selectedDate);
     const isBottleExpiry = bottleExpiryDateStr === selectedDate;
-    return { dayEvents, cadenceLog, floodgateLog, ledgerDue, isBottleExpiry };
+    return {
+      dayEvents,
+      cadenceLog,
+      bloomLog,
+      bloomMoltsOnDay,
+      isProjectedMolt,
+      floodgateLog,
+      ledgerDue,
+      isBottleExpiry
+    };
   }, [
     selectedDate,
     almanacEvents,
     cadenceSnapshot,
+    bloomSnapshot,
+    bloomSummary.projectedNextMoltDateStr,
     floodgateSnapshot,
     getLedgerItemsForDate,
     bottleExpiryDateStr,
@@ -460,7 +493,7 @@ export default function AlmanacApp({
               Almanac • Unified Household Calendar
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Household events cross-pollinated with {catName}&apos;s Cadence logs, Ledger due dates
+              Household events cross-pollinated with {catName}&apos;s Cadence logs, {mantisName}&apos;s Bloom molts &amp; care, Ledger due dates
               {activeProfile.allowedApps.includes('floodgate') ? ', and Floodgate cycle logs' : ''}
             </p>
           </div>
@@ -485,6 +518,21 @@ export default function AlmanacApp({
           >
             <Cat className="w-3.5 h-3.5" />
             <span>Cadence</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowBloomLayer(!showBloomLayer)}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition cursor-pointer ${
+              showBloomLayer
+                ? 'bg-lime-600 text-white border-lime-600'
+                : darkMode
+                  ? 'bg-slate-800 border-slate-700 text-slate-400'
+                  : 'bg-slate-100 border-slate-200 text-slate-500'
+            }`}
+          >
+            <Flower2 className="w-3.5 h-3.5" />
+            <span>Bloom</span>
           </button>
 
           <button
@@ -611,6 +659,9 @@ export default function AlmanacApp({
                 dateStr,
                 dayEvents,
                 cadenceLog,
+                bloomLog,
+                bloomMoltsOnDay,
+                isProjectedMolt,
                 floodgateLog,
                 ledgerDue,
                 isBottleExpiry
@@ -620,6 +671,8 @@ export default function AlmanacApp({
 
               const amDone = cadenceLog?.morning?.given;
               const pmDone = cadenceLog?.evening?.given;
+              const hasBloomActivity =
+                (bloomLog?.mists?.length || 0) > 0 || (bloomLog?.feedings?.length || 0) > 0;
               const hasFloodgateBleed =
                 floodgateLog?.bleedingSeverity &&
                 floodgateLog.bleedingSeverity !== 'none';
@@ -654,6 +707,12 @@ export default function AlmanacApp({
                             amDone && pmDone ? 'bg-emerald-500' : 'bg-amber-400'
                           }`}
                           title={`${catName}: ${amDone && pmDone ? 'AM & PM given' : '1 dose given'}`}
+                        />
+                      )}
+                      {showBloomLayer && hasBloomActivity && (
+                        <span
+                          className="w-2 h-2 rounded-full bg-lime-500"
+                          title={`${mantisName}: Care logged`}
                         />
                       )}
                       {showFloodgateLayer && hasFloodgateBleed && (
@@ -702,6 +761,20 @@ export default function AlmanacApp({
                     {showCadenceLayer && isBottleExpiry && (
                       <div className="w-full text-[9px] font-bold px-1 py-0.5 rounded bg-amber-500 text-slate-950 truncate">
                         🐾 Bottle Expiry
+                      </div>
+                    )}
+                    {showBloomLayer &&
+                      bloomMoltsOnDay.map((m) => (
+                        <div
+                          key={m.id}
+                          className="w-full text-[9px] font-bold px-1 py-0.5 rounded bg-lime-600 text-white truncate"
+                        >
+                          🦋 {m.fromInstar}&rarr;{m.toInstar}
+                        </div>
+                      ))}
+                    {showBloomLayer && isProjectedMolt && bloomMoltsOnDay.length === 0 && (
+                      <div className="w-full text-[9px] font-bold px-1 py-0.5 rounded bg-lime-500/20 text-lime-800 dark:text-lime-200 truncate">
+                        🌿 Est. Molt
                       </div>
                     )}
                   </div>
@@ -883,6 +956,71 @@ export default function AlmanacApp({
                       {selectedCellData.cadenceLog?.evening?.given
                         ? `✓ ${selectedCellData.cadenceLog.evening.givenBy}`
                         : 'Not logged'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 2B. Bloom Overlay Summary */}
+            {showBloomLayer && (
+              <div
+                className={`p-3.5 rounded-2xl border space-y-1.5 text-xs ${
+                  darkMode
+                    ? 'bg-slate-800/40 border-slate-800'
+                    : 'bg-lime-50/60 border-lime-200/70'
+                }`}
+              >
+                <div className="flex items-center justify-between font-bold text-lime-700 dark:text-lime-300">
+                  <span className="flex items-center gap-1.5">
+                    <Flower2 className="w-3.5 h-3.5" /> {mantisName}&apos;s Habitat (Bloom)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onNavigateApp('bloom')}
+                    className="underline text-[11px] cursor-pointer"
+                  >
+                    Open Bloom
+                  </button>
+                </div>
+
+                {selectedCellData.bloomMoltsOnDay.length > 0 && (
+                  <div className="p-2 rounded-xl bg-lime-600 text-white font-bold">
+                    🎉 Molted:{' '}
+                    {selectedCellData.bloomMoltsOnDay
+                      .map((m) => `${m.fromInstar} → ${m.toInstar}`)
+                      .join(', ')}
+                  </div>
+                )}
+
+                {selectedCellData.isProjectedMolt &&
+                  selectedCellData.bloomMoltsOnDay.length === 0 && (
+                    <div className="p-2 rounded-xl bg-lime-500/15 border border-lime-500/30 font-semibold">
+                      🌿 Projected next molt window (~{bloomSummary.avgInterMoltDays}d cycle)
+                    </div>
+                  )}
+
+                <div className="grid grid-cols-2 gap-2 pt-0.5">
+                  <div className="p-2 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-200/60 dark:border-slate-700">
+                    <div className="font-bold">Misting</div>
+                    <div className="text-[11px] opacity-80">
+                      {(selectedCellData.bloomLog?.mists || []).length > 0
+                        ? `✓ ${selectedCellData.bloomLog.mists.length} mist(s)`
+                        : 'None logged'}
+                    </div>
+                  </div>
+                  <div className="p-2 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-200/60 dark:border-slate-700">
+                    <div className="font-bold">Feeding</div>
+                    <div className="text-[11px] opacity-80">
+                      {(selectedCellData.bloomLog?.feedings || []).length > 0
+                        ? selectedCellData.bloomLog.feedings
+                            .map((f) =>
+                              f.outcome === 'refused'
+                                ? 'Refused'
+                                : `${f.count}× ${f.preyLabel?.split(' (')[0]}`
+                            )
+                            .join(', ')
+                        : 'None logged'}
                     </div>
                   </div>
                 </div>

@@ -22,9 +22,10 @@
 
 | Module | Description |
 | :--- | :--- |
-| **🏠 Foyer** | **Morning Briefing & Fast Actions:** Time-aware daily dashboard with one-tap Morning/Evening pet medication dose buttons, automatic bottle expiry warnings, upcoming **Almanac** agenda, and **Ledger** upcoming bills & monthly spend. |
+| **🏠 Foyer** | **Morning Briefing & Fast Actions:** Time-aware daily dashboard with one-tap Morning/Evening pet medication dose buttons, one-tap **Bloom** mantis enclosure misting & premolt/hardening safety alerts, automatic bottle expiry warnings, upcoming **Almanac** agenda, and **Ledger** upcoming bills & monthly spend. |
 | **🐾 Cadence** | **Pet Medication Tracker:** Twice-daily anti-double-dose status banner, bottle shelf-life progress bar, and weekly adherence history—automatically pre-selecting the active Howard user. |
-| **📅 Almanac** | **Unified Household Calendar:** Shared events & appointments with live toggleable overlays for **pet medication adherence**, **bottle expiry date**, **Ledger billing days & paydays**, and **Partner 2's Floodgate cycle & printable GP reports**. |
+| **🌸 Bloom** | **Flower Mantis Growth, Feeding & Habitat Tracker:** Daily anti-double-mist & abdomen plumpness feeding log, Premolt Watch & post-molt exoskeleton hardening lockouts, instar/molt milestone timeline, live feeder culture crash alerts, and enclosure molting clearance calculator. |
+| **📅 Almanac** | **Unified Household Calendar:** Shared events & appointments with live toggleable overlays for **pet medication adherence**, **bottle expiry date**, **Bloom mantis molts & care**, **Ledger billing days & paydays**, and **Partner 2's Floodgate cycle & printable GP reports**. |
 | **🌊 Floodgate** | **Private Cycle & Endometriosis Tracker:** Clinical flow severity, blood clot counts/sizes, 0–10 pain scale, bowel/GI flare-ups, medication relief tracking, and printable GP/Specialist consultation summaries. |
 | **💷 Ledger** | **Household Bookkeeping, Subscriptions & Expenses:** Track day-to-day expenses, Direct Debits, subscriptions, and income streams separated between **Partner 1**, **Partner 2**, **Joint/Shared**, and **Unified** views with 50/50 or income-proportional splitting. |
 | **🚨 Beacon** | **Emergency, Vet & House Guide:** Sitter-ready reference card for household pet care, feeding/supply locations, daytime & 24hr emergency vet numbers, household contacts, Wi-Fi, and utilities. |
@@ -35,17 +36,18 @@
 
 Howard tailors navigation and data access based on who is holding the device:
 
-* **⚡ Partner 1:** Access to **Foyer**, **Cadence**, **Almanac**, **Ledger**, and **Beacon** (optional 4–8 digit PIN).
-* **🌸 Partner 2:** Access to **Foyer**, **Cadence**, **Almanac**, **Floodgate**, **Ledger**, and **Beacon** (optional 4–8 digit PIN; protects Floodgate API & UI).
-* **🐾 Caregiver (Pet Sitter Mode):** Always unlocked for zero-friction sitter access—shows **Foyer** (simplified sitter view), **Cadence**, and **Beacon** (read-only).
+* **⚡ Partner 1:** Access to **Foyer**, **Cadence**, **Bloom**, **Almanac**, **Ledger**, and **Beacon** (optional 4–8 digit PIN).
+* **🌸 Partner 2:** Access to **Foyer**, **Cadence**, **Bloom**, **Almanac**, **Floodgate**, **Ledger**, and **Beacon** (optional 4–8 digit PIN; protects Floodgate API & UI).
+* **🐾 Caregiver (Pet Sitter Mode):** Always unlocked for zero-friction sitter access—shows **Foyer** (simplified sitter view), **Cadence**, **Bloom**, and **Beacon** (read-only).
 
 ---
 
 ## 💾 Drop-In Database Architecture
 
-Howard keeps three clean SQLite files inside `./data` (`/app/data` in Docker):
+Howard keeps four clean SQLite files inside `./data` (`/app/data` in Docker):
 * `./data/howard.db` — Profiles, PINs, Almanac calendar events, Ledger bookkeeping, and Beacon house guide.
 * `./data/cadence.db` — 100% schema-compatible with standalone Cadence.
+* `./data/bloom.db` — Mantis specimen settings, daily misting/feeding/climate care logs, molt milestones, and feeder cultures.
 * `./data/floodgate.db` — 100% schema-compatible with standalone Floodgate.
 
 ---
