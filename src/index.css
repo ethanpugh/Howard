@@ -12,10 +12,9 @@ html.dark #root > div {
   color-scheme: dark;
 }
 
-/* Sticky Top Header, Tablet/Desktop Rail & Mobile Floating Capsule */
+/* Sticky Top Header & Tablet/Desktop Rail */
 html.dark header,
-html.dark aside.howard-rail,
-html.dark nav.fixed {
+html.dark aside.howard-rail {
   background-color: rgba(30, 41, 59, 0.94) !important;
   border-color: #3b4b66 !important;
 }
@@ -107,10 +106,9 @@ html.warm #root > div {
   color-scheme: light;
 }
 
-/* Sticky Top Header, Tablet/Desktop Rail & Mobile Floating Capsule */
+/* Sticky Top Header & Tablet/Desktop Rail */
 html.warm header,
-html.warm aside.howard-rail,
-html.warm nav.fixed {
+html.warm aside.howard-rail {
   background-color: rgba(248, 243, 233, 0.94) !important;
   border-color: #dfd5c3 !important;
 }
@@ -122,7 +120,7 @@ html.warm .howard-floating-pill {
 }
 
 /* Main Cards & White Surfaces -> Soft Parchment Cream */
-html.warm .bg-white:not([class*="dark:bg-"]),
+html.warm .bg-white,
 html.warm .bg-white\/80,
 html.warm .bg-white\/90,
 html.warm .bg-white\/95 {
@@ -193,6 +191,21 @@ html.warm [class*="border-stone-200"] {
   border-color: #e2d9c5 !important;
 }
 
+@keyframes howard-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: howard-fade-in 0.18s ease-out;
+}
+
 @media print {
   .no-print {
     display: none !important;
@@ -200,13 +213,32 @@ html.warm [class*="border-stone-200"] {
   .print-only {
     display: block !important;
   }
+  .overflow-x-auto {
+    overflow: visible !important;
+  }
+  .print-block {
+    display: block !important;
+  }
+  thead {
+    display: table-header-group;
+  }
+  tr {
+    break-inside: avoid;
+  }
   html,
-  body,
-  #root,
+  html.dark,
+  html.warm,
+  html body,
+  html.dark body,
+  html.warm body,
+  html #root,
+  html.dark #root > div,
+  html.warm #root > div,
   #root * {
     background-color: #ffffff !important;
     color: #111827 !important;
     border-color: #d1d5db !important;
     box-shadow: none !important;
+    color-scheme: light !important;
   }
 }

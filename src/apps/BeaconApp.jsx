@@ -9,8 +9,10 @@ import {
   Copy,
   Edit3,
   Check,
-  X
+  Plus,
+  Trash2
 } from 'lucide-react';
+import { copyTextToClipboard } from '../utils/householdHelpers.js';
 
 export default function BeaconApp({
   activeProfile,
@@ -33,6 +35,12 @@ export default function BeaconApp({
     }
   }, [beaconInfo, isEditing]);
 
+  useEffect(() => {
+    if (!canEdit && isEditing) {
+      setIsEditing(false);
+    }
+  }, [canEdit, isEditing]);
+
   const catName = cadenceSettings?.catName || 'Pet';
   const bloomSettings = bloomSnapshot?.settings || {};
   const mantisName = bloomSettings.mantisName || 'Mantis';
@@ -40,27 +48,38 @@ export default function BeaconApp({
   const handleCopyWifiPassword = async () => {
     const pwd = beaconInfo?.houseGuide?.wifiPassword;
     if (!pwd) return;
-    try {
-      await navigator.clipboard.writeText(pwd);
+    const ok = await copyTextToClipboard(pwd);
+    if (ok) {
       setCopiedWifi(true);
       if (showToast) showToast('Copied Wi-Fi password to clipboard');
       setTimeout(() => setCopiedWifi(false), 2000);
-    } catch {
-      // ignore clipboard errors
+    } else if (showToast) {
+      showToast('Could not copy Wi-Fi password automatically', 'error');
     }
   };
 
   const handleSave = async (e) => {
     e.preventDefault();
-    await onSaveBeacon(draft);
-    setIsEditing(false);
+    if (!canEdit) return;
+    const cleanedContacts = Array.isArray(draft.contacts)
+      ? draft.contacts.filter(
+          (c) =>
+            (c?.name || '').trim() ||
+            (c?.phone || '').trim() ||
+            (c?.note || '').trim()
+        )
+      : [];
+    const ok = await onSaveBeacon({ ...draft, contacts: cleanedContacts });
+    if (ok !== false) {
+      setIsEditing(false);
+    }
   };
 
   return (
     <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4 space-y-4 sm:space-y-5">
       {/* HEADER */}
       <section
-        className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex items-center justify-between gap-3 ${
+        className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 ${
           darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
         }`}
       >
@@ -78,7 +97,7 @@ export default function BeaconApp({
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 shrink-0">
           <button
             type="button"
             onClick={() => onNavigateApp('cadence')}
@@ -112,6 +131,7 @@ export default function BeaconApp({
                   : 'bg-slate-100 border-slate-200 text-slate-700'
               }`}
               title={isEditing ? 'Cancel Edit' : 'Edit Guide'}
+              aria-label={isEditing ? 'Cancel Edit' : 'Edit Guide'}
             >
               <Edit3 className="w-4 h-4" />
               <span className="hidden sm:inline">{isEditing ? 'Cancel Edit' : 'Edit Guide'}</span>
@@ -194,6 +214,24 @@ export default function BeaconApp({
                     vetInfo: { ...draft.vetInfo, address: e.target.value }
                   })
                 }
+                className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
+                Pet Insurance Policy / Vet Account #
+              </label>
+              <input
+                type="text"
+                value={draft.vetInfo?.policyNumber || ''}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    vetInfo: { ...draft.vetInfo, policyNumber: e.target.value }
+                  })
+                }
+                placeholder="Optional policy number or microchip reference"
                 className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
               />
             </div>
@@ -338,12 +376,48 @@ export default function BeaconApp({
             />
           </div>
 
-          <div className="space-y-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
-            <label className="block text-xs font-bold uppercase tracking-wider opacity-70">
-              Household Emergency Contacts
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
+              Home Emergency &amp; Security Notes
             </label>
+            <textarea
+              rows={2}
+              value={draft.houseGuide?.emergencyNotes || ''}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  houseGuide: { ...draft.houseGuide, emergencyNotes: e.target.value }
+                })
+              }
+              placeholder="Alarm code hints, spare key location, boiler reset instructions..."
+              className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+            />
+          </div>
+
+          <div className="space-y-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
+            <div className="flex items-center justify-between gap-2">
+              <label className="block text-xs font-bold uppercase tracking-wider opacity-70">
+                Household Emergency Contacts
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  setDraft({
+                    ...draft,
+                    contacts: [
+                      ...(draft.contacts || []),
+                      { id: `c-${Date.now()}`, name: '', phone: '', note: '' }
+                    ]
+                  })
+                }
+                className="px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Contact</span>
+              </button>
+            </div>
             {(draft.contacts || []).map((contact, idx) => (
-              <div key={contact.id || idx} className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div key={contact.id || idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
                 <input
                   type="text"
                   value={contact.name || ''}
@@ -353,7 +427,7 @@ export default function BeaconApp({
                     setDraft({ ...draft, contacts: next });
                   }}
                   placeholder="Name"
-                  className="px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                  className="sm:col-span-3 px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
                 />
                 <input
                   type="text"
@@ -364,7 +438,7 @@ export default function BeaconApp({
                     setDraft({ ...draft, contacts: next });
                   }}
                   placeholder="Phone Number"
-                  className="px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                  className="sm:col-span-4 px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
                 />
                 <input
                   type="text"
@@ -375,8 +449,22 @@ export default function BeaconApp({
                     setDraft({ ...draft, contacts: next });
                   }}
                   placeholder="Note (e.g., WhatsApp anytime)"
-                  className="px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                  className="sm:col-span-4 px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
                 />
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDraft({
+                      ...draft,
+                      contacts: (draft.contacts || []).filter((_, i) => i !== idx)
+                    })
+                  }
+                  className="sm:col-span-1 p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 flex items-center justify-center cursor-pointer"
+                  title="Remove contact"
+                  aria-label="Remove contact"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
             ))}
           </div>
@@ -509,25 +597,41 @@ export default function BeaconApp({
                 darkMode ? 'bg-rose-950/20 border-rose-800/60' : 'bg-rose-50/50 border-rose-200'
               }`}
             >
-              <div className="font-extrabold text-base">{beaconInfo?.vetInfo?.clinicName}</div>
-              <div>📍 {beaconInfo?.vetInfo?.address}</div>
-              <div className="flex flex-wrap gap-2 pt-1">
-                <a
-                  href={`tel:${beaconInfo?.vetInfo?.phone}`}
-                  className="px-3 py-2 rounded-xl bg-slate-900 text-white font-bold text-xs flex items-center gap-1.5"
-                >
-                  <Phone className="w-3.5 h-3.5" />
-                  <span>Daytime: {beaconInfo?.vetInfo?.phone}</span>
-                </a>
-                <a
-                  href={`tel:${beaconInfo?.vetInfo?.emergencyPhone}`}
-                  className="px-3 py-2 rounded-xl bg-rose-600 text-white font-bold text-xs flex items-center gap-1.5"
-                >
-                  <Phone className="w-3.5 h-3.5" />
-                  <span>Emergency: {beaconInfo?.vetInfo?.emergencyPhone}</span>
-                </a>
+              <div className="font-extrabold text-base">
+                {beaconInfo?.vetInfo?.clinicName?.trim() || 'Veterinary Clinic not set'}
               </div>
-              {beaconInfo?.vetInfo?.notes && (
+              {beaconInfo?.vetInfo?.address?.trim() && (
+                <div>📍 {beaconInfo.vetInfo.address.trim()}</div>
+              )}
+              {beaconInfo?.vetInfo?.policyNumber?.trim() && (
+                <div className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Policy / Account #: {beaconInfo.vetInfo.policyNumber.trim()}
+                </div>
+              )}
+              {(beaconInfo?.vetInfo?.phone?.trim() ||
+                beaconInfo?.vetInfo?.emergencyPhone?.trim()) && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {beaconInfo?.vetInfo?.phone?.trim() && (
+                    <a
+                      href={`tel:${beaconInfo.vetInfo.phone.trim()}`}
+                      className="px-3 py-2 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 dark:hover:bg-slate-600 text-white font-bold text-xs flex items-center gap-1.5 transition"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                      <span>Daytime: {beaconInfo.vetInfo.phone.trim()}</span>
+                    </a>
+                  )}
+                  {beaconInfo?.vetInfo?.emergencyPhone?.trim() && (
+                    <a
+                      href={`tel:${beaconInfo.vetInfo.emergencyPhone.trim()}`}
+                      className="px-3 py-2 rounded-xl bg-rose-600 text-white font-bold text-xs flex items-center gap-1.5"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                      <span>Emergency: {beaconInfo.vetInfo.emergencyPhone.trim()}</span>
+                    </a>
+                  )}
+                </div>
+              )}
+              {beaconInfo?.vetInfo?.notes?.trim() && (
                 <p className="text-xs pt-2 border-t border-rose-500/20 opacity-85">
                   {beaconInfo.vetInfo.notes}
                 </p>
@@ -539,27 +643,41 @@ export default function BeaconApp({
               <div className="text-xs font-bold uppercase tracking-wider opacity-60">
                 Household Contacts
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {(beaconInfo?.contacts || []).map((c) => (
-                  <div
-                    key={c.id}
-                    className={`p-3.5 rounded-2xl border flex items-center justify-between ${
-                      darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
-                    }`}
-                  >
-                    <div>
-                      <div className="font-bold text-sm">{c.name}</div>
-                      <div className="text-[11px] text-slate-500">{c.note}</div>
-                    </div>
-                    <a
-                      href={`tel:${c.phone}`}
-                      className="px-3 py-1.5 rounded-xl bg-teal-600 text-white text-xs font-bold"
+              {(beaconInfo?.contacts || []).length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {(beaconInfo?.contacts || []).map((c) => (
+                    <div
+                      key={c.id}
+                      className={`p-3.5 rounded-2xl border flex items-center justify-between gap-2 ${
+                        darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
+                      }`}
                     >
-                      {c.phone}
-                    </a>
-                  </div>
-                ))}
-              </div>
+                      <div className="min-w-0">
+                        <div className="font-bold text-sm truncate">
+                          {c.name?.trim() || 'Household Contact'}
+                        </div>
+                        {c.note?.trim() && (
+                          <div className="text-[11px] text-slate-500">{c.note}</div>
+                        )}
+                      </div>
+                      {c.phone?.trim() ? (
+                        <a
+                          href={`tel:${c.phone.trim()}`}
+                          className="px-3 py-1.5 rounded-xl bg-teal-600 text-white text-xs font-bold shrink-0"
+                        >
+                          {c.phone.trim()}
+                        </a>
+                      ) : (
+                        <span className="text-[11px] text-slate-400 italic shrink-0">
+                          No number
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">No household emergency contacts entered yet.</p>
+              )}
             </div>
 
             {/* Structured Home Wi-Fi & Utilities Sub-Cards */}
@@ -646,6 +764,19 @@ export default function BeaconApp({
                   {beaconInfo?.houseGuide?.utilitiesInfo || 'No utilities info entered yet.'}
                 </p>
               </div>
+
+              {beaconInfo?.houseGuide?.emergencyNotes?.trim() && (
+                <div
+                  className={`p-3.5 rounded-2xl border text-xs sm:text-sm ${
+                    darkMode ? 'bg-amber-950/20 border-amber-800/50' : 'bg-amber-50/70 border-amber-200'
+                  }`}
+                >
+                  <div className="font-bold mb-1">🔑 Home Emergency &amp; Security Notes</div>
+                  <p className="leading-relaxed opacity-90">
+                    {beaconInfo.houseGuide.emergencyNotes}
+                  </p>
+                </div>
+              )}
             </div>
           </section>
         </div>

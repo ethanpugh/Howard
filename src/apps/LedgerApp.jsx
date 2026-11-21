@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Wallet,
   Plus,
@@ -16,61 +16,18 @@ import {
   ChevronLeft,
   ChevronRight,
   Users,
+  AlertTriangle,
   X
 } from 'lucide-react';
-
-const getTodayStr = () => {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
-
-const getCurrentMonthStr = () => getTodayStr().slice(0, 7); // YYYY-MM
-
-const formatGBP = (num) => {
-  const val = Number(num) || 0;
-  return val.toLocaleString('en-GB', {
-    style: 'currency',
-    currency: 'GBP',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-};
-
-const toMonthlyAmount = (amount, cycleOrFreq) => {
-  const val = Number(amount) || 0;
-  switch (cycleOrFreq) {
-    case 'annual':
-      return val / 12;
-    case 'quarterly':
-      return val / 3;
-    case 'weekly':
-      return (val * 52) / 12;
-    case 'one-off':
-    case 'monthly':
-    default:
-      return val;
-  }
-};
-
-const WEEKDAY_OPTIONS = [
-  { id: 1, label: 'Monday', shortLabel: 'Mon' },
-  { id: 2, label: 'Tuesday', shortLabel: 'Tue' },
-  { id: 3, label: 'Wednesday', shortLabel: 'Wed' },
-  { id: 4, label: 'Thursday', shortLabel: 'Thu' },
-  { id: 5, label: 'Friday', shortLabel: 'Fri' },
-  { id: 6, label: 'Saturday', shortLabel: 'Sat' },
-  { id: 7, label: 'Sunday', shortLabel: 'Sun' }
-];
-
 import {
-  getLedgerScheduleInfo,
-  doesLedgerItemOccurOnDate
+  getLocalDateKey,
+  formatGBP,
+  toMonthlyAmount,
+  WEEKDAY_OPTIONS,
+  escapeCSVCell,
+  computeLedgerSettlement,
+  getLedgerScheduleInfo
 } from '../utils/householdHelpers.js';
-
-export { getLedgerScheduleInfo, doesLedgerItemOccurOnDate };
 
 const EXPENSE_CATEGORIES = [
   'Housing & Mortgage',
@@ -125,12 +82,14 @@ export default function LedgerApp({
   profiles,
   darkMode,
   ledgerData,
+  nowMs = Date.now(),
   onUpsertLedgerItem,
   onDeleteLedgerItem,
   onSaveSplitRule,
   onSaveLedgerData
 }) {
-  const todayStr = getTodayStr();
+  const now = useMemo(() => new Date(nowMs), [nowMs]);
+  const todayStr = getLocalDateKey(now);
   const partner1Name = (profiles || []).find((p) => p.id === 'partner1')?.name || 'Partner 1';
   const partner2Name = (profiles || []).find((p) => p.id === 'partner2')?.name || 'Partner 2';
 
@@ -156,14 +115,16 @@ export default function LedgerApp({
   // Internal Sub-Tab: 'overview' | 'recurring' | 'expenses' | 'income'
   const [activeTab, setActiveTab] = useState('overview');
   // Selected Month (YYYY-MM) for Expenses Log & Monthly Summary
-  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthStr);
+  const [selectedMonth, setSelectedMonth] = useState(() => todayStr.slice(0, 7));
 
   // Filters for Subscriptions/Direct Debits & Expenses
   const [recurringTypeFilter, setRecurringTypeFilter] = useState('all'); // 'all' | 'direct-debit' | 'subscription'
   const [expenseCategoryFilter, setExpenseCategoryFilter] = useState('All');
   const [expenseSearch, setExpenseSearch] = useState('');
 
-  // Modals: Add/Edit Expense, Add/Edit Recurring, Add/Edit Income
+  // Modals: Add/Edit Expense, Add/Edit Recurring, Add/Edit Income, Delete Confirmation
+  const [isSaving, setIsSaving] = useState(false);
+  const [confirmDeleteItem, setConfirmDeleteItem] = useState(null); // { kind: 'recurring'|'expense'|'income', id, label }
   const [expenseModalOpen, setExpenseModalOpen] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState(null);
   const [expTitle, setExpTitle] = useState('');
@@ -209,6 +170,20 @@ export default function LedgerApp({
   const expenses = useMemo(() => ledgerData?.expenses || [], [ledgerData]);
   const splitRule = ledgerData?.splitRule || '50-50';
 
+  useEffect(() => {
+    if (!confirmDeleteItem && !expenseModalOpen && !recurringModalOpen && !incomeModalOpen) return;
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (confirmDeleteItem) setConfirmDeleteItem(null);
+        else if (expenseModalOpen) setExpenseModalOpen(false);
+        else if (recurringModalOpen) setRecurringModalOpen(false);
+        else if (incomeModalOpen) setIncomeModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [confirmDeleteItem, expenseModalOpen, recurringModalOpen, incomeModalOpen]);
+
   // Shift selected month helper
   const shiftSelectedMonth = (deltaMonths) => {
     const [y, m] = selectedMonth.split('-').map(Number);
@@ -252,33 +227,19 @@ export default function LedgerApp({
       .filter((i) => i.owner === 'joint')
       .reduce((acc, i) => acc + getIncomeForSelectedMonth(i), 0);
 
-    const partner2OneOffThisMonth = incomes
-      .filter(
-        (i) =>
-          i.owner === 'partner2' &&
-          i.frequency === 'one-off' &&
-          (i.date || todayStr).slice(0, 7) === selectedMonth
-      )
-      .reduce((acc, i) => acc + (Number(i.amount) || 0), 0);
-
-    const partner1OneOffThisMonth = incomes
-      .filter(
-        (i) =>
-          i.owner === 'partner1' &&
-          i.frequency === 'one-off' &&
-          (i.date || todayStr).slice(0, 7) === selectedMonth
-      )
-      .reduce((acc, i) => acc + (Number(i.amount) || 0), 0);
-
     const totalHouseholdIncome = partner1Income + partner2Income + jointIncome;
 
     // Determine split ratios for 'joint' items
     const combinedPersonalIncome = partner1Income + partner2Income;
+    const proportionalPartner1Share =
+      combinedPersonalIncome > 0 ? partner1Income / combinedPersonalIncome : 0.5;
     const partner1JointShare =
-      splitRule === 'proportional' && combinedPersonalIncome > 0
-        ? partner1Income / combinedPersonalIncome
-        : 0.5;
+      splitRule === 'proportional' ? proportionalPartner1Share : 0.5;
     const partner2JointShare = 1 - partner1JointShare;
+    const partner1JointPct = Math.round(partner1JointShare * 100);
+    const partner2JointPct = 100 - partner1JointPct;
+    const proportionalPartner1Pct = Math.round(proportionalPartner1Share * 100);
+    const proportionalPartner2Pct = 100 - proportionalPartner1Pct;
 
     // 2. Active Recurring (Direct Debits & Subscriptions)
     const activeRecurring = recurring.filter((r) => r.active !== false);
@@ -347,33 +308,10 @@ export default function LedgerApp({
       partner2PersonalExpTotal + jointExpTotal * partner2JointShare;
 
     // 4. Shared & Cross-Partner Expense Settlement Balance for Selected Month
-    // - When Partner 1 pays a 'joint' expense from their personal card, Partner 2 owes their joint share; and vice versa.
-    // - When Partner 1 pays a 'partner2' personal expense from their card, Partner 2 owes 100% of it; and vice versa.
-    let partner1PaidForJoint = 0;
-    let partner2PaidForJoint = 0;
-    let partner1PaidForPartner2Personal = 0;
-    let partner2PaidForPartner1Personal = 0;
-
-    monthExpenses.forEach((e) => {
-      const amt = Number(e.amount) || 0;
-      if (e.owner === 'joint') {
-        if (e.paidBy === 'partner1') partner1PaidForJoint += amt;
-        if (e.paidBy === 'partner2') partner2PaidForJoint += amt;
-      } else if (e.owner === 'partner2' && e.paidBy === 'partner1') {
-        partner1PaidForPartner2Personal += amt;
-      } else if (e.owner === 'partner1' && e.paidBy === 'partner2') {
-        partner2PaidForPartner1Personal += amt;
-      }
-    });
-
-    const totalPartnerPaidJoint = partner1PaidForJoint + partner2PaidForJoint;
-    const partner1FairShareOfPartnerPaid = totalPartnerPaidJoint * partner1JointShare;
-    const netPartner1Balance =
-      partner1PaidForJoint -
-      partner1FairShareOfPartnerPaid +
-      partner1PaidForPartner2Personal -
-      partner2PaidForPartner1Personal;
-    // If netPartner1Balance > 0, Partner 2 owes Partner 1. If < 0, Partner 1 owes Partner 2.
+    const { netPartner1Balance } = computeLedgerSettlement(
+      monthExpenses,
+      partner1JointShare
+    );
 
     // 5. Perspective-specific KPI values
     let activeKpi = {
@@ -394,7 +332,7 @@ export default function LedgerApp({
         subscriptions: jointRec.subscriptions,
         expenses: jointExpTotal,
         netRemainder: jointRec.total + jointExpTotal,
-        subtitle: `Shared Household Commitments (${Math.round(partner1JointShare * 100)}/${Math.round(partner2JointShare * 100)} split)`
+        subtitle: `Shared Household Commitments (${partner1JointPct}/${partner2JointPct} split)`
       };
     } else if (perspective === 'partner1') {
       const inc = partner1Income + jointIncome * partner1JointShare;
@@ -405,7 +343,7 @@ export default function LedgerApp({
         subscriptions: partner1TotalRec.subscriptions,
         expenses: partner1TotalExp,
         netRemainder: inc - partner1TotalRec.total - partner1TotalExp,
-        subtitle: `${partner1Name} Personal (${formatGBP(partner1PersonalRec.total)}/mo) + ${Math.round(partner1JointShare * 100)}% Joint Share (${formatGBP(partner1TotalRec.jointShare)}/mo)`
+        subtitle: `${partner1Name} Personal (${formatGBP(partner1PersonalRec.total)}/mo) + ${partner1JointPct}% Joint Share (${formatGBP(partner1TotalRec.jointShare)}/mo)`
       };
     } else if (perspective === 'partner2') {
       const inc = partner2Income + jointIncome * partner2JointShare;
@@ -416,7 +354,7 @@ export default function LedgerApp({
         subscriptions: partner2TotalRec.subscriptions,
         expenses: partner2TotalExp,
         netRemainder: inc - partner2TotalRec.total - partner2TotalExp,
-        subtitle: `${partner2Name} Personal (${formatGBP(partner2PersonalRec.total)}/mo) + ${Math.round(partner2JointShare * 100)}% Joint Share (${formatGBP(partner2TotalRec.jointShare)}/mo)`
+        subtitle: `${partner2Name} Personal (${formatGBP(partner2PersonalRec.total)}/mo) + ${partner2JointPct}% Joint Share (${formatGBP(partner2TotalRec.jointShare)}/mo)`
       };
     }
 
@@ -424,11 +362,14 @@ export default function LedgerApp({
       partner1Income,
       partner2Income,
       jointIncome,
-      partner2OneOffThisMonth,
-      partner1OneOffThisMonth,
       totalHouseholdIncome,
+      proportionalPartner1Share,
       partner1JointShare,
       partner2JointShare,
+      partner1JointPct,
+      partner2JointPct,
+      proportionalPartner1Pct,
+      proportionalPartner2Pct,
       unifiedRec,
       jointRec,
       partner1PersonalRec,
@@ -440,12 +381,10 @@ export default function LedgerApp({
       jointExpTotal,
       partner1PersonalExpTotal,
       partner2PersonalExpTotal,
-      partner1PaidForJoint,
-      partner2PaidForJoint,
       netPartner1Balance,
       activeKpi
     };
-  }, [incomes, recurring, expenses, selectedMonth, perspective, splitRule]);
+  }, [incomes, recurring, expenses, selectedMonth, perspective, splitRule, partner1Name, partner2Name, todayStr]);
 
   // Filtered Recurring items for active perspective & type filter
   // In Partner 1 or Partner 2 perspective, show their personal commitments AND shared joint commitments (with their split share)
@@ -453,7 +392,7 @@ export default function LedgerApp({
     return recurring
       .map((item) => {
         const { daysUntil, nextDateFormatted, scheduleLabel } =
-          getLedgerScheduleInfo(item, false);
+          getLedgerScheduleInfo(item, false, now);
         const monthlyEquiv = toMonthlyAmount(item.amount, item.cycle);
         let perspectiveShareFactor = 1;
         if (perspective === 'partner1' && item.owner === 'joint') {
@@ -490,8 +429,38 @@ export default function LedgerApp({
     perspective,
     recurringTypeFilter,
     financialSummary.partner1JointShare,
-    financialSummary.partner2JointShare
+    financialSummary.partner2JointShare,
+    now
   ]);
+
+  const filteredIncomes = useMemo(() => {
+    return incomes.filter((inc) => {
+      if (perspective === 'joint' && inc.owner !== 'joint') return false;
+      if (
+        (perspective === 'partner1' || perspective === 'partner2') &&
+        inc.owner !== perspective &&
+        inc.owner !== 'joint'
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [incomes, perspective]);
+
+  const perspectiveCounts = useMemo(() => {
+    const matchesPerspective = (item) => {
+      if (perspective === 'joint') return item.owner === 'joint';
+      if (perspective === 'partner1' || perspective === 'partner2') {
+        return item.owner === perspective || item.owner === 'joint';
+      }
+      return true;
+    };
+    return {
+      recurring: recurring.filter(matchesPerspective).length,
+      expenses: financialSummary.monthExpenses.filter(matchesPerspective).length,
+      incomes: filteredIncomes.length
+    };
+  }, [recurring, financialSummary.monthExpenses, filteredIncomes.length, perspective]);
 
   // Filtered Month Expenses for active perspective, category & search
   const filteredExpenses = useMemo(() => {
@@ -616,7 +585,7 @@ export default function LedgerApp({
       .filter((r) => r.active !== false)
       .map((r) => ({
         ...r,
-        ...getLedgerScheduleInfo(r, false)
+        ...getLedgerScheduleInfo(r, false, now)
       }))
       .filter((r) => {
         if (perspective === 'joint' && r.owner !== 'joint') return false;
@@ -630,16 +599,18 @@ export default function LedgerApp({
         return r.daysUntil <= 10;
       })
       .sort((a, b) => a.daysUntil - b.daysUntil);
-  }, [recurring, perspective]);
+  }, [recurring, perspective, now]);
 
   // --------------------------------------------------------------------------
   // CRUD HANDLERS
   // --------------------------------------------------------------------------
   const openNewExpenseModal = () => {
+    const defaultDate =
+      selectedMonth === todayStr.slice(0, 7) ? todayStr : `${selectedMonth}-01`;
     setEditingExpenseId(null);
     setExpTitle('');
     setExpAmount('');
-    setExpDate(todayStr);
+    setExpDate(defaultDate);
     setExpCategory('Groceries & Household');
     setExpOwner(
       perspective === 'partner1' || perspective === 'partner2' || perspective === 'joint'
@@ -665,13 +636,15 @@ export default function LedgerApp({
 
   const handleSaveExpense = async (e) => {
     e.preventDefault();
+    if (isSaving) return;
     const amt = parseFloat(expAmount);
-    if (!expTitle.trim() || Number.isNaN(amt) || amt <= 0) return;
+    const rounded = Math.round(amt * 100) / 100;
+    if (!expTitle.trim() || !Number.isFinite(amt) || rounded <= 0) return;
 
     const record = {
       id: editingExpenseId || `exp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title: expTitle.trim(),
-      amount: Math.round(amt * 100) / 100,
+      amount: rounded,
       date: expDate || todayStr,
       category: expCategory,
       owner: expOwner,
@@ -687,12 +660,17 @@ export default function LedgerApp({
       ? `Updated expense "${record.title}"`
       : `Logged ${formatGBP(record.amount)} for "${record.title}"`;
 
-    if (onUpsertLedgerItem) {
-      await onUpsertLedgerItem({ kind: 'expense', record, nextLedgerData }, msg);
-    } else {
-      await onSaveLedgerData(nextLedgerData, msg);
+    setIsSaving(true);
+    try {
+      const ok = onUpsertLedgerItem
+        ? await onUpsertLedgerItem({ kind: 'expense', record, nextLedgerData }, msg)
+        : await onSaveLedgerData(nextLedgerData, msg);
+      if (ok !== false) {
+        setExpenseModalOpen(false);
+      }
+    } finally {
+      setIsSaving(false);
     }
-    setExpenseModalOpen(false);
   };
 
   const handleDeleteExpense = async (id) => {
@@ -737,7 +715,7 @@ export default function LedgerApp({
     setRecBillingWeekday(rec.billingWeekday || 1);
     const defaultAnchor =
       rec.billingDate ||
-      `${todayStr.slice(0, 8)}${String(Math.min(28, Math.max(1, Number(rec.billingDay) || 1))).padStart(2, '0')}`;
+      `${todayStr.slice(0, 4)}-01-${String(Math.min(28, Math.max(1, Number(rec.billingDay) || 1))).padStart(2, '0')}`;
     setRecBillingDate(defaultAnchor);
     setRecOwner(rec.owner || 'joint');
     setRecCategory(rec.category || 'Utilities & Bills');
@@ -747,8 +725,10 @@ export default function LedgerApp({
 
   const handleSaveRecurring = async (e) => {
     e.preventDefault();
+    if (isSaving) return;
     const amt = parseFloat(recAmount);
-    if (!recTitle.trim() || Number.isNaN(amt) || amt <= 0) return;
+    const rounded = Math.round(amt * 100) / 100;
+    if (!recTitle.trim() || !Number.isFinite(amt) || rounded <= 0) return;
 
     const scheduleFields =
       recCycle === 'weekly'
@@ -765,22 +745,34 @@ export default function LedgerApp({
               billingDay: Math.min(31, Math.max(1, Number(recBillingDay) || 1))
             };
 
+    const existing = editingRecurringId
+      ? recurring.find((r) => r.id === editingRecurringId)
+      : null;
+
     const record = {
       id: editingRecurringId || `rec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title: recTitle.trim(),
-      amount: Math.round(amt * 100) / 100,
+      amount: rounded,
       type: recType,
       cycle: recCycle,
       ...scheduleFields,
       owner: recOwner,
       category: recCategory,
-      active: true,
+      active: editingRecurringId ? existing?.active !== false : true,
       notes: recNotes.trim()
     };
 
-    const mergedRecord = editingRecurringId
-      ? { ...recurring.find((r) => r.id === editingRecurringId), ...record }
-      : record;
+    let mergedRecord = record;
+    if (existing) {
+      const cleanedExisting = { ...existing };
+      delete cleanedExisting.billingDay;
+      delete cleanedExisting.billingWeekday;
+      delete cleanedExisting.billingDate;
+      delete cleanedExisting.dueDayOfMonth;
+      delete cleanedExisting.dueWeekday;
+      delete cleanedExisting.dueMonth;
+      mergedRecord = { ...cleanedExisting, ...record };
+    }
     const nextRecurring = editingRecurringId
       ? recurring.map((r) => (r.id === editingRecurringId ? mergedRecord : r))
       : [...recurring, mergedRecord];
@@ -789,12 +781,17 @@ export default function LedgerApp({
       ? `Updated "${record.title}"`
       : `Added ${record.type === 'direct-debit' ? 'Direct Debit' : 'Subscription'}: "${record.title}"`;
 
-    if (onUpsertLedgerItem) {
-      await onUpsertLedgerItem({ kind: 'recurring', record: mergedRecord, nextLedgerData }, msg);
-    } else {
-      await onSaveLedgerData(nextLedgerData, msg);
+    setIsSaving(true);
+    try {
+      const ok = onUpsertLedgerItem
+        ? await onUpsertLedgerItem({ kind: 'recurring', record: mergedRecord, nextLedgerData }, msg)
+        : await onSaveLedgerData(nextLedgerData, msg);
+      if (ok !== false) {
+        setRecurringModalOpen(false);
+      }
+    } finally {
+      setIsSaving(false);
     }
-    setRecurringModalOpen(false);
   };
 
   const handleToggleRecurringActive = async (rec) => {
@@ -821,12 +818,20 @@ export default function LedgerApp({
   };
 
   const openNewIncomeModal = (defaultFreq = 'monthly') => {
+    const defaultDate =
+      selectedMonth === todayStr.slice(0, 7) ? todayStr : `${selectedMonth}-01`;
     setEditingIncomeId(null);
     setIncTitle('');
     setIncAmount('');
     setIncFrequency(defaultFreq);
-    setIncDate(todayStr);
-    setIncOwner(activeProfile?.id === 'partner2' ? 'partner2' : 'partner1');
+    setIncDate(defaultDate);
+    setIncOwner(
+      perspective === 'partner1' || perspective === 'partner2' || perspective === 'joint'
+        ? perspective
+        : activeProfile?.id === 'partner2'
+          ? 'partner2'
+          : 'partner1'
+    );
     setIncPayDay(28);
     setIncPayWeekday(5);
     setIncPayDate(todayStr);
@@ -846,7 +851,7 @@ export default function LedgerApp({
     setIncPayWeekday(inc.payWeekday || 5);
     const defaultAnchor =
       inc.payDate ||
-      `${todayStr.slice(0, 8)}${String(Math.min(28, Math.max(1, Number(inc.payDay) || 28))).padStart(2, '0')}`;
+      `${todayStr.slice(0, 4)}-01-${String(Math.min(28, Math.max(1, Number(inc.payDay) || 28))).padStart(2, '0')}`;
     setIncPayDate(defaultAnchor);
     setIncCategory(
       inc.category || (inc.frequency === 'one-off' ? 'One-Off / Variable' : 'Salary')
@@ -857,8 +862,10 @@ export default function LedgerApp({
 
   const handleSaveIncome = async (e) => {
     e.preventDefault();
+    if (isSaving) return;
     const amt = parseFloat(incAmount);
-    if (!incTitle.trim() || Number.isNaN(amt) || amt <= 0) return;
+    const rounded = Math.round(amt * 100) / 100;
+    if (!incTitle.trim() || !Number.isFinite(amt) || rounded <= 0) return;
 
     const isOneOff = incFrequency === 'one-off';
     const scheduleFields = isOneOff
@@ -877,10 +884,14 @@ export default function LedgerApp({
               payDay: Math.min(31, Math.max(1, Number(incPayDay) || 28))
             };
 
+    const existing = editingIncomeId
+      ? incomes.find((i) => i.id === editingIncomeId)
+      : null;
+
     const record = {
       id: editingIncomeId || `inc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title: incTitle.trim(),
-      amount: Math.round(amt * 100) / 100,
+      amount: rounded,
       frequency: incFrequency,
       ...scheduleFields,
       owner: incOwner,
@@ -888,22 +899,40 @@ export default function LedgerApp({
       notes: incNotes.trim()
     };
 
+    let mergedRecord = record;
+    if (existing) {
+      const cleanedExisting = { ...existing };
+      delete cleanedExisting.date;
+      delete cleanedExisting.payDay;
+      delete cleanedExisting.payWeekday;
+      delete cleanedExisting.payDate;
+      delete cleanedExisting.dueDayOfMonth;
+      delete cleanedExisting.dueWeekday;
+      delete cleanedExisting.dueMonth;
+      mergedRecord = { ...cleanedExisting, ...record };
+    }
+
     const nextIncomes = editingIncomeId
-      ? incomes.map((i) => (i.id === editingIncomeId ? record : i))
-      : [record, ...incomes];
+      ? incomes.map((i) => (i.id === editingIncomeId ? mergedRecord : i))
+      : [mergedRecord, ...incomes];
     const nextLedgerData = { ...ledgerData, incomes: nextIncomes };
     const msg = editingIncomeId
-      ? `Updated "${record.title}"`
+      ? `Updated "${mergedRecord.title}"`
       : isOneOff
-        ? `Logged one-off income ${formatGBP(record.amount)} for "${record.title}"`
-        : `Added recurring income "${record.title}"`;
+        ? `Logged one-off income ${formatGBP(mergedRecord.amount)} for "${mergedRecord.title}"`
+        : `Added recurring income "${mergedRecord.title}"`;
 
-    if (onUpsertLedgerItem) {
-      await onUpsertLedgerItem({ kind: 'income', record, nextLedgerData }, msg);
-    } else {
-      await onSaveLedgerData(nextLedgerData, msg);
+    setIsSaving(true);
+    try {
+      const ok = onUpsertLedgerItem
+        ? await onUpsertLedgerItem({ kind: 'income', record: mergedRecord, nextLedgerData }, msg)
+        : await onSaveLedgerData(nextLedgerData, msg);
+      if (ok !== false) {
+        setIncomeModalOpen(false);
+      }
+    } finally {
+      setIsSaving(false);
     }
-    setIncomeModalOpen(false);
   };
 
   const handleDeleteIncome = async (id) => {
@@ -928,41 +957,76 @@ export default function LedgerApp({
   };
 
   const handleExportMonthCSV = () => {
+    const matchesPerspective = (item) => {
+      if (perspective === 'joint') return item.owner === 'joint';
+      if (perspective === 'partner1' || perspective === 'partner2') {
+        return item.owner === perspective || item.owner === 'joint';
+      }
+      return true;
+    };
+
+    const getShareFactor = (owner) => {
+      if (perspective === 'partner1' && owner === 'joint') {
+        return financialSummary.partner1JointShare;
+      }
+      if (perspective === 'partner2' && owner === 'joint') {
+        return financialSummary.partner2JointShare;
+      }
+      return 1;
+    };
+
+    const labelOwner = (id) => ownerMeta[id]?.shortLabel || id || '';
+
     const headers = [
       'Type',
-      'Date_or_BillingDay',
+      'Date_or_Schedule',
       'Title',
       'Category',
       'For_Owner',
       'Paid_By',
       'Amount_GBP',
+      'Monthly Equivalent (GBP)',
+      'Perspective_Share_GBP',
       'Notes'
-    ];
-    const escapeCSV = (val) => `"${String(val ?? '').replace(/"/g, '""')}"`;
+    ].map(escapeCSVCell);
 
     const rows = [
       ...recurring
-        .filter((r) => r.active !== false)
-        .map((r) => [
-          escapeCSV(r.type === 'direct-debit' ? 'Direct Debit' : 'Subscription'),
-          escapeCSV(`${getLedgerScheduleInfo(r, false).scheduleLabel} (${r.cycle})`),
-          escapeCSV(r.title),
-          escapeCSV(r.category),
-          escapeCSV(r.owner),
-          escapeCSV(r.owner),
-          escapeCSV(toMonthlyAmount(r.amount, r.cycle).toFixed(2)),
-          escapeCSV(r.notes || '')
-        ]),
-      ...financialSummary.monthExpenses.map((e) => [
-        escapeCSV('Expense'),
-        escapeCSV(e.date),
-        escapeCSV(e.title),
-        escapeCSV(e.category),
-        escapeCSV(e.owner),
-        escapeCSV(e.paidBy),
-        escapeCSV(Number(e.amount || 0).toFixed(2)),
-        escapeCSV(e.notes || '')
-      ])
+        .filter((r) => r.active !== false && matchesPerspective(r))
+        .map((r) => {
+          const monthlyEq = toMonthlyAmount(r.amount, r.cycle);
+          const shareFactor = getShareFactor(r.owner);
+          return [
+            escapeCSVCell(r.type === 'direct-debit' ? 'Direct Debit' : 'Subscription'),
+            escapeCSVCell(`${getLedgerScheduleInfo(r, false, now).scheduleLabel} (${r.cycle})`),
+            escapeCSVCell(r.title),
+            escapeCSVCell(r.category),
+            escapeCSVCell(labelOwner(r.owner)),
+            escapeCSVCell(labelOwner(r.owner)),
+            escapeCSVCell(Number(r.amount || 0).toFixed(2)),
+            escapeCSVCell(monthlyEq.toFixed(2)),
+            escapeCSVCell((monthlyEq * shareFactor).toFixed(2)),
+            escapeCSVCell(r.notes || '')
+          ];
+        }),
+      ...financialSummary.monthExpenses
+        .filter(matchesPerspective)
+        .map((e) => {
+          const amt = Number(e.amount || 0);
+          const shareFactor = getShareFactor(e.owner);
+          return [
+            escapeCSVCell('Expense'),
+            escapeCSVCell(e.date),
+            escapeCSVCell(e.title),
+            escapeCSVCell(e.category),
+            escapeCSVCell(labelOwner(e.owner)),
+            escapeCSVCell(labelOwner(e.paidBy)),
+            escapeCSVCell(amt.toFixed(2)),
+            escapeCSVCell(''),
+            escapeCSVCell((amt * shareFactor).toFixed(2)),
+            escapeCSVCell(e.notes || '')
+          ];
+        })
     ];
 
     const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
@@ -970,9 +1034,9 @@ export default function LedgerApp({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Howard_Ledger_${selectedMonth}.csv`;
+    a.download = `Howard_Ledger_${selectedMonth}${perspective !== 'unified' ? `_${perspective}` : ''}.csv`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const cardSurface = darkMode
@@ -1082,6 +1146,7 @@ export default function LedgerApp({
                   : 'border-slate-200 hover:bg-slate-100'
               }`}
               title="Previous Month"
+              aria-label="Previous Month"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -1098,13 +1163,14 @@ export default function LedgerApp({
                   : 'border-slate-200 hover:bg-slate-100'
               }`}
               title="Next Month"
+              aria-label="Next Month"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
-            {selectedMonth !== getCurrentMonthStr() && (
+            {selectedMonth !== todayStr.slice(0, 7) && (
               <button
                 type="button"
-                onClick={() => setSelectedMonth(getCurrentMonthStr())}
+                onClick={() => setSelectedMonth(todayStr.slice(0, 7))}
                 className="px-2.5 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold cursor-pointer"
               >
                 This Month
@@ -1128,14 +1194,14 @@ export default function LedgerApp({
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold">
             {perspective === 'joint'
-              ? `${Math.round(financialSummary.partner1JointShare * 100)}% / ${Math.round(financialSummary.partner2JointShare * 100)}%`
+              ? `${financialSummary.partner1JointPct}% / ${financialSummary.partner2JointPct}%`
               : formatGBP(financialSummary.activeKpi.income)}
           </div>
           <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
             {perspective === 'unified'
-              ? `⚡ ${partner1Name} ${formatGBP(financialSummary.partner1Income)} • 🌸 ${partner2Name} ${formatGBP(financialSummary.partner2Income)}`
+              ? `⚡ ${partner1Name} ${formatGBP(financialSummary.partner1Income)} • 🌸 ${partner2Name} ${formatGBP(financialSummary.partner2Income)}${financialSummary.jointIncome > 0 ? ` • 🤝 Joint ${formatGBP(financialSummary.jointIncome)}` : ''}`
               : perspective === 'joint'
-                ? `Split rule: ${splitRule === 'proportional' ? 'Proportional to Income' : '50/50 Equal Split'}`
+                ? `Split rule: ${splitRule === 'proportional' ? 'Proportional to Income' : '50/50 Equal Split'}${financialSummary.jointIncome > 0 ? ` • Joint income: ${formatGBP(financialSummary.jointIncome)}/mo` : ''}`
                 : `${ownerMeta[perspective]?.shortLabel}'s monthly net income`}
           </div>
         </div>
@@ -1207,17 +1273,17 @@ export default function LedgerApp({
           { id: 'overview', label: 'Overview & Split', icon: Scale },
           {
             id: 'recurring',
-            label: `Subscriptions & Direct Debits (${recurring.length})`,
+            label: `Subscriptions & Direct Debits (${perspectiveCounts.recurring})`,
             icon: CreditCard
           },
           {
             id: 'expenses',
-            label: `Expenses Log (${financialSummary.monthExpenses.length})`,
+            label: `Expenses Log (${perspectiveCounts.expenses})`,
             icon: Receipt
           },
           {
             id: 'income',
-            label: `Income & Split Rules (${incomes.length})`,
+            label: `Income & Split Rules (${perspectiveCounts.incomes})`,
             icon: TrendingUp
           }
         ].map((t) => {
@@ -1265,6 +1331,14 @@ export default function LedgerApp({
                 </button>
               </div>
               <div className="space-y-1.5 text-xs pt-1">
+                {financialSummary.jointIncome > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Joint Income:</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                      {formatGBP(financialSummary.jointIncome)}/mo
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span className="text-slate-500">Joint Direct Debits:</span>
                   <span className="font-bold">
@@ -1317,7 +1391,7 @@ export default function LedgerApp({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">
-                    Share of Joint Bills ({Math.round(financialSummary.partner1JointShare * 100)}%):
+                    Share of Joint Bills ({financialSummary.partner1JointPct}%):
                   </span>
                   <span className="font-bold">
                     {formatGBP(financialSummary.partner1TotalRec.jointShare)}/mo
@@ -1327,6 +1401,16 @@ export default function LedgerApp({
                   <span className="text-slate-500">Personal Expenses ({selectedMonthLabel}):</span>
                   <span className="font-bold">
                     {formatGBP(financialSummary.partner1PersonalExpTotal)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">
+                    Share of Joint Expenses ({financialSummary.partner1JointPct}%):
+                  </span>
+                  <span className="font-bold">
+                    {formatGBP(
+                      financialSummary.jointExpTotal * financialSummary.partner1JointShare
+                    )}
                   </span>
                 </div>
                 <div className="flex justify-between pt-2 border-t border-slate-200 dark:border-slate-800 text-sm font-extrabold">
@@ -1369,7 +1453,7 @@ export default function LedgerApp({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">
-                    Share of Joint Bills ({Math.round(financialSummary.partner2JointShare * 100)}%):
+                    Share of Joint Bills ({financialSummary.partner2JointPct}%):
                   </span>
                   <span className="font-bold">
                     {formatGBP(financialSummary.partner2TotalRec.jointShare)}/mo
@@ -1379,6 +1463,16 @@ export default function LedgerApp({
                   <span className="text-slate-500">Personal Expenses ({selectedMonthLabel}):</span>
                   <span className="font-bold">
                     {formatGBP(financialSummary.partner2PersonalExpTotal)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">
+                    Share of Joint Expenses ({financialSummary.partner2JointPct}%):
+                  </span>
+                  <span className="font-bold">
+                    {formatGBP(
+                      financialSummary.jointExpTotal * financialSummary.partner2JointShare
+                    )}
                   </span>
                 </div>
                 <div className="flex justify-between pt-2 border-t border-slate-200 dark:border-slate-800 text-sm font-extrabold">
@@ -1555,109 +1649,133 @@ export default function LedgerApp({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredRecurring.map((item) => {
-              const ownerInfo = ownerMeta[item.owner] || ownerMeta.joint;
-              const isPaused = item.active === false;
+          {filteredRecurring.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filteredRecurring.map((item) => {
+                const ownerInfo = ownerMeta[item.owner] || ownerMeta.joint;
+                const isPaused = item.active === false;
 
-              return (
-                <div
-                  key={item.id}
-                  className={`rounded-2xl p-4 border flex flex-col justify-between gap-3 transition ${
-                    isPaused
-                      ? 'opacity-55 border-dashed border-slate-300 dark:border-slate-700'
-                      : darkMode
-                        ? 'bg-slate-800/40 border-slate-800 hover:border-slate-700'
-                        : 'bg-slate-50/70 border-slate-200/80 hover:bg-white'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${ownerInfo.badgeClass}`}
-                        >
-                          {ownerInfo.badgeEmoji} {ownerInfo.shortLabel}
-                        </span>
-                        <span
-                          className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-md ${
-                            item.type === 'direct-debit'
-                              ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
-                              : 'bg-purple-500/15 text-purple-700 dark:text-purple-300'
+                return (
+                  <div
+                    key={item.id}
+                    className={`rounded-2xl p-4 border flex flex-col justify-between gap-3 transition ${
+                      isPaused
+                        ? 'opacity-55 border-dashed border-slate-300 dark:border-slate-700'
+                        : darkMode
+                          ? 'bg-slate-800/40 border-slate-800 hover:border-slate-700'
+                          : 'bg-slate-50/70 border-slate-200/80 hover:bg-white'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${ownerInfo.badgeClass}`}
+                          >
+                            {ownerInfo.badgeEmoji} {ownerInfo.shortLabel}
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-md ${
+                              item.type === 'direct-debit'
+                                ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
+                                : 'bg-purple-500/15 text-purple-700 dark:text-purple-300'
+                            }`}
+                          >
+                            {item.type === 'direct-debit' ? 'Direct Debit' : 'Subscription'}
+                          </span>
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-700">
+                            {item.category}
+                          </span>
+                        </div>
+
+                        <h3 className="font-extrabold text-sm sm:text-base truncate">
+                          {item.title}
+                        </h3>
+                        {item.notes && (
+                          <p className="text-xs text-slate-500 truncate">{item.notes}</p>
+                        )}
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <div className="text-base sm:text-lg font-extrabold">
+                          {formatGBP(item.amount)}
+                        </div>
+                        <div className="text-[11px] text-slate-500 capitalize">
+                          {item.cycle}
+                          {item.cycle !== 'monthly' &&
+                            ` (${formatGBP(item.monthlyEquiv)}/mo)`}
+                          {item.perspectiveShareFactor < 1 &&
+                            ` • Your share: ${formatGBP(item.perspectiveMonthlyEquiv)}/mo`}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2.5 border-t border-slate-200/60 dark:border-slate-800 text-xs">
+                      <div className="text-slate-500">
+                        <strong>{item.scheduleLabel}</strong> • Next:{' '}
+                        <strong className="text-slate-700 dark:text-slate-200">
+                          {item.nextDateFormatted}
+                        </strong>{' '}
+                        ({item.daysUntil === 0 ? 'Today' : `${item.daysUntil}d`})
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleRecurringActive(item)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer ${
+                            isPaused
+                              ? 'bg-emerald-600 text-white border-emerald-600'
+                              : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
                           }`}
                         >
-                          {item.type === 'direct-debit' ? 'Direct Debit' : 'Subscription'}
-                        </span>
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-700">
-                          {item.category}
-                        </span>
-                      </div>
-
-                      <h3 className="font-extrabold text-sm sm:text-base truncate">
-                        {item.title}
-                      </h3>
-                      {item.notes && (
-                        <p className="text-xs text-slate-500 truncate">{item.notes}</p>
-                      )}
-                    </div>
-
-                    <div className="text-right shrink-0">
-                      <div className="text-base sm:text-lg font-extrabold">
-                        {formatGBP(item.amount)}
-                      </div>
-                      <div className="text-[11px] text-slate-500 capitalize">
-                        {item.cycle}
-                        {item.cycle !== 'monthly' &&
-                          ` (${formatGBP(item.monthlyEquiv)}/mo)`}
-                        {item.perspectiveShareFactor < 1 &&
-                          ` • Your share: ${formatGBP(item.perspectiveMonthlyEquiv)}/mo`}
+                          {isPaused ? 'Resume' : 'Pause'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEditRecurringModal(item)}
+                          className="p-1.5 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 cursor-pointer"
+                          title="Edit"
+                          aria-label={`Edit ${item.title}`}
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setConfirmDeleteItem({
+                              kind: 'recurring',
+                              id: item.id,
+                              label: item.title
+                            })
+                          }
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 cursor-pointer"
+                          title="Delete"
+                          aria-label={`Delete ${item.title}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
                   </div>
-
-                  <div className="flex items-center justify-between pt-2.5 border-t border-slate-200/60 dark:border-slate-800 text-xs">
-                    <div className="text-slate-500">
-                      <strong>{item.scheduleLabel}</strong> • Next:{' '}
-                      <strong className="text-slate-700 dark:text-slate-200">
-                        {item.nextDateFormatted}
-                      </strong>{' '}
-                      ({item.daysUntil === 0 ? 'Today' : `${item.daysUntil}d`})
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => handleToggleRecurringActive(item)}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer ${
-                          isPaused
-                            ? 'bg-emerald-600 text-white border-emerald-600'
-                            : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
-                        }`}
-                      >
-                        {isPaused ? 'Resume' : 'Pause'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => openEditRecurringModal(item)}
-                        className="p-1.5 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 cursor-pointer"
-                        title="Edit"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteRecurring(item.id)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 cursor-pointer"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="py-12 text-center space-y-3">
+              <CreditCard className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700" />
+              <p className="text-sm font-semibold">
+                No subscriptions or Direct Debits match this filter.
+              </p>
+              <button
+                type="button"
+                onClick={() => openNewRecurringModal('direct-debit')}
+                className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold cursor-pointer"
+              >
+                + Add First Recurring Bill
+              </button>
+            </div>
+          )}
         </section>
       )}
 
@@ -1772,14 +1890,22 @@ export default function LedgerApp({
                           onClick={() => openEditExpenseModal(exp)}
                           className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                           title="Edit expense"
+                          aria-label={`Edit ${exp.title}`}
                         >
                           <Edit3 className="w-4 h-4" />
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDeleteExpense(exp.id)}
+                          onClick={() =>
+                            setConfirmDeleteItem({
+                              kind: 'expense',
+                              id: exp.id,
+                              label: exp.title
+                            })
+                          }
                           className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 cursor-pointer"
                           title="Delete expense"
+                          aria-label={`Delete ${exp.title}`}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -1820,8 +1946,16 @@ export default function LedgerApp({
                   Household Income ({selectedMonthLabel})
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Month total (Recurring salaries + {selectedMonthLabel} one-off income):{' '}
-                  <strong>{formatGBP(financialSummary.totalHouseholdIncome)}</strong>
+                  Showing {ownerMeta[perspective]?.label} •{' '}
+                  {perspective === 'unified' ? 'Household total' : 'Share'} (Recurring salaries +{' '}
+                  {selectedMonthLabel} one-offs):{' '}
+                  <strong>
+                    {formatGBP(
+                      perspective === 'unified'
+                        ? financialSummary.totalHouseholdIncome
+                        : financialSummary.activeKpi.income
+                    )}
+                  </strong>
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -1844,87 +1978,113 @@ export default function LedgerApp({
               </div>
             </div>
 
-            <div className="space-y-3">
-              {incomes.map((inc) => {
-                const ownerInfo = ownerMeta[inc.owner] || ownerMeta.partner1;
-                const isOneOff = inc.frequency === 'one-off';
-                const inSelectedMonth =
-                  !isOneOff || (inc.date || todayStr).slice(0, 7) === selectedMonth;
-                const monthlyEq = toMonthlyAmount(inc.amount, inc.frequency);
+            {filteredIncomes.length > 0 ? (
+              <div className="space-y-3">
+                {filteredIncomes.map((inc) => {
+                  const ownerInfo = ownerMeta[inc.owner] || ownerMeta.partner1;
+                  const isOneOff = inc.frequency === 'one-off';
+                  const inSelectedMonth =
+                    !isOneOff || (inc.date || todayStr).slice(0, 7) === selectedMonth;
+                  const monthlyEq = toMonthlyAmount(inc.amount, inc.frequency);
 
-                return (
-                  <div
-                    key={inc.id}
-                    className={`p-4 rounded-2xl border flex items-center justify-between gap-3 ${
-                      !inSelectedMonth
-                        ? 'opacity-50 border-dashed border-slate-300 dark:border-slate-700'
-                        : darkMode
-                          ? 'bg-slate-800/50 border-slate-700'
-                          : 'bg-slate-50 border-slate-200/80'
-                    }`}
-                  >
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${ownerInfo.badgeClass}`}
-                        >
-                          {ownerInfo.badgeEmoji} {ownerInfo.shortLabel}
-                        </span>
-                        <span
-                          className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-md ${
-                            isOneOff
-                              ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
-                              : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                          }`}
-                        >
-                          {isOneOff ? `One-Off • ${inc.date || todayStr}` : `Recurring (${inc.frequency})`}
-                        </span>
-                        {!isOneOff && (
-                          <span className="text-xs text-slate-500">
-                            Payday: {getLedgerScheduleInfo(inc, true).scheduleLabel}
+                  return (
+                    <div
+                      key={inc.id}
+                      className={`p-4 rounded-2xl border flex items-center justify-between gap-3 ${
+                        !inSelectedMonth
+                          ? 'opacity-50 border-dashed border-slate-300 dark:border-slate-700'
+                          : darkMode
+                            ? 'bg-slate-800/50 border-slate-700'
+                            : 'bg-slate-50 border-slate-200/80'
+                      }`}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${ownerInfo.badgeClass}`}
+                          >
+                            {ownerInfo.badgeEmoji} {ownerInfo.shortLabel}
                           </span>
+                          <span
+                            className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-md ${
+                              isOneOff
+                                ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                                : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                            }`}
+                          >
+                            {isOneOff ? `One-Off • ${inc.date || todayStr}` : `Recurring (${inc.frequency})`}
+                          </span>
+                          {!isOneOff && (
+                            <span className="text-xs text-slate-500">
+                              Payday: {getLedgerScheduleInfo(inc, true, now).scheduleLabel}
+                            </span>
+                          )}
+                        </div>
+                        <div className="font-extrabold text-sm sm:text-base">
+                          {inc.title}
+                        </div>
+                        {inc.notes && (
+                          <div className="text-xs text-slate-500">{inc.notes}</div>
                         )}
                       </div>
-                      <div className="font-extrabold text-sm sm:text-base">
-                        {inc.title}
-                      </div>
-                      {inc.notes && (
-                        <div className="text-xs text-slate-500">{inc.notes}</div>
-                      )}
-                    </div>
 
-                    <div className="flex items-center gap-3">
-                      <div className="text-right">
-                        <div className="text-base font-extrabold text-emerald-600 dark:text-emerald-400">
-                          {formatGBP(inc.amount)}
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <div className="text-base font-extrabold text-emerald-600 dark:text-emerald-400">
+                            {formatGBP(inc.amount)}
+                          </div>
+                          <div className="text-[11px] text-slate-500 capitalize">
+                            {isOneOff
+                              ? inSelectedMonth
+                                ? `Included in ${selectedMonthLabel}`
+                                : `Logged in ${(inc.date || '').slice(0, 7)}`
+                              : `${inc.frequency} (${formatGBP(monthlyEq)}/mo)`}
+                          </div>
                         </div>
-                        <div className="text-[11px] text-slate-500 capitalize">
-                          {isOneOff
-                            ? inSelectedMonth
-                              ? `Included in ${selectedMonthLabel}`
-                              : `Logged in ${(inc.date || '').slice(0, 7)}`
-                            : `${inc.frequency} (${formatGBP(monthlyEq)}/mo)`}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openEditIncomeModal(inc)}
+                          className="p-1.5 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 cursor-pointer"
+                          title="Edit income"
+                          aria-label={`Edit ${inc.title}`}
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setConfirmDeleteItem({
+                              kind: 'income',
+                              id: inc.id,
+                              label: inc.title
+                            })
+                          }
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 cursor-pointer"
+                          title="Delete income"
+                          aria-label={`Delete ${inc.title}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => openEditIncomeModal(inc)}
-                        className="p-1.5 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 cursor-pointer"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteIncome(inc.id)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 cursor-pointer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="py-12 text-center space-y-3">
+                <TrendingUp className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700" />
+                <p className="text-sm font-semibold">
+                  No income streams match {ownerMeta[perspective]?.label}.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => openNewIncomeModal('monthly')}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold cursor-pointer"
+                >
+                  + Add Recurring Salary
+                </button>
+              </div>
+            )}
           </section>
 
           {/* Joint Bill Split Configuration (5 cols) */}
@@ -1953,7 +2113,7 @@ export default function LedgerApp({
                 {
                   id: 'proportional',
                   title: 'Income-Proportional Split',
-                  desc: `Weighted automatically by net monthly income (${Math.round((financialSummary.partner1Income / Math.max(1, financialSummary.partner1Income + financialSummary.partner2Income)) * 100)}% ${partner1Name} / ${Math.round((financialSummary.partner2Income / Math.max(1, financialSummary.partner1Income + financialSummary.partner2Income)) * 100)}% ${partner2Name}).`
+                  desc: `Weighted automatically by net monthly income (${financialSummary.proportionalPartner1Pct}% ${partner1Name} / ${financialSummary.proportionalPartner2Pct}% ${partner2Name}).`
                 }
               ].map((opt) => {
                 const active = splitRule === opt.id;
@@ -2016,6 +2176,9 @@ export default function LedgerApp({
           className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={editingExpenseId ? 'Edit Expense' : 'Log Expense'}
             onClick={(e) => e.stopPropagation()}
             className={`max-w-md w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${cardSurface}`}
           >
@@ -2025,8 +2188,9 @@ export default function LedgerApp({
               </h3>
               <button
                 type="button"
+                aria-label="Close expense modal"
                 onClick={() => setExpenseModalOpen(false)}
-                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800"
+                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -2042,7 +2206,7 @@ export default function LedgerApp({
                   required
                   value={expTitle}
                   onChange={(e) => setExpTitle(e.target.value)}
-                  placeholder="e.g., Sainsbury's shop, Vet prescription, Coffee..."
+                  placeholder="e.g., Weekly groceries, Vet visit, Coffee..."
                   className="w-full px-3.5 py-2.5 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
                 />
               </div>
@@ -2143,15 +2307,16 @@ export default function LedgerApp({
                 <button
                   type="button"
                   onClick={() => setExpenseModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800"
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+                  disabled={isSaving}
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  Save Expense
+                  {isSaving ? 'Saving...' : 'Save Expense'}
                 </button>
               </div>
             </form>
@@ -2168,6 +2333,13 @@ export default function LedgerApp({
           className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={
+              editingRecurringId
+                ? 'Edit Recurring Commitment'
+                : 'Add Direct Debit or Subscription'
+            }
             onClick={(e) => e.stopPropagation()}
             className={`max-w-md w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${cardSurface}`}
           >
@@ -2179,8 +2351,9 @@ export default function LedgerApp({
               </h3>
               <button
                 type="button"
+                aria-label="Close recurring commitment modal"
                 onClick={() => setRecurringModalOpen(false)}
-                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800"
+                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -2218,7 +2391,7 @@ export default function LedgerApp({
                   required
                   value={recTitle}
                   onChange={(e) => setRecTitle(e.target.value)}
-                  placeholder="e.g., Octopus Energy, Netflix, Council Tax..."
+                  placeholder="e.g., Electricity & Gas, Streaming, Council Tax..."
                   className="w-full px-3.5 py-2.5 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
                 />
               </div>
@@ -2349,15 +2522,16 @@ export default function LedgerApp({
                 <button
                   type="button"
                   onClick={() => setRecurringModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800"
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white"
+                  disabled={isSaving}
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  Save Commitment
+                  {isSaving ? 'Saving...' : 'Save Commitment'}
                 </button>
               </div>
             </form>
@@ -2374,6 +2548,9 @@ export default function LedgerApp({
           className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={editingIncomeId ? 'Edit Income Stream' : 'Add Income Stream'}
             onClick={(e) => e.stopPropagation()}
             className={`max-w-md w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${cardSurface}`}
           >
@@ -2383,8 +2560,9 @@ export default function LedgerApp({
               </h3>
               <button
                 type="button"
+                aria-label="Close income modal"
                 onClick={() => setIncomeModalOpen(false)}
-                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800"
+                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -2404,6 +2582,7 @@ export default function LedgerApp({
                       key={mode.id}
                       type="button"
                       onClick={() => {
+                        if (active) return;
                         setIncFrequency(mode.id);
                         if (mode.id === 'one-off' && !editingIncomeId) {
                           setIncCategory('One-Off / Variable');
@@ -2581,18 +2760,88 @@ export default function LedgerApp({
                 <button
                   type="button"
                   onClick={() => setIncomeModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800"
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+                  disabled={isSaving}
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  Save Income
+                  {isSaving ? 'Saving...' : 'Save Income'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================================
+          MODAL 4: DELETE CONFIRMATION
+      ==================================================================== */}
+      {confirmDeleteItem && (
+        <div
+          onClick={() => setConfirmDeleteItem(null)}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Delete ${confirmDeleteItem.label}`}
+            onClick={(e) => e.stopPropagation()}
+            className={`max-w-sm w-full rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${cardSurface}`}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-rose-500/15 text-rose-500 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-extrabold">
+                  Delete{' '}
+                  {confirmDeleteItem.kind === 'recurring'
+                    ? 'Recurring Commitment'
+                    : confirmDeleteItem.kind === 'expense'
+                      ? 'Expense'
+                      : 'Income Stream'}
+                  ?
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 break-words">
+                  Remove{' '}
+                  <span className="font-bold text-slate-700 dark:text-slate-200">
+                    {confirmDeleteItem.label}
+                  </span>{' '}
+                  from Ledger? This cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteItem(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const target = confirmDeleteItem;
+                  setConfirmDeleteItem(null);
+                  if (target.kind === 'recurring') {
+                    await handleDeleteRecurring(target.id);
+                  } else if (target.kind === 'expense') {
+                    await handleDeleteExpense(target.id);
+                  } else if (target.kind === 'income') {
+                    await handleDeleteIncome(target.id);
+                  }
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-extrabold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       )}

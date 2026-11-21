@@ -17,25 +17,19 @@ import {
   X
 } from 'lucide-react';
 import {
+  getLocalDateKey,
+  parseLocalDateKey,
+  shiftDateKey,
+  formatGBP,
   doesLedgerItemOccurOnDate,
   computeBloomSummary,
-  doesAlmanacEventOccurOnDate
+  doesAlmanacEventOccurOnDate,
+  isAlmanacEventVisibleToProfile
 } from '../utils/householdHelpers.js';
-
-export { doesAlmanacEventOccurOnDate };
-
-const getTodayStr = () => {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
 
 const formatDateFriendly = (dateStr) => {
   if (!dateStr) return '';
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString('en-GB', {
+  return parseLocalDateKey(dateStr).toLocaleDateString('en-GB', {
     weekday: 'long',
     day: 'numeric',
     month: 'short',
@@ -51,16 +45,6 @@ const RECURRENCE_OPTIONS = [
   { id: 'annual', label: 'Annually', shortLabel: 'Annual' }
 ];
 
-const getPreviousDateStr = (dateStr) => {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const dt = new Date(y, m - 1, d);
-  dt.setDate(dt.getDate() - 1);
-  const py = dt.getFullYear();
-  const pm = String(dt.getMonth() + 1).padStart(2, '0');
-  const pd = String(dt.getDate()).padStart(2, '0');
-  return `${py}-${pm}-${pd}`;
-};
-
 const EVENT_CATEGORIES = [
   { id: 'household', label: 'Household', color: 'bg-indigo-600 text-white', badge: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300' },
   { id: 'pet', label: 'Pet / Vet', color: 'bg-purple-600 text-white', badge: 'bg-purple-500/15 text-purple-700 dark:text-purple-300' },
@@ -73,6 +57,7 @@ export default function AlmanacApp({
   activeProfile,
   profiles,
   darkMode,
+  nowMs,
   almanacEvents,
   cadenceSnapshot,
   bloomSnapshot,
@@ -84,7 +69,8 @@ export default function AlmanacApp({
   onOpenFloodgate,
   onNavigateApp
 }) {
-  const todayStr = getTodayStr();
+  const nowObj = useMemo(() => (nowMs ? new Date(nowMs) : new Date()), [nowMs]);
+  const todayStr = getLocalDateKey(nowObj);
   const partner1Name = (profiles || []).find((p) => p.id === 'partner1')?.name || 'Partner 1';
   const partner2Name = (profiles || []).find((p) => p.id === 'partner2')?.name || 'Partner 2';
   const [selectedDate, setSelectedDate] = useState(initialDate || todayStr);
@@ -93,7 +79,7 @@ export default function AlmanacApp({
       const [iy, im] = initialDate.split('-').map(Number);
       return { year: iy, month: im - 1 };
     }
-    const base = new Date();
+    const base = nowObj;
     return { year: base.getFullYear(), month: base.getMonth() };
   });
 
@@ -113,8 +99,14 @@ export default function AlmanacApp({
     activeProfile.id === 'partner2'
   );
 
-  // Add / Edit Event Modal State
+  useEffect(() => {
+    setShowFloodgateLayer(activeProfile.id === 'partner2');
+  }, [activeProfile.id]);
+
+  // Add / Edit Event Modal & Delete Confirmation State
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [confirmDeleteEvent, setConfirmDeleteEvent] = useState(null);
   const [editingEventId, setEditingEventId] = useState(null);
   const [editingEventOriginal, setEditingEventOriginal] = useState(null);
   const [repeatEditScope, setRepeatEditScope] = useState('single'); // 'single' | 'future'
@@ -127,10 +119,27 @@ export default function AlmanacApp({
   const [notesInput, setNotesInput] = useState('');
   const [linkGpReportInput, setLinkGpReportInput] = useState(false);
 
+  useEffect(() => {
+    if (!addModalOpen && !confirmDeleteEvent) return;
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (confirmDeleteEvent) {
+          setConfirmDeleteEvent(null);
+        } else if (addModalOpen) {
+          setAddModalOpen(false);
+          setEditingEventId(null);
+          setEditingEventOriginal(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [addModalOpen, confirmDeleteEvent]);
+
   const catName = cadenceSnapshot?.settings?.catName || 'Pet';
   const bloomSummary = useMemo(
-    () => computeBloomSummary(bloomSnapshot),
-    [bloomSnapshot]
+    () => computeBloomSummary(bloomSnapshot, nowObj),
+    [bloomSnapshot, nowObj]
   );
   const mantisName = bloomSummary.settings.mantisName || 'Mantis';
 
@@ -198,10 +207,7 @@ export default function AlmanacApp({
       const dayEvents = (almanacEvents || []).filter(
         (e) =>
           doesAlmanacEventOccurOnDate(e, dateStr) &&
-          !(
-            activeProfile.id !== 'partner2' &&
-            (e.linkToGpReport || (e.category === 'medical' && e.assignedTo === 'Partner 2'))
-          )
+          isAlmanacEventVisibleToProfile(e, activeProfile, partner2Name)
       );
       const cadenceLog = cadenceSnapshot?.logsByDate?.[dateStr] || null;
       const bloomLog = bloomSnapshot?.logsByDate?.[dateStr] || null;
@@ -237,17 +243,15 @@ export default function AlmanacApp({
     floodgateSnapshot,
     getLedgerItemsForDate,
     bottleExpiryDateStr,
-    activeProfile
+    activeProfile,
+    partner2Name
   ]);
 
   const selectedCellData = useMemo(() => {
     const dayEvents = (almanacEvents || []).filter(
       (e) =>
         doesAlmanacEventOccurOnDate(e, selectedDate) &&
-        !(
-          activeProfile.id !== 'partner2' &&
-          (e.linkToGpReport || (e.category === 'medical' && e.assignedTo === 'Partner 2'))
-        )
+        isAlmanacEventVisibleToProfile(e, activeProfile, partner2Name)
     );
     const cadenceLog = cadenceSnapshot?.logsByDate?.[selectedDate] || null;
     const bloomLog = bloomSnapshot?.logsByDate?.[selectedDate] || null;
@@ -280,7 +284,8 @@ export default function AlmanacApp({
     floodgateSnapshot,
     getLedgerItemsForDate,
     bottleExpiryDateStr,
-    activeProfile
+    activeProfile,
+    partner2Name
   ]);
 
   const openAddEventModal = () => {
@@ -307,7 +312,7 @@ export default function AlmanacApp({
     setDateInput(isRec ? selectedDate : evt.date || selectedDate);
     setTimeInput(evt.time || '10:00');
     setCategoryInput(evt.category || 'household');
-    setRecurrenceInput(evt.recurrence || 'none');
+    setRecurrenceInput(isRec ? 'none' : evt.recurrence || 'none');
     setAssignedToInput(evt.assignedTo || 'Both');
     setNotesInput(evt.notes || '');
     setLinkGpReportInput(Boolean(evt.linkToGpReport));
@@ -316,146 +321,191 @@ export default function AlmanacApp({
 
   const handleSaveEvent = async (e) => {
     e.preventDefault();
-    if (!titleInput.trim()) return;
+    if (isSaving || !titleInput.trim()) return;
     const targetDate = dateInput || selectedDate;
+    const canLinkGpReport = activeProfile.allowedApps.includes('floodgate');
+    const resolvedGpLink = canLinkGpReport ? Boolean(linkGpReportInput) : false;
+    const assignedToProfileId =
+      assignedToInput === partner1Name || assignedToInput === 'Partner 1'
+        ? 'partner1'
+        : assignedToInput === partner2Name || assignedToInput === 'Partner 2'
+          ? 'partner2'
+          : null;
 
-    if (!editingEventId) {
-      const newEvt = {
-        id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        title: titleInput.trim(),
-        date: targetDate,
-        time: timeInput,
-        category: categoryInput,
-        recurrence: recurrenceInput || 'none',
-        skippedDates: [],
-        assignedTo: assignedToInput,
-        notes: notesInput.trim(),
-        linkToGpReport: Boolean(linkGpReportInput || categoryInput === 'medical'),
-        createdAt: new Date().toISOString()
-      };
-      const next = [...(almanacEvents || []), newEvt];
-      const msg =
-        newEvt.recurrence !== 'none'
-          ? `Added recurring (${newEvt.recurrence}) event "${newEvt.title}"`
-          : `Added "${newEvt.title}" to Almanac`;
-      if (onMutateEvents) {
-        await onMutateEvents({ nextEvents: next, upserts: [newEvt] }, msg);
-      } else {
-        await onSaveEvents(next, msg);
-      }
-    } else {
-      const wasRecurring = Boolean(
-        editingEventOriginal?.recurrence && editingEventOriginal.recurrence !== 'none'
-      );
-
-      if (wasRecurring && repeatEditScope === 'single') {
-        // Detach only this occurrence via skippedDates, preserving all past and future occurrences
-        const detachedEvt = {
+    setIsSaving(true);
+    let ok = true;
+    try {
+      if (!editingEventId) {
+        const newEvt = {
           id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           title: titleInput.trim(),
           date: targetDate,
           time: timeInput,
           category: categoryInput,
-          recurrence: 'none',
+          recurrence: recurrenceInput || 'none',
           skippedDates: [],
           assignedTo: assignedToInput,
+          assignedToProfileId,
           notes: notesInput.trim(),
-          linkToGpReport: Boolean(linkGpReportInput || categoryInput === 'medical'),
+          linkToGpReport: resolvedGpLink,
           createdAt: new Date().toISOString()
         };
-        let modifiedParent = null;
-        const next = (almanacEvents || []).map((item) => {
-          if (item.id !== editingEventId) return item;
-          const existingSkipped = Array.isArray(item.skippedDates) ? item.skippedDates : [];
-          modifiedParent = {
-            ...item,
-            skippedDates: Array.from(new Set([...existingSkipped, selectedDate]))
-          };
-          return modifiedParent;
-        });
-        const nextWithDetached = [...next, detachedEvt];
-        const msg = `Updated "${detachedEvt.title}" for ${targetDate} only`;
-        if (onMutateEvents) {
-          await onMutateEvents(
-            {
-              nextEvents: nextWithDetached,
-              upserts: modifiedParent ? [modifiedParent, detachedEvt] : [detachedEvt]
-            },
-            msg
-          );
-        } else {
-          await onSaveEvents(nextWithDetached, msg);
-        }
-      } else if (wasRecurring && selectedDate > editingEventOriginal.date) {
-        // Edit this & future occurrences while preserving past occurrences prior to selectedDate
-        const prevDateStr = getPreviousDateStr(selectedDate);
-        const futureSeriesEvt = {
-          id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          title: titleInput.trim(),
-          date: targetDate,
-          time: timeInput,
-          category: categoryInput,
-          recurrence: recurrenceInput || 'none',
-          skippedDates: (editingEventOriginal.skippedDates || []).filter(
-            (d) => d > selectedDate
-          ),
-          ...(editingEventOriginal.untilDate && editingEventOriginal.untilDate >= targetDate
-            ? { untilDate: editingEventOriginal.untilDate }
-            : {}),
-          assignedTo: assignedToInput,
-          notes: notesInput.trim(),
-          linkToGpReport: Boolean(linkGpReportInput || categoryInput === 'medical'),
-          createdAt: new Date().toISOString()
-        };
-        let cappedParent = null;
-        const next = (almanacEvents || []).map((item) => {
-          if (item.id !== editingEventId) return item;
-          cappedParent = { ...item, untilDate: prevDateStr };
-          return cappedParent;
-        });
-        const nextWithFuture = [...next, futureSeriesEvt];
-        const msg = `Updated "${futureSeriesEvt.title}" from ${targetDate} onwards (past events preserved)`;
-        if (onMutateEvents) {
-          await onMutateEvents(
-            {
-              nextEvents: nextWithFuture,
-              upserts: cappedParent ? [cappedParent, futureSeriesEvt] : [futureSeriesEvt]
-            },
-            msg
-          );
-        } else {
-          await onSaveEvents(nextWithFuture, msg);
-        }
+        const next = [...(almanacEvents || []), newEvt];
+        const msg =
+          newEvt.recurrence !== 'none'
+            ? `Added recurring (${newEvt.recurrence}) event "${newEvt.title}"`
+            : `Added "${newEvt.title}" to Almanac`;
+        ok = onMutateEvents
+          ? await onMutateEvents({ nextEvents: next, upserts: [newEvt] }, msg)
+          : await onSaveEvents(next, msg);
       } else {
-        // One-off event OR editing on the first date of a recurring series
-        const updatedEvt = {
-          ...editingEventOriginal,
-          id: editingEventId,
-          title: titleInput.trim(),
-          date: targetDate,
-          time: timeInput,
-          category: categoryInput,
-          recurrence: recurrenceInput || 'none',
-          assignedTo: assignedToInput,
-          notes: notesInput.trim(),
-          linkToGpReport: Boolean(linkGpReportInput || categoryInput === 'medical')
-        };
-        const next = (almanacEvents || []).map((item) =>
-          item.id === editingEventId ? updatedEvt : item
+        const wasRecurring = Boolean(
+          editingEventOriginal?.recurrence && editingEventOriginal.recurrence !== 'none'
         );
-        const msg = `Updated "${updatedEvt.title}"`;
-        if (onMutateEvents) {
-          await onMutateEvents({ nextEvents: next, upserts: [updatedEvt] }, msg);
+
+        if (wasRecurring && repeatEditScope === 'single') {
+          // Detach only this occurrence via skippedDates, preserving all past and future occurrences
+          const detachedEvt = {
+            id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            title: titleInput.trim(),
+            date: targetDate,
+            time: timeInput,
+            category: categoryInput,
+            recurrence: 'none',
+            skippedDates: [],
+            assignedTo: assignedToInput,
+            assignedToProfileId,
+            notes: notesInput.trim(),
+            linkToGpReport: resolvedGpLink,
+            createdAt: new Date().toISOString()
+          };
+          let modifiedParent = null;
+          const next = (almanacEvents || []).map((item) => {
+            if (item.id !== editingEventId) return item;
+            const existingSkipped = Array.isArray(item.skippedDates) ? item.skippedDates : [];
+            modifiedParent = {
+              ...item,
+              skippedDates: Array.from(new Set([...existingSkipped, selectedDate]))
+            };
+            return modifiedParent;
+          });
+          const nextWithDetached = [...next, detachedEvt];
+          const msg = `Updated "${detachedEvt.title}" for ${targetDate} only`;
+          ok = onMutateEvents
+            ? await onMutateEvents(
+                {
+                  nextEvents: nextWithDetached,
+                  upserts: modifiedParent ? [modifiedParent, detachedEvt] : [detachedEvt]
+                },
+                msg
+              )
+            : await onSaveEvents(nextWithDetached, msg);
+        } else if (
+          wasRecurring &&
+          selectedDate > editingEventOriginal.date &&
+          targetDate > editingEventOriginal.date
+        ) {
+          // Edit this & future occurrences while preserving past occurrences prior to the split boundary
+          const latestParent =
+            (almanacEvents || []).find((item) => item.id === editingEventId) ||
+            editingEventOriginal;
+          const splitBoundary = targetDate < selectedDate ? targetDate : selectedDate;
+          const prevDateStr = shiftDateKey(splitBoundary, -1);
+          const nextRecurrence = recurrenceInput || 'none';
+          const preservedSkips =
+            nextRecurrence === latestParent.recurrence
+              ? (latestParent.skippedDates || []).filter((d) => d > targetDate)
+              : [];
+          const futureSeriesEvt = {
+            id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            title: titleInput.trim(),
+            date: targetDate,
+            time: timeInput,
+            category: categoryInput,
+            recurrence: nextRecurrence,
+            skippedDates: preservedSkips,
+            ...(nextRecurrence !== 'none' &&
+            latestParent.untilDate &&
+            latestParent.untilDate >= targetDate
+              ? { untilDate: latestParent.untilDate }
+              : {}),
+            assignedTo: assignedToInput,
+            assignedToProfileId,
+            notes: notesInput.trim(),
+            linkToGpReport: resolvedGpLink,
+            createdAt: new Date().toISOString()
+          };
+          let cappedParent = null;
+          const next = (almanacEvents || []).map((item) => {
+            if (item.id !== editingEventId) return item;
+            cappedParent = { ...item, untilDate: prevDateStr };
+            return cappedParent;
+          });
+          const nextWithFuture = [...next, futureSeriesEvt];
+          const msg = `Updated "${futureSeriesEvt.title}" from ${targetDate} onwards (past events preserved)`;
+          ok = onMutateEvents
+            ? await onMutateEvents(
+                {
+                  nextEvents: nextWithFuture,
+                  upserts: cappedParent ? [cappedParent, futureSeriesEvt] : [futureSeriesEvt]
+                },
+                msg
+              )
+            : await onSaveEvents(nextWithFuture, msg);
         } else {
-          await onSaveEvents(next, msg);
+          // One-off event OR editing from/before the first date of a recurring series
+          const latestOriginal =
+            (almanacEvents || []).find((item) => item.id === editingEventId) ||
+            editingEventOriginal ||
+            {};
+          const nextRecurrence = recurrenceInput || 'none';
+          const updatedEvt = {
+            ...latestOriginal,
+            id: editingEventId,
+            title: titleInput.trim(),
+            date: targetDate,
+            time: timeInput,
+            category: categoryInput,
+            recurrence: nextRecurrence,
+            assignedTo: assignedToInput,
+            assignedToProfileId,
+            notes: notesInput.trim(),
+            linkToGpReport: resolvedGpLink
+          };
+          if (
+            nextRecurrence === 'none' ||
+            (updatedEvt.untilDate && updatedEvt.untilDate < targetDate)
+          ) {
+            delete updatedEvt.untilDate;
+          }
+          if (nextRecurrence === 'none' || nextRecurrence !== latestOriginal.recurrence) {
+            delete updatedEvt.skippedDates;
+          } else if (Array.isArray(updatedEvt.skippedDates)) {
+            updatedEvt.skippedDates = updatedEvt.skippedDates.filter((d) => d > targetDate);
+          }
+          const next = (almanacEvents || []).map((item) =>
+            item.id === editingEventId ? updatedEvt : item
+          );
+          const msg = `Updated "${updatedEvt.title}"`;
+          ok = onMutateEvents
+            ? await onMutateEvents({ nextEvents: next, upserts: [updatedEvt] }, msg)
+            : await onSaveEvents(next, msg);
         }
       }
-    }
 
-    setSelectedDate(targetDate);
-    setAddModalOpen(false);
-    setEditingEventId(null);
-    setEditingEventOriginal(null);
+      if (ok !== false) {
+        setSelectedDate(targetDate);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+          const [ty, tm] = targetDate.split('-').map(Number);
+          setCalendarMonth({ year: ty, month: tm - 1 });
+        }
+        setAddModalOpen(false);
+        setEditingEventId(null);
+        setEditingEventOriginal(null);
+      }
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleSkipSingleOccurrence = async (evtId, dateToSkip) => {
@@ -469,8 +519,9 @@ export default function AlmanacApp({
       };
       return skippedTarget;
     });
+    if (!skippedTarget) return;
     const msg = `Skipped occurrence on ${dateToSkip}`;
-    if (onMutateEvents && skippedTarget) {
+    if (onMutateEvents) {
       await onMutateEvents({ nextEvents: next, upserts: [skippedTarget] }, msg);
     } else {
       await onSaveEvents(next, msg);
@@ -608,6 +659,7 @@ export default function AlmanacApp({
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                aria-label="Previous month"
                 onClick={() =>
                   setCalendarMonth((prev) => {
                     const d = new Date(prev.year, prev.month - 1, 1);
@@ -627,7 +679,7 @@ export default function AlmanacApp({
                 onClick={() => {
                   const now = new Date();
                   setCalendarMonth({ year: now.getFullYear(), month: now.getMonth() });
-                  setSelectedDate(todayStr);
+                  setSelectedDate(getLocalDateKey(now));
                 }}
                 className="px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 cursor-pointer"
               >
@@ -635,6 +687,7 @@ export default function AlmanacApp({
               </button>
               <button
                 type="button"
+                aria-label="Next month"
                 onClick={() =>
                   setCalendarMonth((prev) => {
                     const d = new Date(prev.year, prev.month + 1, 1);
@@ -743,7 +796,7 @@ export default function AlmanacApp({
                       {showLedgerLayer && ledgerDue.length > 0 && (
                         <span
                           className="w-2 h-2 rounded-full bg-amber-500"
-                          title={`${ledgerDue.length} upkeep task(s) due`}
+                          title={`${ledgerDue.length} bill(s) / payday(s)`}
                         />
                       )}
                     </div>
@@ -867,14 +920,16 @@ export default function AlmanacApp({
                             onClick={() => openEditEventModal(evt)}
                             className="p-1 text-slate-400 hover:text-indigo-500 cursor-pointer"
                             title="Edit event"
+                            aria-label="Edit event"
                           >
                             <Edit3 className="w-4 h-4" />
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleDeleteEvent(evt.id)}
+                            onClick={() => setConfirmDeleteEvent(evt)}
                             className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
                             title={isRec ? 'Delete entire recurring series' : 'Delete event'}
+                            aria-label={isRec ? 'Delete entire recurring series' : 'Delete event'}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -901,7 +956,7 @@ export default function AlmanacApp({
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleDeleteEvent(evt.id)}
+                            onClick={() => setConfirmDeleteEvent(evt)}
                             className="font-semibold text-rose-500 hover:underline cursor-pointer"
                           >
                             Delete series
@@ -954,6 +1009,11 @@ export default function AlmanacApp({
                     Open Cadence
                   </button>
                 </div>
+                {selectedCellData.isBottleExpiry && (
+                  <div className="p-2 rounded-xl bg-amber-500 text-slate-950 font-bold">
+                    🐾 Bottle Expiry Date — open a fresh bottle &amp; update the opened date in Cadence
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-2 pt-1">
                   <div className="p-2 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-200/60 dark:border-slate-700">
                     <div className="font-bold">Morning</div>
@@ -1105,7 +1165,7 @@ export default function AlmanacApp({
                     <span>
                       • {it.title} ({it.kind})
                     </span>
-                    <span className="font-bold">£{Number(it.amount || 0).toFixed(2)}</span>
+                    <span className="font-bold">{formatGBP(it.amount)}</span>
                   </div>
                 ))}
               </div>
@@ -1125,6 +1185,9 @@ export default function AlmanacApp({
           className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={editingEventId ? 'Edit Almanac Event' : 'Add Almanac Event'}
             onClick={(e) => e.stopPropagation()}
             className={`max-w-md w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-3 sm:space-y-4 ${
               darkMode
@@ -1143,12 +1206,13 @@ export default function AlmanacApp({
               </div>
               <button
                 type="button"
+                aria-label="Close event modal"
                 onClick={() => {
                   setAddModalOpen(false);
                   setEditingEventId(null);
                   setEditingEventOriginal(null);
                 }}
-                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 shrink-0"
+                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 shrink-0 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1287,8 +1351,15 @@ export default function AlmanacApp({
                       type="button"
                       onClick={() => {
                         setCategoryInput(cat.id);
-                        if (cat.id === 'bins' && recurrenceInput === 'none') {
+                        if (!editingEventId && cat.id === 'bins' && recurrenceInput === 'none') {
                           setRecurrenceInput('weekly');
+                        }
+                        if (
+                          !editingEventId &&
+                          cat.id === 'medical' &&
+                          activeProfile.allowedApps.includes('floodgate')
+                        ) {
+                          setLinkGpReportInput(true);
                         }
                       }}
                       className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer ${
@@ -1305,30 +1376,50 @@ export default function AlmanacApp({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
-                  Repeat / Recurrence
-                </label>
-                <div className="flex flex-wrap gap-1.5">
-                  {RECURRENCE_OPTIONS.map((rec) => (
-                    <button
-                      key={rec.id}
-                      type="button"
-                      onClick={() => setRecurrenceInput(rec.id)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1 cursor-pointer ${
-                        recurrenceInput === rec.id
-                          ? 'bg-indigo-600 text-white border-indigo-600'
-                          : darkMode
-                            ? 'bg-slate-800 border-slate-700 text-slate-300'
-                            : 'bg-slate-100 border-slate-200 text-slate-700'
-                      }`}
-                    >
-                      {rec.id !== 'none' && <Repeat className="w-3 h-3" />}
-                      <span>{rec.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+              {(() => {
+                const isEditingRecurringSingle = Boolean(
+                  editingEventId &&
+                    editingEventOriginal?.recurrence &&
+                    editingEventOriginal.recurrence !== 'none' &&
+                    repeatEditScope === 'single'
+                );
+                return (
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
+                      Repeat / Recurrence
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {RECURRENCE_OPTIONS.map((rec) => (
+                        <button
+                          key={rec.id}
+                          type="button"
+                          disabled={isEditingRecurringSingle}
+                          onClick={() => setRecurrenceInput(rec.id)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1 ${
+                            isEditingRecurringSingle
+                              ? 'opacity-45 cursor-not-allowed'
+                              : 'cursor-pointer'
+                          } ${
+                            recurrenceInput === rec.id
+                              ? 'bg-indigo-600 text-white border-indigo-600'
+                              : darkMode
+                                ? 'bg-slate-800 border-slate-700 text-slate-300'
+                                : 'bg-slate-100 border-slate-200 text-slate-700'
+                          }`}
+                        >
+                          {rec.id !== 'none' && <Repeat className="w-3 h-3" />}
+                          <span>{rec.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    {isEditingRecurringSingle && (
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Disabled while editing a single occurrence — choose &ldquo;This &amp; future occurrences&rdquo; above to change the repeat rule.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
@@ -1347,11 +1438,11 @@ export default function AlmanacApp({
                 <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer pt-1">
                   <input
                     type="checkbox"
-                    checked={linkGpReportInput || categoryInput === 'medical'}
+                    checked={linkGpReportInput}
                     onChange={(e) => setLinkGpReportInput(e.target.checked)}
                     className="rounded accent-rose-600"
                   />
-                  <span>Attach quick-launch button for Floodgate Printable GP Report</span>
+                  <span>Attach quick-launch button for Floodgate Printable GP Report (keeps event private to {partner2Name})</span>
                 </label>
               )}
 
@@ -1363,18 +1454,76 @@ export default function AlmanacApp({
                     setEditingEventId(null);
                     setEditingEventOriginal(null);
                   }}
-                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800"
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white"
+                  disabled={isSaving}
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  {editingEventId ? 'Save Changes' : 'Save Event'}
+                  {isSaving ? 'Saving...' : editingEventId ? 'Save Changes' : 'Save Event'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE EVENT / SERIES CONFIRMATION MODAL */}
+      {confirmDeleteEvent && (
+        <div
+          onClick={() => setConfirmDeleteEvent(null)}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={
+              confirmDeleteEvent.recurrence && confirmDeleteEvent.recurrence !== 'none'
+                ? 'Delete Entire Recurring Series'
+                : 'Delete Almanac Event'
+            }
+            onClick={(e) => e.stopPropagation()}
+            className={`max-w-sm w-full rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${
+              darkMode
+                ? 'bg-slate-900 border-slate-800 text-slate-100'
+                : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            <div className="space-y-1">
+              <h3 className="text-base font-extrabold text-rose-600 dark:text-rose-400">
+                {confirmDeleteEvent.recurrence && confirmDeleteEvent.recurrence !== 'none'
+                  ? 'Delete Entire Recurring Series?'
+                  : 'Delete Almanac Event?'}
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                {confirmDeleteEvent.recurrence && confirmDeleteEvent.recurrence !== 'none'
+                  ? `This will remove "${confirmDeleteEvent.title}" across all past and future dates. (Use "Skip this date only" to hide just ${selectedDate}.)`
+                  : `Remove "${confirmDeleteEvent.title}" from ${confirmDeleteEvent.date}?`}
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteEvent(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const targetId = confirmDeleteEvent.id;
+                  setConfirmDeleteEvent(null);
+                  await handleDeleteEvent(targetId);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -8,7 +8,6 @@ import {
   Clock,
   Calendar,
   Droplets,
-  UserCheck,
   Plus,
   Settings,
   History,
@@ -23,6 +22,15 @@ import {
   X,
   Check
 } from 'lucide-react';
+
+import {
+  getLocalDateKey,
+  parseLocalDateKey,
+  shiftDateKey,
+  formatFriendlyDate,
+  formatTimeDisplay,
+  formatDurationAgo
+} from '../utils/householdHelpers.js';
 
 // ==========================================
 // LOCAL DEVICE SESSION CONFIG
@@ -47,43 +55,6 @@ const getOrCreateDeviceId = () => {
 // ==========================================
 // DATE & TIME UTILITIES
 // ==========================================
-const getLocalDateKey = (dateObj = new Date()) => {
-  const year = dateObj.getFullYear();
-  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-  const day = String(dateObj.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const formatTimeDisplay = (isoString) => {
-  if (!isoString) return '';
-  try {
-    const d = new Date(isoString);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return '';
-  }
-};
-
-const formatReadableDate = (dateKey, todayKey) => {
-  if (dateKey === todayKey) return 'Today';
-  const [y, m, d] = dateKey.split('-').map(Number);
-  const dateObj = new Date(y, m - 1, d);
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (dateKey === getLocalDateKey(yesterday)) return 'Yesterday';
-
-  return dateObj.toLocaleDateString([], {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric'
-  });
-};
-
-const parseLocalDateKey = (dateKey) => {
-  const [y, m, d] = dateKey.split('-').map(Number);
-  return new Date(y, m - 1, d);
-};
-
 const getMondayOfWeek = (dateInput = new Date()) => {
   const d =
     typeof dateInput === 'string' ? parseLocalDateKey(dateInput) : new Date(dateInput);
@@ -93,16 +64,10 @@ const getMondayOfWeek = (dateInput = new Date()) => {
   return getLocalDateKey(d);
 };
 
-const shiftDateKeyByDays = (dateKey, deltaDays) => {
-  const d = parseLocalDateKey(dateKey);
-  d.setDate(d.getDate() + deltaDays);
-  return getLocalDateKey(d);
-};
-
 const getCalendarWeekDays = (mondayKey, todayKey) => {
   const days = [];
   for (let i = 0; i < 7; i++) {
-    const dayKey = shiftDateKeyByDays(mondayKey, i);
+    const dayKey = shiftDateKey(mondayKey, i);
     if (dayKey <= todayKey) {
       days.push(dayKey);
     }
@@ -112,7 +77,7 @@ const getCalendarWeekDays = (mondayKey, todayKey) => {
 
 const formatWeekRangeLabel = (mondayKey) => {
   const monDate = parseLocalDateKey(mondayKey);
-  const sunDate = parseLocalDateKey(shiftDateKeyByDays(mondayKey, 6));
+  const sunDate = parseLocalDateKey(shiftDateKey(mondayKey, 6));
   const sameYear = monDate.getFullYear() === sunDate.getFullYear();
   const monStr = monDate.toLocaleDateString([], {
     month: 'short',
@@ -125,17 +90,6 @@ const formatWeekRangeLabel = (mondayKey) => {
     year: 'numeric'
   });
   return `${monStr} – ${sunStr}`;
-};
-
-const getHoursSince = (isoString, nowMs) => {
-  if (!isoString) return null;
-  const diffMs = Math.max(0, nowMs - new Date(isoString).getTime());
-  const totalMinutes = Math.floor(diffMs / 60000);
-  if (totalMinutes === 0) return 'Just now';
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours === 0) return `${minutes}m ago`;
-  return `${hours}h ${minutes}m ago`;
 };
 
 const DEFAULT_SETTINGS = {
@@ -157,6 +111,8 @@ export default function CadenceApp({
   cadenceSnapshot,
   onGlobalSync
 }) {
+  const canConfigure = activeProfile?.id !== 'caregiver';
+
   // ==========================================
   // STATE MANAGEMENT
   // ==========================================
@@ -184,10 +140,27 @@ export default function CadenceApp({
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [settingsForm, setSettingsForm] = useState(DEFAULT_SETTINGS);
   const [confirmUndoModal, setConfirmUndoModal] = useState(null);
+  const [confirmNewBottleModal, setConfirmNewBottleModal] = useState(false);
   const [manualLogModal, setManualLogModal] = useState(null);
   const [manualTimeInput, setManualTimeInput] = useState('08:00');
   const [manualCaregiverInput, setManualCaregiverInput] = useState('');
   const [manualNoteInput, setManualNoteInput] = useState('');
+
+  useEffect(() => {
+    if (!settingsModalOpen && !confirmUndoModal && !confirmNewBottleModal && !manualLogModal) {
+      return;
+    }
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (confirmUndoModal) setConfirmUndoModal(null);
+        else if (confirmNewBottleModal) setConfirmNewBottleModal(false);
+        else if (manualLogModal) setManualLogModal(null);
+        else if (settingsModalOpen) setSettingsModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [settingsModalOpen, confirmUndoModal, confirmNewBottleModal, manualLogModal]);
 
   // Keep clock fresh every 30 seconds for automatic midnight rollover & "time since last dose"
   useEffect(() => {
@@ -205,7 +178,6 @@ export default function CadenceApp({
     setSettings({ ...DEFAULT_SETTINGS, ...cadenceSnapshot.settings });
     setLogsByDate(cadenceSnapshot.logsByDate || {});
     setIsLoadingData(false);
-    setSyncError(null);
   }, [cadenceSnapshot]);
 
   // ==========================================
@@ -216,6 +188,16 @@ export default function CadenceApp({
   const [selectedWeekMonday, setSelectedWeekMonday] = useState(() =>
     getMondayOfWeek(new Date())
   );
+  const prevWeekMondayRef = React.useRef(currentWeekMonday);
+
+  useEffect(() => {
+    if (prevWeekMondayRef.current !== currentWeekMonday) {
+      setSelectedWeekMonday((prev) =>
+        prev === prevWeekMondayRef.current ? currentWeekMonday : prev
+      );
+      prevWeekMondayRef.current = currentWeekMonday;
+    }
+  }, [currentWeekMonday]);
 
   const activeWeekMonday =
     selectedWeekMonday > currentWeekMonday ? currentWeekMonday : selectedWeekMonday;
@@ -265,9 +247,8 @@ export default function CadenceApp({
   const bottleStatus = useMemo(() => {
     const openedStr = settings.bottleOpenedDate || todayKey;
     const shelfLife = Number(settings.bottleShelfLifeDays) || 180;
-    const [y, m, d] = openedStr.split('-').map(Number);
-    const openedDate = new Date(y, m - 1, d);
-    const expiryDate = new Date(y, m - 1, d);
+    const openedDate = parseLocalDateKey(openedStr);
+    const expiryDate = new Date(openedDate.getTime());
     expiryDate.setDate(expiryDate.getDate() + shelfLife);
 
     const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -310,8 +291,10 @@ export default function CadenceApp({
         const currentMinutes = now.getHours() * 60 + now.getMinutes();
         const [amH, amM] = (settings.morningTargetTime || '08:00').split(':').map(Number);
         const [pmH, pmM] = (settings.eveningTargetTime || '20:00').split(':').map(Number);
-        const amTargetMins = (amH || 8) * 60 + (amM || 0);
-        const pmTargetMins = (pmH || 20) * 60 + (pmM || 0);
+        const amTargetMins =
+          (Number.isFinite(amH) ? amH : 8) * 60 + (Number.isFinite(amM) ? amM : 0);
+        const pmTargetMins =
+          (Number.isFinite(pmH) ? pmH : 20) * 60 + (Number.isFinite(pmM) ? pmM : 0);
 
         const amExpected = currentMinutes >= amTargetMins || record.morning?.given;
         const pmExpected = currentMinutes >= pmTargetMins || record.evening?.given;
@@ -329,7 +312,14 @@ export default function CadenceApp({
 
     const pct = totalExpected > 0 ? Math.round((completed / totalExpected) * 100) : 100;
     return { completed, totalExpected, pct };
-  }, [selectedWeekDays, logsByDate, now, todayKey]);
+  }, [
+    selectedWeekDays,
+    logsByDate,
+    now,
+    todayKey,
+    settings.morningTargetTime,
+    settings.eveningTargetTime
+  ]);
 
   // ==========================================
   // LOCAL API WRITE ACTIONS
@@ -371,6 +361,7 @@ export default function CadenceApp({
   const handleRecordDose = async (slot, customNote = '') => {
     const caregiverName = activeCaregiver;
     const timestampIso = new Date().toISOString();
+    const prevLogs = logsByDate;
 
     const dosePayload = {
       given: true,
@@ -394,10 +385,12 @@ export default function CadenceApp({
     if (slot === 'evening') setEveningNoteInput('');
 
     try {
-      await saveDayLogToApi(todayKey, updatedDayRecord);
+      await saveDayLogToApi(todayKey, { [slot]: dosePayload, updatedAt: timestampIso });
     } catch (err) {
       console.error('Error recording dose:', err);
-      setSyncError('Failed to save dose to local server. Please check your Wi-Fi connection.');
+      setLogsByDate(prevLogs);
+      if (onGlobalSync) onGlobalSync({ force: true });
+      setSyncError('Failed to save dose to local server. Reverted — please check Wi-Fi.');
     }
   };
 
@@ -405,6 +398,7 @@ export default function CadenceApp({
     if (!confirmUndoModal) return;
     const { dateKey, slot } = confirmUndoModal;
     const timestampIso = new Date().toISOString();
+    const prevLogs = logsByDate;
 
     const currentDayData = logsByDate[dateKey] || { dateKey };
     const updatedDayRecord = {
@@ -418,10 +412,12 @@ export default function CadenceApp({
     setConfirmUndoModal(null);
 
     try {
-      await saveDayLogToApi(dateKey, updatedDayRecord);
+      await saveDayLogToApi(dateKey, { [slot]: null, updatedAt: timestampIso });
     } catch (err) {
       console.error('Error undoing dose:', err);
-      setSyncError('Failed to undo dose record.');
+      setLogsByDate(prevLogs);
+      if (onGlobalSync) onGlobalSync({ force: true });
+      setSyncError('Failed to undo dose record — reverted.');
     }
   };
 
@@ -447,6 +443,8 @@ export default function CadenceApp({
     const [year, month, day] = dateKey.split('-').map(Number);
     const [hours, minutes] = (manualTimeInput || '08:00').split(':').map(Number);
     const customDateObj = new Date(year, month - 1, day, hours || 0, minutes || 0, 0);
+    const timestampIso = new Date().toISOString();
+    const prevLogs = logsByDate;
 
     const dosePayload = {
       given: true,
@@ -462,50 +460,71 @@ export default function CadenceApp({
       ...currentDayData,
       dateKey,
       [slot]: dosePayload,
-      updatedAt: new Date().toISOString()
+      updatedAt: timestampIso
     };
 
     setLogsByDate((prev) => ({ ...prev, [dateKey]: updatedDayRecord }));
     setManualLogModal(null);
 
     try {
-      await saveDayLogToApi(dateKey, updatedDayRecord);
+      await saveDayLogToApi(dateKey, { [slot]: dosePayload, updatedAt: timestampIso });
     } catch (err) {
       console.error('Error saving manual dose entry:', err);
-      setSyncError('Failed to save manual entry.');
+      setLogsByDate(prevLogs);
+      if (onGlobalSync) onGlobalSync({ force: true });
+      setSyncError('Failed to save manual entry — reverted.');
     }
   };
 
   const handleSaveSettings = async (e) => {
     e.preventDefault();
-    const normalizedSettings = {
-      ...DEFAULT_SETTINGS,
-      ...settingsForm,
-      caregivers: DEFAULT_SETTINGS.caregivers
+    if (!canConfigure) return;
+    const prevSettings = settings;
+    const parsedShelf = Number(settingsForm.bottleShelfLifeDays);
+    const editablePayload = {
+      catName: (settingsForm.catName || '').trim() || DEFAULT_SETTINGS.catName,
+      medicationName:
+        (settingsForm.medicationName || '').trim() || DEFAULT_SETTINGS.medicationName,
+      dosageLabel: (settingsForm.dosageLabel || '').trim() || DEFAULT_SETTINGS.dosageLabel,
+      morningTargetTime: (settingsForm.morningTargetTime || '').trim() || '08:00',
+      eveningTargetTime: (settingsForm.eveningTargetTime || '').trim() || '20:00',
+      bottleOpenedDate: settingsForm.bottleOpenedDate || settings.bottleOpenedDate || todayKey,
+      bottleShelfLifeDays:
+        Number.isFinite(parsedShelf) && parsedShelf >= 7
+          ? Math.min(365, Math.round(parsedShelf))
+          : 180,
+      administrationNote: (settingsForm.administrationNote || '').trim()
     };
-    setSettings(normalizedSettings);
+    setSettings((prev) => ({ ...prev, ...editablePayload }));
     setSettingsModalOpen(false);
 
     try {
-      await saveSettingsToApi(normalizedSettings);
+      await saveSettingsToApi(editablePayload);
     } catch (err) {
       console.error('Error saving settings:', err);
-      setSyncError('Failed to update settings.');
+      setSettings(prevSettings);
+      if (onGlobalSync) onGlobalSync({ force: true });
+      setSyncError('Failed to update settings — reverted.');
     }
   };
 
   const handleOpenNewBottleToday = async () => {
+    if (!canConfigure) return;
+    const prevSettings = settings;
     const updated = {
       ...settings,
       bottleOpenedDate: todayKey
     };
     setSettings(updated);
     setSettingsForm(updated);
+    setConfirmNewBottleModal(false);
     try {
       await saveSettingsToApi(updated);
     } catch (err) {
       console.error('Error resetting bottle date:', err);
-      setSyncError('Failed to update bottle opened date.');
+      setSettings(prevSettings);
+      if (onGlobalSync) onGlobalSync({ force: true });
+      setSyncError('Failed to update bottle opened date — reverted.');
     }
   };
 
@@ -608,22 +627,25 @@ export default function CadenceApp({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              setSettingsForm(settings);
-              setSettingsModalOpen(true);
-            }}
-            className={`flex items-center gap-1.5 p-2.5 sm:px-3.5 sm:py-2 rounded-xl font-bold text-xs border transition cursor-pointer shrink-0 ${
-              darkMode
-                ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
-                : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
-            }`}
-            title="Edit Household & Medication Settings"
-          >
-            <Settings className="w-4 h-4" />
-            <span className="hidden sm:inline">Medication Settings</span>
-          </button>
+          {canConfigure && (
+            <button
+              type="button"
+              onClick={() => {
+                setSettingsForm(settings);
+                setSettingsModalOpen(true);
+              }}
+              className={`flex items-center gap-1.5 p-2.5 sm:px-3.5 sm:py-2 rounded-xl font-bold text-xs border transition cursor-pointer shrink-0 ${
+                darkMode
+                  ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+                  : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+              }`}
+              title="Edit Household & Medication Settings"
+              aria-label="Edit Household & Medication Settings"
+            >
+              <Settings className="w-4 h-4" />
+              <span className="hidden sm:inline">Medication Settings</span>
+            </button>
+          )}
         </section>
 
         {/* SYNC ERROR NOTICE IF ANY */}
@@ -663,8 +685,8 @@ export default function CadenceApp({
                 className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium w-fit ${statusBanner.badgeTheme}`}
               >
                 <Clock className="w-3.5 h-3.5" />
-                Last dose: {getHoursSince(lastDoseInfo.timestamp, now.getTime())} (
-                {formatReadableDate(lastDoseInfo.dateKey, todayKey)} {lastDoseInfo.slotLabel})
+                Last dose: {formatDurationAgo(lastDoseInfo.timestamp, now.getTime())} (
+                {formatFriendlyDate(lastDoseInfo.dateKey, todayKey)} {lastDoseInfo.slotLabel})
               </span>
             )}
           </div>
@@ -1013,26 +1035,28 @@ export default function CadenceApp({
               </div>
             </div>
 
-            <div className="flex items-center gap-2 self-start sm:self-center">
-              <button
-                type="button"
-                onClick={handleOpenNewBottleToday}
-                className="px-3 py-2 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-700 dark:text-purple-300 border border-purple-500/30 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                Opened New Bottle Today
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSettingsForm(settings);
-                  setSettingsModalOpen(true);
-                }}
-                className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-semibold transition cursor-pointer"
-              >
-                Configure
-              </button>
-            </div>
+            {canConfigure && (
+              <div className="flex items-center gap-2 self-start sm:self-center">
+                <button
+                  type="button"
+                  onClick={() => setConfirmNewBottleModal(true)}
+                  className="px-3 py-2 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-700 dark:text-purple-300 border border-purple-500/30 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Opened New Bottle Today
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettingsForm(settings);
+                    setSettingsModalOpen(true);
+                  }}
+                  className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-semibold transition cursor-pointer"
+                >
+                  Configure
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -1125,10 +1149,11 @@ export default function CadenceApp({
               <button
                 type="button"
                 onClick={() =>
-                  setSelectedWeekMonday(shiftDateKeyByDays(activeWeekMonday, -7))
+                  setSelectedWeekMonday(shiftDateKey(activeWeekMonday, -7))
                 }
                 className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
                 title="Previous Week"
+                aria-label="Previous Week"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -1147,7 +1172,7 @@ export default function CadenceApp({
                 type="button"
                 disabled={isCurrentWeek}
                 onClick={() => {
-                  const nextMonday = shiftDateKeyByDays(activeWeekMonday, 7);
+                  const nextMonday = shiftDateKey(activeWeekMonday, 7);
                   setSelectedWeekMonday(
                     nextMonday > currentWeekMonday ? currentWeekMonday : nextMonday
                   );
@@ -1158,6 +1183,7 @@ export default function CadenceApp({
                     : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 cursor-pointer'
                 }`}
                 title="Next Week"
+                aria-label="Next Week"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -1225,7 +1251,7 @@ export default function CadenceApp({
                       />
                       <div>
                         <div className="font-bold text-sm flex items-center gap-1.5">
-                          <span>{formatReadableDate(dateKey, todayKey)}</span>
+                          <span>{formatFriendlyDate(dateKey, todayKey)}</span>
                           {isToday && (
                             <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-700 dark:text-purple-300">
                               Active
@@ -1332,6 +1358,9 @@ export default function CadenceApp({
         >
           <div
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirm Uncheck Dose"
             className={`rounded-2xl sm:rounded-3xl max-w-md w-full max-h-[calc(100dvh-1.5rem)] overflow-y-auto p-4 sm:p-6 shadow-xl border space-y-4 ${cardSurface}`}
           >
             <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400">
@@ -1383,6 +1412,9 @@ export default function CadenceApp({
         >
           <div
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Log or Edit Dose Entry"
             className={`rounded-2xl sm:rounded-3xl max-w-md w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto p-4 sm:p-6 shadow-xl border ${cardSurface}`}
           >
             <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
@@ -1392,13 +1424,14 @@ export default function CadenceApp({
                   {manualLogModal.slot === 'morning' ? 'Morning (AM)' : 'Evening (PM)'} Dose
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Date: {formatReadableDate(manualLogModal.dateKey, todayKey)} (
+                  Date: {formatFriendlyDate(manualLogModal.dateKey, todayKey)} (
                   {manualLogModal.dateKey})
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setManualLogModal(null)}
+                aria-label="Close Dose Entry Modal"
                 className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800"
               >
                 <X className="w-4 h-4" />
@@ -1503,13 +1536,16 @@ export default function CadenceApp({
       {/* ========================================== */}
       {/* MODAL 3: DOSAGE & BOTTLE SETTINGS MODAL    */}
       {/* ========================================== */}
-      {settingsModalOpen && (
+      {settingsModalOpen && canConfigure && (
         <div
           onClick={() => setSettingsModalOpen(false)}
           className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
         >
           <div
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Pet and Medication Settings"
             className={`rounded-2xl sm:rounded-3xl max-w-lg w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto p-4 sm:p-6 shadow-xl border ${cardSurface}`}
           >
             <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
@@ -1524,6 +1560,7 @@ export default function CadenceApp({
               <button
                 type="button"
                 onClick={() => setSettingsModalOpen(false)}
+                aria-label="Close Medication Settings Modal"
                 className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800"
               >
                 <X className="w-4 h-4" />
@@ -1592,6 +1629,7 @@ export default function CadenceApp({
                     onChange={(e) =>
                       setSettingsForm({ ...settingsForm, morningTargetTime: e.target.value })
                     }
+                    required
                     className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
                   />
                 </div>
@@ -1605,6 +1643,7 @@ export default function CadenceApp({
                     onChange={(e) =>
                       setSettingsForm({ ...settingsForm, eveningTargetTime: e.target.value })
                     }
+                    required
                     className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
                   />
                 </div>
@@ -1633,11 +1672,11 @@ export default function CadenceApp({
                     type="number"
                     min="7"
                     max="365"
-                    value={settingsForm.bottleShelfLifeDays}
+                    value={settingsForm.bottleShelfLifeDays ?? ''}
                     onChange={(e) =>
                       setSettingsForm({
                         ...settingsForm,
-                        bottleShelfLifeDays: Number(e.target.value) || 180
+                        bottleShelfLifeDays: e.target.value
                       })
                     }
                     required
@@ -1676,6 +1715,55 @@ export default function CadenceApp({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================== */}
+      {/* MODAL 4: RESET BOTTLE DATE CONFIRMATION    */}
+      {/* ========================================== */}
+      {confirmNewBottleModal && canConfigure && (
+        <div
+          onClick={() => setConfirmNewBottleModal(false)}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirm New Bottle"
+            className={`rounded-2xl sm:rounded-3xl max-w-md w-full max-h-[calc(100dvh-1.5rem)] overflow-y-auto p-4 sm:p-6 shadow-xl border space-y-4 ${cardSurface}`}
+          >
+            <div className="flex items-center gap-3 text-purple-600 dark:text-purple-400">
+              <div className="w-11 h-11 rounded-2xl bg-purple-500/15 flex items-center justify-center shrink-0">
+                <RefreshCw className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold">Start Fresh Bottle Today?</h3>
+                <p className="text-xs text-slate-500">
+                  Sets opened date to {todayKey} ({settings.bottleShelfLifeDays}-day shelf life)
+                </p>
+              </div>
+            </div>
+            <p className="text-sm opacity-85 leading-relaxed">
+              This will reset {settings.catName}&apos;s {settings.medicationName} bottle shelf-life countdown for everyone in the household.
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmNewBottleModal(false)}
+                className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 font-semibold text-sm cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenNewBottleToday}
+                className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-sm cursor-pointer"
+              >
+                Confirm New Bottle
+              </button>
+            </div>
           </div>
         </div>
       )}

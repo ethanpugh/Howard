@@ -19,13 +19,16 @@ import {
   ShieldCheck,
   Trash2,
   Sliders,
-  RefreshCw,
   Stethoscope,
   X,
   Database,
-  CheckCircle2,
-  User
+  CheckCircle2
 } from 'lucide-react';
+import {
+  getLocalDateKey,
+  shiftDateKey,
+  escapeCSVCell
+} from '../utils/householdHelpers.js';
 
 // Unified incremental Howard sync (no duplicate standalone polling loop)
 
@@ -123,14 +126,6 @@ const EXTERNAL_FACTORS = [
 // ============================================================================
 // DATE & FORMATTING HELPERS
 // ============================================================================
-const getTodayStr = () => {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
-
 const formatDateFriendly = (dateStr) => {
   if (!dateStr) return '';
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -153,14 +148,15 @@ const formatShortDate = (dateStr) => {
   });
 };
 
-const addDays = (dateStr, delta) => {
+const formatShortDateWithYear = (dateStr) => {
+  if (!dateStr) return '';
   const [y, m, d] = dateStr.split('-').map(Number);
   const date = new Date(y, m - 1, d);
-  date.setDate(date.getDate() + delta);
-  const ny = date.getFullYear();
-  const nm = String(date.getMonth() + 1).padStart(2, '0');
-  const nd = String(date.getDate()).padStart(2, '0');
-  return `${ny}-${nm}-${nd}`;
+  return date.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  });
 };
 
 const createEmptyEntry = (dateStr) => ({
@@ -186,17 +182,81 @@ const createEmptyEntry = (dateStr) => ({
 });
 
 const normalizeEntry = (dateStr, raw) => {
-  if (!raw) return createEmptyEntry(dateStr);
+  const base = createEmptyEntry(dateStr);
+  if (!raw || typeof raw !== 'object') return base;
+
+  const rawClotCount = Number(raw.clotCount);
+  const hasClots = Boolean(raw.hasClots || (Number.isFinite(rawClotCount) && rawClotCount > 0));
+  const clotCount = hasClots
+    ? Math.max(1, Number.isFinite(rawClotCount) && rawClotCount > 0 ? Math.round(rawClotCount) : 1)
+    : 0;
+  const padCount = Math.max(0, Number(raw.padCount) || 0);
+  const tamponCount = Math.max(0, Number(raw.tamponCount) || 0);
+  const cupCount = Math.max(0, Number(raw.cupCount) || 0);
+  const painScore = Math.min(10, Math.max(0, Number(raw.painScore) || 0));
+  const rawBowelMoves = Number(raw.bowelMovementsCount);
+  const bowelMovementsCount =
+    raw.bowelMovementsCount === null ||
+    raw.bowelMovementsCount === undefined ||
+    !Number.isFinite(rawBowelMoves)
+      ? base.bowelMovementsCount
+      : Math.max(0, Math.round(rawBowelMoves));
+
+  const seenMedIds = new Set();
+  const medications = Array.isArray(raw.medications)
+    ? raw.medications
+        .filter((m) => m && typeof m === 'object')
+        .map((m, idx) => {
+          let id =
+            typeof m.id === 'string' && m.id.trim()
+              ? m.id.trim()
+              : `med-${dateStr}-${idx}`;
+          while (seenMedIds.has(id)) {
+            id = `${id}-${idx}-${Math.random().toString(36).slice(2, 6)}`;
+          }
+          seenMedIds.add(id);
+          return {
+            ...m,
+            id,
+            name: m.name ?? '',
+            dose: m.dose ?? '',
+            timeNotes: m.timeNotes ?? '',
+            effective: m.effective || 'helped'
+          };
+        })
+    : [];
+
   return {
-    ...createEmptyEntry(dateStr),
+    ...base,
     ...raw,
     date: dateStr,
-    clotSizes: Array.isArray(raw.clotSizes) ? raw.clotSizes : [],
+    bleedingSeverity:
+      typeof raw.bleedingSeverity === 'string' && raw.bleedingSeverity
+        ? raw.bleedingSeverity
+        : base.bleedingSeverity,
+    padCount,
+    tamponCount,
+    cupCount,
+    leakedThrough: Boolean(raw.leakedThrough),
+    hasClots,
+    clotCount,
+    clotSizes: hasClots && Array.isArray(raw.clotSizes) ? raw.clotSizes : [],
+    painScore,
     painLocations: Array.isArray(raw.painLocations) ? raw.painLocations : [],
     painTypes: Array.isArray(raw.painTypes) ? raw.painTypes : [],
+    bowelSeverity:
+      typeof raw.bowelSeverity === 'string' && raw.bowelSeverity
+        ? raw.bowelSeverity
+        : base.bowelSeverity,
     bowelSymptoms: Array.isArray(raw.bowelSymptoms) ? raw.bowelSymptoms : [],
-    medications: Array.isArray(raw.medications) ? raw.medications : [],
-    externalFactors: Array.isArray(raw.externalFactors) ? raw.externalFactors : []
+    bowelMovementsCount,
+    medications,
+    externalFactors: Array.isArray(raw.externalFactors) ? raw.externalFactors : [],
+    notes: typeof raw.notes === 'string' ? raw.notes : '',
+    updatedAt:
+      typeof raw.updatedAt === 'string' && raw.updatedAt
+        ? raw.updatedAt
+        : base.updatedAt
   };
 };
 
@@ -208,37 +268,36 @@ export default function FloodgateApp({
   darkMode,
   floodgateSnapshot,
   navigationIntent,
+  nowMs = Date.now(),
   onOpenBackupModal,
   onGlobalSync
 }) {
+  const now = useMemo(() => new Date(nowMs), [nowMs]);
+  const todayKey = getLocalDateKey(now);
+
   // Local SQLite Sync State (fed by Howard's unified incremental sync)
-  const [_syncState, setSyncState] = useState('synced');
-  const [_syncError, setSyncError] = useState('');
-  const [_lastSyncedAt, setLastSyncedAt] = useState(null);
   const [logsMap, setLogsMap] = useState(() => floodgateSnapshot?.logsByDate || {});
 
   // Navigation State
   const [activeTab, setActiveTab] = useState('log'); // 'log' | 'calendar' | 'insights' | 'data'
-  const [selectedDate, setSelectedDate] = useState(getTodayStr());
-
-  // Apply cross-app navigation intent (e.g. from Foyer or Almanac GP report link)
-  useEffect(() => {
-    if (navigationIntent) {
-      if (navigationIntent.tab) setActiveTab(navigationIntent.tab);
-      if (navigationIntent.date && /^\d{4}-\d{2}-\d{2}$/.test(navigationIntent.date)) {
-        setSelectedDate(navigationIntent.date);
-      }
-    }
-  }, [navigationIntent]);
+  const [selectedDate, setSelectedDate] = useState(() => getLocalDateKey(new Date(nowMs)));
 
   // Active Day Form State
-  const [formData, setFormData] = useState(() => createEmptyEntry(getTodayStr()));
+  const [formData, setFormData] = useState(() =>
+    createEmptyEntry(getLocalDateKey(new Date(nowMs)))
+  );
   const [isDirty, setIsDirty] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
 
   const isDirtyRef = useRef(false);
   const selectedDateRef = useRef(selectedDate);
   const formDataRef = useRef(formData);
+  const toastTimerRef = useRef(null);
+  const saveDayEntryRef = useRef(null);
+  const editVersionRef = useRef(0);
+  const inFlightMutationRef = useRef(0);
+  const isTransitioningRef = useRef(false);
+  const onGlobalSyncRef = useRef(onGlobalSync);
 
   useEffect(() => {
     isDirtyRef.current = isDirty;
@@ -252,22 +311,43 @@ export default function FloodgateApp({
     formDataRef.current = formData;
   }, [formData]);
 
-  // Auto-save unsaved edits if the user switches away to another Howard app
   useEffect(() => {
+    onGlobalSyncRef.current = onGlobalSync;
+  }, [onGlobalSync]);
+
+  // Auto-save unsaved edits on tab close/refresh (pagehide) or switching away to another Howard app
+  useEffect(() => {
+    const flushUnsavedKeepalive = (syncAfter = false) => {
+      if (!isDirtyRef.current || !formDataRef.current || !selectedDateRef.current) return;
+      const dateToFlush = selectedDateRef.current;
+      const payload = {
+        ...formDataRef.current,
+        date: dateToFlush,
+        updatedAt: new Date().toISOString()
+      };
+      fetch(`/api/floodgate/logs/${encodeURIComponent(dateToFlush)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        keepalive: true
+      })
+        .then((res) => {
+          if (res.ok && syncAfter) {
+            onGlobalSyncRef.current?.({ force: true });
+          }
+        })
+        .catch(() => {});
+    };
+
+    const handlePageHide = () => {
+      flushUnsavedKeepalive(false);
+    };
+
+    window.addEventListener('pagehide', handlePageHide);
     return () => {
-      if (isDirtyRef.current && formDataRef.current && selectedDateRef.current) {
-        const payload = {
-          ...formDataRef.current,
-          date: selectedDateRef.current,
-          updatedAt: new Date().toISOString()
-        };
-        fetch(`/api/floodgate/logs/${encodeURIComponent(selectedDateRef.current)}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          keepalive: true
-        }).catch(() => {});
-      }
+      window.removeEventListener('pagehide', handlePageHide);
+      clearTimeout(toastTimerRef.current);
+      flushUnsavedKeepalive(true);
     };
   }, []);
 
@@ -278,8 +358,8 @@ export default function FloodgateApp({
 
   // Calendar View State
   const [calendarMonth, setCalendarMonth] = useState(() => {
-    const now = new Date();
-    return { year: now.getFullYear(), month: now.getMonth() };
+    const d = new Date(nowMs);
+    return { year: d.getFullYear(), month: d.getMonth() };
   });
 
   // Insights Range State
@@ -288,41 +368,61 @@ export default function FloodgateApp({
   // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState(null);
 
+  useEffect(() => {
+    if (!confirmModal) return;
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setConfirmModal(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [confirmModal]);
+
   // User Profile / Name State (defaults to Partner 2 inside Howard)
   const [ownerName, setOwnerName] = useState(activeProfile?.name || 'Partner 2');
-  const [nameDraft, setNameDraft] = useState(activeProfile?.name || 'Partner 2');
 
   const showToast = useCallback((msg, type = 'success') => {
+    clearTimeout(toastTimerRef.current);
     setToastMessage({ text: msg, type });
-    setTimeout(() => {
+    toastTimerRef.current = setTimeout(() => {
       setToastMessage((prev) => (prev?.text === msg ? null : prev));
     }, 3200);
   }, []);
 
-  const saveOwnerName = async (newNameValue) => {
-    const cleaned = (newNameValue ?? nameDraft).trim() || 'Partner 2';
-    setOwnerName(cleaned);
-    setNameDraft(cleaned);
-    try {
-      await fetch('/api/floodgate/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ownerName: cleaned })
-      });
-      showToast(`Personalised journal for ${cleaned}`);
-      if (onGlobalSync) onGlobalSync({ force: true });
-    } catch {
-      showToast('Saved name locally (server offline)', 'info');
-    }
-  };
+  // Apply cross-app navigation intent (e.g. from Foyer or Almanac GP report link)
+  useEffect(() => {
+    if (!navigationIntent) return;
+    let cancelled = false;
+    const applyNavigationIntent = async () => {
+      if (isDirtyRef.current && formDataRef.current && selectedDateRef.current && saveDayEntryRef.current) {
+        const ok = await saveDayEntryRef.current(formDataRef.current, selectedDateRef.current, {
+          silentToast: true
+        });
+        if (!ok || cancelled) return;
+        showToast(`Auto-saved changes for ${formatShortDate(selectedDateRef.current)}`);
+      }
+      if (cancelled) return;
+      if (navigationIntent.tab) setActiveTab(navigationIntent.tab);
+      if (navigationIntent.date && /^\d{4}-\d{2}-\d{2}$/.test(navigationIntent.date)) {
+        setSelectedDate(navigationIntent.date);
+        const [y, m] = navigationIntent.date.split('-').map(Number);
+        if (Number.isFinite(y) && Number.isFinite(m)) {
+          setCalendarMonth({ year: y, month: m - 1 });
+        }
+      }
+    };
+    applyNavigationIntent();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigationIntent, showToast]);
 
   // --------------------------------------------------------------------------
   // 1. RECEIVE UNIFIED HOWARD SNAPSHOT UPDATES (PRESERVING UNSAVED FORM EDITS)
   // --------------------------------------------------------------------------
   useEffect(() => {
     if (!floodgateSnapshot) return;
-    const serverLogs = floodgateSnapshot.logsByDate || {};
-    setLogsMap(serverLogs);
 
     if (
       typeof floodgateSnapshot.settings?.ownerName === 'string' &&
@@ -331,19 +431,23 @@ export default function FloodgateApp({
       setOwnerName(floodgateSnapshot.settings.ownerName.trim());
     }
 
+    // Never overwrite optimistic logsMap entries while a save/delete mutation is in flight
+    if (inFlightMutationRef.current > 0) return;
+
+    const serverLogs = floodgateSnapshot.logsByDate || {};
+    setLogsMap(serverLogs);
+
     if (!isDirtyRef.current) {
       const currentDate = selectedDateRef.current;
       setFormData(normalizeEntry(currentDate, serverLogs[currentDate]));
     }
-
-    setSyncState('synced');
-    setSyncError('');
   }, [floodgateSnapshot]);
 
   // --------------------------------------------------------------------------
   // 2. LOAD SELECTED DATE INTO FORM WHEN DATE CHANGES
   // --------------------------------------------------------------------------
   useEffect(() => {
+    editVersionRef.current += 1;
     setFormData(normalizeEntry(selectedDate, logsMap[selectedDate]));
     setIsDirty(false);
     isDirtyRef.current = false;
@@ -354,6 +458,8 @@ export default function FloodgateApp({
   // 3. SAVE / DELETE / BATCH HELPERS AGAINST LOCAL SQLITE API
   // --------------------------------------------------------------------------
   const saveDayEntry = async (customEntry = null, targetDate = selectedDate, { silentToast = false } = {}) => {
+    const prevLog = logsMap[targetDate];
+    const saveEditVersion = editVersionRef.current;
     const entryToSave = {
       ...(customEntry || formData),
       date: targetDate,
@@ -364,13 +470,9 @@ export default function FloodgateApp({
       ...prev,
       [targetDate]: entryToSave
     }));
-    if (targetDate === selectedDateRef.current) {
-      setIsDirty(false);
-      isDirtyRef.current = false;
-    }
 
+    inFlightMutationRef.current += 1;
     try {
-      setSyncState('saving');
       const res = await fetch(`/api/floodgate/logs/${encodeURIComponent(targetDate)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -386,75 +488,119 @@ export default function FloodgateApp({
           [targetDate]: payload.record
         }));
       }
-      setSyncState('synced');
-      setSyncError('');
-      setLastSyncedAt(new Date());
-      if (onGlobalSync) onGlobalSync({ force: true });
+      if (
+        targetDate === selectedDateRef.current &&
+        editVersionRef.current === saveEditVersion
+      ) {
+        setIsDirty(false);
+        isDirtyRef.current = false;
+      }
+      if (onGlobalSyncRef.current) onGlobalSyncRef.current({ force: true });
       if (!silentToast) {
         showToast(`Saved ${ownerName ? `${ownerName}'s ` : ''}log for ${formatShortDate(targetDate)}`);
       }
+      return true;
     } catch (err) {
       console.error('Failed to save entry:', err);
-      setSyncState('error');
-      setSyncError('Failed to write to local SQLite server.');
-      showToast('Saved in browser, but server write failed', 'error');
+      setLogsMap((prev) => {
+        const next = { ...prev };
+        if (prevLog) next[targetDate] = prevLog;
+        else delete next[targetDate];
+        return next;
+      });
+      showToast('Could not save log to server — your edits remain in the form', 'error');
+      return false;
+    } finally {
+      inFlightMutationRef.current = Math.max(0, inFlightMutationRef.current - 1);
     }
   };
+  saveDayEntryRef.current = saveDayEntry;
 
   const handleSelectDate = async (nextDate) => {
     if (!nextDate || nextDate === selectedDate) return;
-    if (isDirty) {
-      await saveDayEntry(formData, selectedDate, { silentToast: true });
-      showToast(`Auto-saved changes for ${formatShortDate(selectedDate)}`);
+    if (isTransitioningRef.current || inFlightMutationRef.current > 0) return;
+    isTransitioningRef.current = true;
+    try {
+      if (isDirtyRef.current) {
+        const ok = await saveDayEntry(formDataRef.current, selectedDate, { silentToast: true });
+        if (!ok) return;
+        showToast(`Auto-saved changes for ${formatShortDate(selectedDate)}`);
+      }
+      setSelectedDate(nextDate);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) {
+        const [y, m] = nextDate.split('-').map(Number);
+        if (Number.isFinite(y) && Number.isFinite(m)) {
+          setCalendarMonth({ year: y, month: m - 1 });
+        }
+      }
+    } finally {
+      isTransitioningRef.current = false;
     }
-    setSelectedDate(nextDate);
   };
 
   const handleSwitchTab = async (nextTab) => {
     if (nextTab === activeTab) return;
-    if (isDirty) {
-      await saveDayEntry(formData, selectedDate, { silentToast: true });
-      showToast(`Auto-saved changes for ${formatShortDate(selectedDate)}`);
+    if (isTransitioningRef.current || inFlightMutationRef.current > 0) return;
+    isTransitioningRef.current = true;
+    try {
+      if (isDirtyRef.current) {
+        const ok = await saveDayEntry(formDataRef.current, selectedDate, { silentToast: true });
+        if (!ok) return;
+        showToast(`Auto-saved changes for ${formatShortDate(selectedDate)}`);
+      }
+      setActiveTab(nextTab);
+    } finally {
+      isTransitioningRef.current = false;
     }
-    if (nextTab === 'data') {
-      setNameDraft(ownerName);
-    }
-    setActiveTab(nextTab);
   };
 
   const deleteDayEntry = async (dateToDelete) => {
+    const prevLog = logsMap[dateToDelete];
+    const prevForm = formData;
+    const prevDirty = isDirty;
+
     setLogsMap((prev) => {
       const copy = { ...prev };
       delete copy[dateToDelete];
       return copy;
     });
     if (dateToDelete === selectedDate) {
+      editVersionRef.current += 1;
       setFormData(createEmptyEntry(selectedDate));
       setIsDirty(false);
       isDirtyRef.current = false;
     }
 
+    inFlightMutationRef.current += 1;
     try {
-      setSyncState('saving');
       const res = await fetch(`/api/floodgate/logs/${encodeURIComponent(dateToDelete)}`, {
         method: 'DELETE'
       });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
-      setSyncState('synced');
-      setLastSyncedAt(new Date());
-      if (onGlobalSync) onGlobalSync({ force: true });
+      if (onGlobalSyncRef.current) onGlobalSyncRef.current({ force: true });
       showToast(`Deleted log for ${formatShortDate(dateToDelete)}`);
     } catch (err) {
       console.error('Error deleting entry:', err);
-      setSyncState('error');
-      showToast('Could not delete from server', 'error');
+      setLogsMap((prev) => {
+        const restored = { ...prev };
+        if (prevLog) restored[dateToDelete] = prevLog;
+        return restored;
+      });
+      if (dateToDelete === selectedDateRef.current) {
+        setFormData(prevForm);
+        setIsDirty(prevDirty);
+        isDirtyRef.current = prevDirty;
+      }
+      showToast('Could not delete from server — reverted', 'error');
+    } finally {
+      inFlightMutationRef.current = Math.max(0, inFlightMutationRef.current - 1);
     }
   };
 
   const copyYesterdayMedications = () => {
-    const prevDate = addDays(selectedDate, -1);
+    const prevDate = shiftDateKey(selectedDate, -1);
     const prevLog = logsMap[prevDate];
     if (!prevLog || !Array.isArray(prevLog.medications) || prevLog.medications.length === 0) {
       showToast(`No medications found on ${formatShortDate(prevDate)}`, 'info');
@@ -465,10 +611,11 @@ export default function FloodgateApp({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
     }));
     updateField('medications', [...formData.medications, ...copiedMeds]);
-    showToast(`Copied ${copiedMeds.length} medication(s) from yesterday`);
+    showToast(`Copied ${copiedMeds.length} medication(s) from ${formatShortDate(prevDate)}`);
   };
 
   const updateField = (field, value) => {
+    editVersionRef.current += 1;
     setFormData((prev) => {
       const updated = { ...prev, [field]: value };
       if (field === 'clotCount' && value > 0) {
@@ -480,6 +627,9 @@ export default function FloodgateApp({
       }
       if (field === 'bleedingSeverity' && value === 'none') {
         updated.leakedThrough = false;
+        updated.padCount = 0;
+        updated.tamponCount = 0;
+        updated.cupCount = 0;
       }
       return updated;
     });
@@ -547,14 +697,14 @@ export default function FloodgateApp({
   const weekStripDates = useMemo(() => {
     const dates = [];
     for (let i = -5; i <= 1; i++) {
-      dates.push(addDays(selectedDate, i));
+      dates.push(shiftDateKey(selectedDate, i));
     }
     return dates;
   }, [selectedDate]);
 
   const insightsData = useMemo(() => {
-    const today = getTodayStr();
-    const cutoffDate = addDays(today, -insightsDays);
+    const today = todayKey;
+    const cutoffDate = shiftDateKey(today, -(insightsDays - 1));
     const periodLogs = sortedLogs.filter((l) => l.date >= cutoffDate && l.date <= today);
 
     const totalLoggedDays = periodLogs.length;
@@ -564,7 +714,6 @@ export default function FloodgateApp({
     const largeClotDays = periodLogs.filter((l) => Array.isArray(l.clotSizes) && (l.clotSizes.includes('large') || l.clotSizes.includes('tissue')));
     const totalClotsCount = periodLogs.reduce((acc, l) => acc + (Number(l.clotCount) || 0), 0);
 
-    const painLogs = periodLogs.filter((l) => Number(l.painScore) > 0);
     const avgPainAll = totalLoggedDays > 0
       ? (periodLogs.reduce((acc, l) => acc + (Number(l.painScore) || 0), 0) / totalLoggedDays).toFixed(1)
       : '0.0';
@@ -609,14 +758,13 @@ export default function FloodgateApp({
       totalClotsCount,
       avgPainAll,
       highPainDaysCount: highPainDays.length,
-      painDaysCount: painLogs.length,
       bowelFlareDaysCount: bowelFlareDays.length,
       topPainLocations: sortCounts(painLocationCounts),
       topBowelSymptoms: sortCounts(bowelSymptomCounts),
       topMedications: sortCounts(medCounts),
       topFactors: sortCounts(factorCounts)
     };
-  }, [sortedLogs, insightsDays]);
+  }, [sortedLogs, insightsDays, todayKey]);
 
   // --------------------------------------------------------------------------
   // 5. EXPORT / IMPORT / DEMO DATA UTILITIES
@@ -638,13 +786,16 @@ export default function FloodgateApp({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Floodgate${getSafeOwnerSlug()}_Backup_${getTodayStr()}.json`;
+    a.download = `Floodgate${getSafeOwnerSlug()}_Backup_${todayKey}.json`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     showToast('Exported Floodgate JSON backup file');
   };
 
   const exportCSV = () => {
+    const clotSizeLabelMap = Object.fromEntries(CLOT_SIZES.map((s) => [s.id, s.label]));
+    const factorLabelMap = Object.fromEntries(EXTERNAL_FACTORS.map((f) => [f.id, f.label]));
+
     const headers = [
       'Date',
       'Bleeding_Severity',
@@ -664,33 +815,27 @@ export default function FloodgateApp({
       'Medications_Taken',
       'External_Factors',
       'Daily_Notes'
-    ];
-
-    const escapeCSV = (val) => {
-      if (val === null || val === undefined) return '""';
-      const str = String(val).replace(/"/g, '""');
-      return `"${str}"`;
-    };
+    ].map(escapeCSVCell);
 
     const rows = sortedLogs.map((l) => [
-      escapeCSV(l.date),
-      escapeCSV(l.bleedingSeverity),
-      escapeCSV(l.padCount || 0),
-      escapeCSV(l.tamponCount || 0),
-      escapeCSV(l.cupCount || 0),
-      escapeCSV(l.leakedThrough ? 'Yes' : 'No'),
-      escapeCSV(l.hasClots ? 'Yes' : 'No'),
-      escapeCSV(l.clotCount || 0),
-      escapeCSV((l.clotSizes || []).join('; ')),
-      escapeCSV(l.painScore || 0),
-      escapeCSV((l.painLocations || []).join('; ')),
-      escapeCSV((l.painTypes || []).join('; ')),
-      escapeCSV(l.bowelSeverity || 'none'),
-      escapeCSV((l.bowelSymptoms || []).join('; ')),
-      escapeCSV(l.bowelMovementsCount ?? ''),
-      escapeCSV((l.medications || []).map((m) => `${m.name} (${m.dose} @ ${m.timeNotes}${m.effective ? ` - ${m.effective}` : ''})`).join('; ')),
-      escapeCSV((l.externalFactors || []).join('; ')),
-      escapeCSV(l.notes || '')
+      escapeCSVCell(l.date),
+      escapeCSVCell(l.bleedingSeverity),
+      escapeCSVCell(l.padCount || 0),
+      escapeCSVCell(l.tamponCount || 0),
+      escapeCSVCell(l.cupCount || 0),
+      escapeCSVCell(l.leakedThrough ? 'Yes' : 'No'),
+      escapeCSVCell(l.hasClots ? 'Yes' : 'No'),
+      escapeCSVCell(l.clotCount || 0),
+      escapeCSVCell((l.clotSizes || []).map((id) => clotSizeLabelMap[id] || id).join('; ')),
+      escapeCSVCell(l.painScore || 0),
+      escapeCSVCell((l.painLocations || []).join('; ')),
+      escapeCSVCell((l.painTypes || []).join('; ')),
+      escapeCSVCell(l.bowelSeverity || 'none'),
+      escapeCSVCell((l.bowelSymptoms || []).join('; ')),
+      escapeCSVCell(l.bowelMovementsCount ?? ''),
+      escapeCSVCell((l.medications || []).map((m) => `${m.name} (${m.dose} @ ${m.timeNotes}${m.effective ? ` - ${m.effective}` : ''})`).join('; ')),
+      escapeCSVCell((l.externalFactors || []).map((id) => factorLabelMap[id] || id).join('; ')),
+      escapeCSVCell(l.notes || '')
     ]);
 
     const csvString = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
@@ -698,15 +843,14 @@ export default function FloodgateApp({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Floodgate${getSafeOwnerSlug()}_Report_${getTodayStr()}.csv`;
+    a.download = `Floodgate${getSafeOwnerSlug()}_Report_${todayKey}.csv`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     showToast('Exported CSV spreadsheet for Excel/GP');
   };
 
   const batchUpsertLogs = async (entriesArray, successToastText) => {
     try {
-      setSyncState('saving');
       const res = await fetch('/api/floodgate/logs/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -722,13 +866,10 @@ export default function FloodgateApp({
           setFormData(normalizeEntry(selectedDateRef.current, data.logsByDate[selectedDateRef.current]));
         }
       }
-      setSyncState('synced');
-      setLastSyncedAt(new Date());
       if (onGlobalSync) onGlobalSync({ force: true });
       showToast(successToastText);
     } catch (err) {
       console.error('Batch upsert failed:', err);
-      setSyncState('error');
       showToast('Failed to save batch logs to server', 'error');
     }
   };
@@ -737,10 +878,15 @@ export default function FloodgateApp({
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
+    reader.onerror = () => {
+      showToast('Could not read the selected file', 'error');
+      e.target.value = '';
+    };
     reader.onload = async (event) => {
       try {
         const parsed = JSON.parse(event.target.result);
-        const importedLogs = parsed.logs || parsed.floodgate?.logsByDate || parsed;
+        const importedLogs =
+          parsed.logs || parsed.floodgate?.logsByDate || parsed.floodgate?.logs || parsed;
         if (typeof importedLogs !== 'object' || importedLogs === null) {
           showToast('Invalid JSON backup format', 'error');
           return;
@@ -816,9 +962,17 @@ export default function FloodgateApp({
           <div className={`flex items-center gap-2.5 px-4 py-3 rounded-2xl shadow-lg border text-sm font-medium ${
             toastMessage.type === 'error'
               ? 'bg-red-900 text-white border-red-700'
-              : 'bg-stone-900 text-stone-50 border-stone-700'
+              : toastMessage.type === 'info'
+                ? 'bg-amber-900 text-amber-50 border-amber-700'
+                : 'bg-stone-900 text-stone-50 border-stone-700'
           }`}>
-            <CheckCircle2 className="w-4 h-4 text-rose-400 shrink-0" />
+            {toastMessage.type === 'error' ? (
+              <AlertCircle className="w-4 h-4 text-rose-300 shrink-0" />
+            ) : toastMessage.type === 'info' ? (
+              <AlertCircle className="w-4 h-4 text-amber-300 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4 text-rose-400 shrink-0" />
+            )}
             <span>{toastMessage.text}</span>
           </div>
         </div>
@@ -826,10 +980,19 @@ export default function FloodgateApp({
 
       {/* CUSTOM CONFIRMATION MODAL */}
       {confirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 no-print">
-          <div className={`max-w-md w-full rounded-3xl p-6 shadow-xl border ${
-            darkMode ? 'bg-stone-900 border-stone-800 text-stone-100' : 'bg-white border-stone-200 text-stone-800'
-          }`}>
+        <div
+          onClick={() => setConfirmModal(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 no-print"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={confirmModal.title}
+            onClick={(e) => e.stopPropagation()}
+            className={`max-w-md w-full rounded-3xl p-6 shadow-xl border ${
+              darkMode ? 'bg-stone-900 border-stone-800 text-stone-100' : 'bg-white border-stone-200 text-stone-800'
+            }`}
+          >
             <div className="flex items-start justify-between gap-3 mb-3">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300">
@@ -838,8 +1001,10 @@ export default function FloodgateApp({
                 <h3 className="text-lg font-semibold">{confirmModal.title}</h3>
               </div>
               <button
+                type="button"
+                aria-label="Close confirmation modal"
                 onClick={() => setConfirmModal(null)}
-                className="p-1.5 rounded-lg hover:bg-stone-200/50"
+                className="p-1.5 rounded-lg hover:bg-stone-200/50 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -849,19 +1014,21 @@ export default function FloodgateApp({
             </p>
             <div className="flex items-center justify-end gap-3">
               <button
+                type="button"
                 onClick={() => setConfirmModal(null)}
-                className={`px-4 py-2.5 rounded-xl text-sm font-medium border ${
+                className={`px-4 py-2.5 rounded-xl text-sm font-medium border cursor-pointer ${
                   darkMode ? 'border-stone-700 hover:bg-stone-800' : 'border-stone-300 hover:bg-stone-100'
                 }`}
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={() => {
                   confirmModal.onConfirm();
                   setConfirmModal(null);
                 }}
-                className={`px-4 py-2.5 rounded-xl text-sm font-semibold text-white ${
+                className={`px-4 py-2.5 rounded-xl text-sm font-semibold text-white cursor-pointer ${
                   confirmModal.danger ? 'bg-red-600 hover:bg-red-700' : 'bg-rose-600 hover:bg-rose-700'
                 }`}
               >
@@ -948,7 +1115,7 @@ export default function FloodgateApp({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-stone-200/60 dark:border-stone-800">
                 <div className="flex items-center justify-between sm:justify-start gap-2 w-full sm:w-auto">
                   <button
-                    onClick={() => handleSelectDate(addDays(selectedDate, -1))}
+                    onClick={() => handleSelectDate(shiftDateKey(selectedDate, -1))}
                     className={`p-2.5 rounded-xl border shrink-0 ${
                       darkMode ? 'border-stone-700 hover:bg-stone-800' : 'border-stone-200 hover:bg-stone-50'
                     }`}
@@ -962,7 +1129,7 @@ export default function FloodgateApp({
                       <h2 className="text-base sm:text-xl font-bold">
                         {formatDateFriendly(selectedDate)}
                       </h2>
-                      {selectedDate === getTodayStr() && (
+                      {selectedDate === todayKey && (
                         <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">
                           Today
                         </span>
@@ -974,7 +1141,7 @@ export default function FloodgateApp({
                   </div>
 
                   <button
-                    onClick={() => handleSelectDate(addDays(selectedDate, 1))}
+                    onClick={() => handleSelectDate(shiftDateKey(selectedDate, 1))}
                     className={`p-2.5 rounded-xl border shrink-0 ${
                       darkMode ? 'border-stone-700 hover:bg-stone-800' : 'border-stone-200 hover:bg-stone-50'
                     }`}
@@ -986,9 +1153,9 @@ export default function FloodgateApp({
 
                 {/* Date Picker & Quick Today Button */}
                 <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
-                  {selectedDate !== getTodayStr() && (
+                  {selectedDate !== todayKey && (
                     <button
-                      onClick={() => handleSelectDate(getTodayStr())}
+                      onClick={() => handleSelectDate(todayKey)}
                       className="px-3 py-2 rounded-xl text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800"
                     >
                       Jump to Today
@@ -1004,6 +1171,7 @@ export default function FloodgateApp({
                   />
                   {logsMap[selectedDate] && (
                     <button
+                      type="button"
                       onClick={() =>
                         setConfirmModal({
                           title: 'Clear This Day’s Log?',
@@ -1014,6 +1182,7 @@ export default function FloodgateApp({
                         })
                       }
                       title="Clear this day's entry"
+                      aria-label="Clear this day's entry"
                       className="p-2 rounded-xl text-stone-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -1154,6 +1323,7 @@ export default function FloodgateApp({
                           <div className="flex items-center justify-between gap-1">
                             <button
                               type="button"
+                              aria-label={`Decrease ${item.label}`}
                               onClick={() => updateField(item.field, Math.max(0, (formData[item.field] || 0) - 1))}
                               className="p-1.5 rounded-lg bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700"
                             >
@@ -1162,6 +1332,7 @@ export default function FloodgateApp({
                             <span className="font-bold text-sm">{formData[item.field] || 0}</span>
                             <button
                               type="button"
+                              aria-label={`Increase ${item.label}`}
                               onClick={() => updateField(item.field, (formData[item.field] || 0) + 1)}
                               className="p-1.5 rounded-lg bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200 hover:bg-rose-200"
                             >
@@ -1254,6 +1425,7 @@ export default function FloodgateApp({
                         <div className="flex items-center gap-3">
                           <button
                             type="button"
+                            aria-label="Decrease clot count"
                             onClick={() => updateField('clotCount', Math.max(1, (formData.clotCount || 1) - 1))}
                             className="p-2 rounded-xl bg-white dark:bg-stone-800 border border-purple-200 dark:border-stone-700 hover:bg-purple-100 dark:hover:bg-stone-700"
                           >
@@ -1264,6 +1436,7 @@ export default function FloodgateApp({
                           </span>
                           <button
                             type="button"
+                            aria-label="Increase clot count"
                             onClick={() => updateField('clotCount', (formData.clotCount || 0) + 1)}
                             className="p-2 rounded-xl bg-purple-600 text-white hover:bg-purple-700"
                           >
@@ -1507,6 +1680,7 @@ export default function FloodgateApp({
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
+                      aria-label="Decrease bowel movements"
                       onClick={() => updateField('bowelMovementsCount', Math.max(0, (formData.bowelMovementsCount || 0) - 1))}
                       className="p-2 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700"
                     >
@@ -1515,6 +1689,7 @@ export default function FloodgateApp({
                     <span className="font-bold text-sm w-6 text-center">{formData.bowelMovementsCount ?? 0}</span>
                     <button
                       type="button"
+                      aria-label="Increase bowel movements"
                       onClick={() => updateField('bowelMovementsCount', (formData.bowelMovementsCount || 0) + 1)}
                       className="p-2 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700"
                     >
@@ -1648,6 +1823,7 @@ export default function FloodgateApp({
                               onClick={() => removeMedicationItem(med.id)}
                               className="p-1.5 text-stone-400 hover:text-red-600"
                               title="Remove medication"
+                              aria-label={`Remove ${med.name}`}
                             >
                               <X className="w-4 h-4" />
                             </button>
@@ -1777,6 +1953,8 @@ export default function FloodgateApp({
 
                 <div className="flex items-center gap-2">
                   <button
+                    type="button"
+                    aria-label="Previous month"
                     onClick={() =>
                       setCalendarMonth((prev) => {
                         const d = new Date(prev.year, prev.month - 1, 1);
@@ -1790,16 +1968,18 @@ export default function FloodgateApp({
                     <ChevronLeft className="w-5 h-5" />
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
-                      const now = new Date();
                       setCalendarMonth({ year: now.getFullYear(), month: now.getMonth() });
-                      handleSelectDate(getTodayStr());
+                      handleSelectDate(todayKey);
                     }}
                     className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800"
                   >
                     Current Month
                   </button>
                   <button
+                    type="button"
+                    aria-label="Next month"
                     onClick={() =>
                       setCalendarMonth((prev) => {
                         const d = new Date(prev.year, prev.month + 1, 1);
@@ -1823,7 +2003,10 @@ export default function FloodgateApp({
                   <span className="w-3 h-3 rounded-full bg-purple-600 inline-block" /> Blood Clots
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span className="w-3 h-3 rounded-full bg-amber-500 inline-block" /> High Pain (≥6)
+                  <span className="px-1.5 py-0.5 rounded-md font-bold text-[10px] bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300">
+                    6+
+                  </span>{' '}
+                  High Pain (≥6)
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="w-3 h-3 rounded-full bg-orange-600 inline-block" /> Bowel Flare
@@ -1846,7 +2029,7 @@ export default function FloodgateApp({
                   }
                   const { dayNumber, dateStr, log } = cell;
                   const isSelected = dateStr === selectedDate;
-                  const isToday = dateStr === getTodayStr();
+                  const isToday = dateStr === todayKey;
                   const hasBleeding = log?.bleedingSeverity && log.bleedingSeverity !== 'none';
                   const bleedObj = BLEEDING_LEVELS.find((b) => b.id === log?.bleedingSeverity);
 
@@ -2056,7 +2239,7 @@ export default function FloodgateApp({
                 Floodgate Clinical Symptom Summary — {ownerName}
               </h1>
               <p className="text-sm text-stone-600">
-                Report Window: Last {insightsDays} Days (Generated {formatDateFriendly(getTodayStr())})
+                Report Window: Last {insightsDays} Days (Generated {formatDateFriendly(todayKey)})
               </p>
             </div>
 
@@ -2110,68 +2293,147 @@ export default function FloodgateApp({
               </div>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 sm:gap-4">
+              {[
+                {
+                  title: 'Top Pain Locations',
+                  items: insightsData.topPainLocations,
+                  badgeClass: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+                  emptyText: 'No pain locations logged in this window.'
+                },
+                {
+                  title: 'Top Bowel / GI Symptoms',
+                  items: insightsData.topBowelSymptoms,
+                  badgeClass: 'bg-orange-500/15 text-orange-700 dark:text-orange-300',
+                  emptyText: 'No bowel/GI symptoms logged in this window.'
+                },
+                {
+                  title: 'Most Used Medications',
+                  items: insightsData.topMedications,
+                  badgeClass: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+                  emptyText: 'No medications recorded in this window.'
+                },
+                {
+                  title: 'Common Factors & Triggers',
+                  items: insightsData.topFactors,
+                  badgeClass: 'bg-rose-500/15 text-rose-700 dark:text-rose-300',
+                  emptyText: 'No external factors or triggers logged in this window.'
+                }
+              ].map((panel) => (
+                <div
+                  key={panel.title}
+                  className={`p-4 rounded-2xl sm:rounded-3xl border shadow-xs ${
+                    darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100'
+                  }`}
+                >
+                  <h3 className="text-xs font-bold uppercase tracking-wider opacity-75 mb-2.5">
+                    {panel.title}
+                  </h3>
+                  {panel.items.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {panel.items.map(([label, count]) => (
+                        <span
+                          key={label}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold ${panel.badgeClass}`}
+                        >
+                          <span>{label}</span>
+                          <span className="opacity-75 font-bold">×{count}</span>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs opacity-60">{panel.emptyText}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+
             <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${
               darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
             }`}>
               <h3 className="text-base sm:text-lg font-bold mb-4">
                 Chronological Consultation Table ({insightsData.periodLogs.length} Logged Days)
               </h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-stone-200 dark:border-stone-800 opacity-75">
-                      <th className="py-2.5 pr-3">Date</th>
-                      <th className="py-2.5 px-3">Bleeding &amp; Protection</th>
-                      <th className="py-2.5 px-3">Clots</th>
-                      <th className="py-2.5 px-3">Pain (0–10) &amp; Sites</th>
-                      <th className="py-2.5 px-3">Bowel / GI</th>
-                      <th className="py-2.5 pl-3">Medications &amp; Notes</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-200/60 dark:divide-stone-800">
-                    {[...insightsData.periodLogs].reverse().map((l) => (
-                      <tr key={l.date} className="align-top">
-                        <td className="py-3 pr-3 font-bold whitespace-nowrap">
-                          {formatShortDate(l.date)}
-                        </td>
-                        <td className="py-3 px-3 capitalize">
-                          <span className="font-semibold">{l.bleedingSeverity}</span>
-                          {l.leakedThrough && <span className="text-red-600 font-bold ml-1">(Flooded)</span>}
-                        </td>
-                        <td className="py-3 px-3">
-                          {l.hasClots ? (
-                            <span className="text-purple-700 dark:text-purple-300 font-semibold">
-                              {l.clotCount} ({(l.clotSizes || []).join(', ')})
-                            </span>
-                          ) : (
-                            <span className="opacity-50">—</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-3">
-                          <span className={`px-1.5 py-0.5 rounded-md font-bold mr-1.5 ${getPainBadgeStyle(l.painScore)}`}>
-                            {l.painScore}/10
-                          </span>
-                          <span>{(l.painLocations || []).join(', ')}</span>
-                        </td>
-                        <td className="py-3 px-3">
-                          <span className="capitalize font-semibold">{l.bowelSeverity}</span>
-                          {(l.bowelSymptoms || []).length > 0 && (
-                            <div className="opacity-80">{l.bowelSymptoms.join(', ')}</div>
-                          )}
-                        </td>
-                        <td className="py-3 pl-3">
-                          {(l.medications || []).length > 0 && (
-                            <div className="font-medium text-emerald-700 dark:text-emerald-300">
-                              {l.medications.map((m) => `${m.name} ${m.dose}`).join(', ')}
-                            </div>
-                          )}
-                          {l.notes && <div className="italic opacity-80 mt-0.5">&ldquo;{l.notes}&rdquo;</div>}
-                        </td>
+              {insightsData.periodLogs.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-stone-200 dark:border-stone-800 opacity-75">
+                        <th className="py-2.5 pr-3">Date</th>
+                        <th className="py-2.5 px-3">Bleeding &amp; Protection</th>
+                        <th className="py-2.5 px-3">Clots</th>
+                        <th className="py-2.5 px-3">Pain (0–10) &amp; Sites</th>
+                        <th className="py-2.5 px-3">Bowel / GI</th>
+                        <th className="py-2.5 pl-3">Medications &amp; Notes</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-stone-200/60 dark:divide-stone-800">
+                      {[...insightsData.periodLogs].reverse().map((l) => {
+                        const padN = Number(l.padCount) || 0;
+                        const tamponN = Number(l.tamponCount) || 0;
+                        const cupN = Number(l.cupCount) || 0;
+                        const protectionParts = [
+                          padN > 0 && `${padN} ${padN === 1 ? 'pad' : 'pads'}`,
+                          tamponN > 0 && `${tamponN} ${tamponN === 1 ? 'tampon' : 'tampons'}`,
+                          cupN > 0 && `${cupN} ${cupN === 1 ? 'cup' : 'cups'}`
+                        ].filter(Boolean);
+                        return (
+                          <tr key={l.date} className="align-top">
+                            <td className="py-3 pr-3 font-bold whitespace-nowrap">
+                              {formatShortDateWithYear(l.date)}
+                            </td>
+                            <td className="py-3 px-3 capitalize">
+                              <span className="font-semibold">{l.bleedingSeverity}</span>
+                              {l.leakedThrough && <span className="text-red-600 font-bold ml-1">(Flooded)</span>}
+                              {protectionParts.length > 0 && (
+                                <div className="normal-case opacity-80 mt-0.5">
+                                  {protectionParts.join(', ')}
+                                </div>
+                              )}
+                            </td>
+                          <td className="py-3 px-3">
+                            {l.hasClots ? (
+                              <span className="text-purple-700 dark:text-purple-300 font-semibold">
+                                {l.clotCount}
+                                {(l.clotSizes || []).length > 0
+                                  ? ` (${l.clotSizes.join(', ')})`
+                                  : ''}
+                              </span>
+                            ) : (
+                              <span className="opacity-50">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className={`px-1.5 py-0.5 rounded-md font-bold mr-1.5 ${getPainBadgeStyle(l.painScore)}`}>
+                              {l.painScore}/10
+                            </span>
+                            <span>{(l.painLocations || []).join(', ')}</span>
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className="capitalize font-semibold">{l.bowelSeverity}</span>
+                            {(l.bowelSymptoms || []).length > 0 && (
+                              <div className="opacity-80">{l.bowelSymptoms.join(', ')}</div>
+                            )}
+                          </td>
+                            <td className="py-3 pl-3">
+                              {(l.medications || []).length > 0 && (
+                                <div className="font-medium text-emerald-700 dark:text-emerald-300">
+                                  {l.medications.map((m) => `${m.name} ${m.dose}`).join(', ')}
+                                </div>
+                              )}
+                              {l.notes && <div className="italic opacity-80 mt-0.5">&ldquo;{l.notes}&rdquo;</div>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="py-10 text-center text-sm opacity-65">
+                  No logs recorded within the last {insightsDays} days.
+                </div>
+              )}
             </div>
           </div>
         )}

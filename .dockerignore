@@ -3,4 +3,13 @@ dist
 data
 *.tar
 *.db
+*.db-wal
+*.db-shm
+*.db-journal
 .git
+.DS_Store
+.env*
+tests
+README.md
+Dockerfile
+docker-compose.yml

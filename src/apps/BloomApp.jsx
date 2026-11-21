@@ -18,45 +18,16 @@ import {
   Activity,
   History
 } from 'lucide-react';
+import {
+  getLocalDateKey,
+  shiftDateKey,
+  formatTimeDisplay,
+  formatFriendlyDate,
+  DEFAULT_BLOOM_SETTINGS,
+  computeBloomSummary
+} from '../utils/householdHelpers.js';
 
-const getLocalDateKey = (dateObj = new Date()) => {
-  const year = dateObj.getFullYear();
-  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-  const day = String(dateObj.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const parseLocalDateKey = (dateKey) => {
-  if (!dateKey || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return new Date();
-  const [y, m, d] = dateKey.split('-').map(Number);
-  return new Date(y, m - 1, d);
-};
-
-const shiftDateKey = (dateKey, deltaDays) => {
-  const dt = parseLocalDateKey(dateKey);
-  dt.setDate(dt.getDate() + deltaDays);
-  return getLocalDateKey(dt);
-};
-
-const formatTimeShort = (isoString) => {
-  if (!isoString) return '';
-  try {
-    return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return '';
-  }
-};
-
-const formatFriendlyDate = (dateKey, todayKey) => {
-  if (!dateKey) return '';
-  if (dateKey === todayKey) return 'Today';
-  if (dateKey === shiftDateKey(todayKey, -1)) return 'Yesterday';
-  return parseLocalDateKey(dateKey).toLocaleDateString('en-GB', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short'
-  });
-};
+export { DEFAULT_BLOOM_SETTINGS, computeBloomSummary };
 
 export const INSTAR_STAGES = [
   'L1',
@@ -194,13 +165,6 @@ const BEHAVIOR_TAGS = [
   'Swollen Wing Buds'
 ];
 
-import {
-  DEFAULT_BLOOM_SETTINGS,
-  computeBloomSummary
-} from '../utils/householdHelpers.js';
-
-export { DEFAULT_BLOOM_SETTINGS, computeBloomSummary };
-
 export default function BloomApp({
   activeProfile,
   darkMode,
@@ -230,6 +194,12 @@ export default function BloomApp({
     [localSnapshot, now]
   );
   const { settings } = summary;
+  const parsedHardeningHours = Number(settings.hardeningHours);
+  const hardeningHours = Number.isFinite(parsedHardeningHours)
+    ? Math.max(0, parsedHardeningHours)
+    : 36;
+  const pronounPossessive =
+    settings.sex === 'Male' ? 'his' : settings.sex === 'Female' ? 'her' : 'their';
 
   // --------------------------------------------------------------------------
   // FORM STATES — TODAY TAB
@@ -281,9 +251,12 @@ export default function BloomApp({
     setMoltColorInput('');
     setMoltQualityInput('clean');
     setMoltNoteInput('');
-    setMoltStartHardening(true);
+    setMoltStartHardening(hardeningHours > 0);
     setMoltModalOpen(true);
   };
+
+  const isLatestMoltModal =
+    !summary.molts[0]?.dateKey || (moltDateInput || todayKey) >= summary.molts[0].dateKey;
 
   // --------------------------------------------------------------------------
   // FORM STATES — FEEDERS & ENCLOSURE TAB
@@ -300,10 +273,24 @@ export default function BloomApp({
   const [enclosureDraft, setEnclosureDraft] = useState(settings.enclosureInfo);
 
   // --------------------------------------------------------------------------
-  // FORM STATES — SETTINGS MODAL
+  // FORM STATES — SETTINGS MODAL & DELETE CONFIRMATION
   // --------------------------------------------------------------------------
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [settingsForm, setSettingsForm] = useState(settings);
+  const [confirmDeleteModal, setConfirmDeleteModal] = useState(null); // { kind: 'molt'|'feeder', id, label }
+
+  useEffect(() => {
+    if (!moltModalOpen && !settingsModalOpen && !confirmDeleteModal) return;
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (confirmDeleteModal) setConfirmDeleteModal(null);
+        else if (moltModalOpen) setMoltModalOpen(false);
+        else if (settingsModalOpen) setSettingsModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [moltModalOpen, settingsModalOpen, confirmDeleteModal]);
 
   // --------------------------------------------------------------------------
   // API MUTATION HELPERS
@@ -313,6 +300,7 @@ export default function BloomApp({
   };
 
   const patchSettings = async (patch, toastMsg = '') => {
+    const prevSnapshot = localSnapshot;
     const optimisticSettings = {
       ...settings,
       ...patch,
@@ -335,45 +323,67 @@ export default function BloomApp({
       if (!res.ok) throw new Error('Failed to save Bloom settings');
       if (toastMsg) notify(toastMsg);
       if (onGlobalSync) onGlobalSync({ force: true });
+      return true;
     } catch {
-      notify('Could not save Bloom settings', 'error');
+      setLocalSnapshot(prevSnapshot);
+      if (onGlobalSync) onGlobalSync({ force: true });
+      notify('Could not save Bloom settings — reverted', 'error');
+      return false;
     }
   };
 
-  const saveDayLog = async (dateKey, nextDayRecord, settingsPatch = null, toastMsg = '') => {
-    setLocalSnapshot((prev) => ({
-      ...prev,
-      ...(settingsPatch
-        ? {
-            settings: {
-              ...prev.settings,
-              ...settingsPatch,
-              enclosureInfo: {
-                ...prev.settings?.enclosureInfo,
-                ...settingsPatch.enclosureInfo
+  const saveDayLog = async (dateKey, dayPatch, settingsPatch = null, toastMsg = '') => {
+    const prevSnapshot = localSnapshot;
+    setLocalSnapshot((prev) => {
+      const existingDay = prev?.logsByDate?.[dateKey] || {
+        dateKey,
+        mists: [],
+        feedings: [],
+        climateChecks: [],
+        behaviors: []
+      };
+      return {
+        ...prev,
+        ...(settingsPatch
+          ? {
+              settings: {
+                ...prev?.settings,
+                ...settingsPatch,
+                enclosureInfo: {
+                  ...prev?.settings?.enclosureInfo,
+                  ...settingsPatch.enclosureInfo
+                }
               }
             }
+          : {}),
+        logsByDate: {
+          ...prev?.logsByDate,
+          [dateKey]: {
+            ...existingDay,
+            ...dayPatch,
+            dateKey
           }
-        : {}),
-      logsByDate: {
-        ...prev?.logsByDate,
-        [dateKey]: nextDayRecord
-      }
-    }));
+        }
+      };
+    });
 
     try {
       const res = await fetch(`/api/bloom/logs/${encodeURIComponent(dateKey)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
-          settingsPatch ? { ...nextDayRecord, settingsPatch } : nextDayRecord
+          settingsPatch ? { ...dayPatch, settingsPatch } : dayPatch
         )
       });
       if (!res.ok) throw new Error('Failed to save Bloom log');
       if (toastMsg) notify(toastMsg);
       if (onGlobalSync) onGlobalSync({ force: true });
+      return true;
     } catch {
-      notify('Could not save care log to server', 'error');
+      setLocalSnapshot(prevSnapshot);
+      if (onGlobalSync) onGlobalSync({ force: true });
+      notify('Could not save care log to server — reverted', 'error');
+      return false;
     }
   };
 
@@ -391,15 +401,16 @@ export default function BloomApp({
       dropletDrinkObserved: mistDrinkObserved,
       note: mistNoteInput.trim()
     };
-    const nextBehaviors = mistDrinkObserved
-      ? Array.from(new Set([...(currentDay.behaviors || []), 'Drank Droplets']))
-      : currentDay.behaviors || [];
 
-    const nextDay = {
-      ...currentDay,
-      dateKey: todayKey,
+    const dayPatch = {
       mists: [...(currentDay.mists || []), newMist],
-      behaviors: nextBehaviors,
+      ...(mistDrinkObserved
+        ? {
+            behaviors: Array.from(
+              new Set([...(currentDay.behaviors || []), 'Drank Droplets'])
+            )
+          }
+        : {}),
       updatedAt: nowIso
     };
 
@@ -407,7 +418,7 @@ export default function BloomApp({
     setMistNoteInput('');
     await saveDayLog(
       todayKey,
-      nextDay,
+      dayPatch,
       null,
       `Logged ${settings.mantisName}'s enclosure mist (${activeCaregiver})`
     );
@@ -415,12 +426,11 @@ export default function BloomApp({
 
   const handleDeleteMist = async (mistId) => {
     const currentDay = summary.todayLog;
-    const nextDay = {
-      ...currentDay,
+    const dayPatch = {
       mists: (currentDay.mists || []).filter((m) => m.id !== mistId),
       updatedAt: new Date().toISOString()
     };
-    await saveDayLog(todayKey, nextDay, null, 'Removed mist entry');
+    await saveDayLog(todayKey, dayPatch, null, 'Removed mist entry');
   };
 
   const handleLogFeeding = async (outcome = 'eaten') => {
@@ -439,18 +449,17 @@ export default function BloomApp({
       note: feedNoteInput.trim()
     };
 
-    const nextDay = {
-      ...currentDay,
-      dateKey: todayKey,
+    const dayPatch = {
       feedings: [...(currentDay.feedings || []), entry],
       abdomenStatus: selectedAbdomen,
+      abdomenUpdatedAt: nowIso,
       updatedAt: nowIso
     };
 
     const settingsPatch = leavePreyWarning
       ? {
           livePreyInside: true,
-          livePreyNote: `${preyMeta.label} offered at ${formatTimeShort(nowIso)} by ${activeCaregiver}`
+          livePreyNote: `${preyMeta.label} offered at ${formatTimeDisplay(nowIso)} by ${activeCaregiver}`
         }
       : null;
 
@@ -458,13 +467,13 @@ export default function BloomApp({
     setLeavePreyWarning(false);
     setOverrideFeedLockout(false);
 
-    if (outcome === 'refused' && summary.effectiveStatus === 'normal') {
+    if (outcome === 'refused' && summary.effectiveStatus === 'normal' && canConfigure) {
       setRefusalPremoltPrompt(true);
     }
 
     await saveDayLog(
       todayKey,
-      nextDay,
+      dayPatch,
       settingsPatch,
       outcome === 'refused'
         ? `Logged refused meal for ${settings.mantisName}`
@@ -474,17 +483,16 @@ export default function BloomApp({
 
   const handleUpdateAbdomenOnly = async (levelId) => {
     setSelectedAbdomen(levelId);
-    const currentDay = summary.todayLog;
-    const nextDay = {
-      ...currentDay,
-      dateKey: todayKey,
+    const nowIso = new Date().toISOString();
+    const dayPatch = {
       abdomenStatus: levelId,
-      updatedAt: new Date().toISOString()
+      abdomenUpdatedAt: nowIso,
+      updatedAt: nowIso
     };
     const meta = ABDOMEN_LEVELS.find((a) => a.id === levelId);
     await saveDayLog(
       todayKey,
-      nextDay,
+      dayPatch,
       null,
       `Updated ${settings.mantisName}'s abdomen check: ${meta?.label || levelId}`
     );
@@ -492,12 +500,11 @@ export default function BloomApp({
 
   const handleDeleteFeeding = async (feedId) => {
     const currentDay = summary.todayLog;
-    const nextDay = {
-      ...currentDay,
+    const dayPatch = {
       feedings: (currentDay.feedings || []).filter((f) => f.id !== feedId),
       updatedAt: new Date().toISOString()
     };
-    await saveDayLog(todayKey, nextDay, null, 'Removed feeding entry');
+    await saveDayLog(todayKey, dayPatch, null, 'Removed feeding entry');
   };
 
   const handleLogClimate = async (e) => {
@@ -512,15 +519,13 @@ export default function BloomApp({
       tempC: tempInput !== '' ? Number(tempInput) : null,
       humidityPct: humidityInput !== '' ? Number(humidityInput) : null
     };
-    const nextDay = {
-      ...currentDay,
-      dateKey: todayKey,
+    const dayPatch = {
       climateChecks: [...(currentDay.climateChecks || []), check],
       updatedAt: nowIso
     };
     setTempInput('');
     setHumidityInput('');
-    await saveDayLog(todayKey, nextDay, null, 'Logged enclosure temperature & humidity');
+    await saveDayLog(todayKey, dayPatch, null, 'Logged enclosure temperature & humidity');
   };
 
   const handleToggleBehavior = async (tag) => {
@@ -529,31 +534,27 @@ export default function BloomApp({
     const nextBehaviors = existing.includes(tag)
       ? existing.filter((b) => b !== tag)
       : [...existing, tag];
-    const nextDay = {
-      ...currentDay,
-      dateKey: todayKey,
+    const dayPatch = {
       behaviors: nextBehaviors,
       updatedAt: new Date().toISOString()
     };
-    await saveDayLog(todayKey, nextDay);
+    await saveDayLog(todayKey, dayPatch);
   };
 
   const handleSaveJournalNote = async (e) => {
     e.preventDefault();
-    const currentDay = summary.todayLog;
-    const nextDay = {
-      ...currentDay,
-      dateKey: todayKey,
+    const dayPatch = {
       journalNote: journalDraft.trim(),
       updatedAt: new Date().toISOString()
     };
-    await saveDayLog(todayKey, nextDay, null, `Saved ${settings.mantisName}'s daily note`);
+    await saveDayLog(todayKey, dayPatch, null, `Saved ${settings.mantisName}'s daily note`);
   };
 
   // --------------------------------------------------------------------------
   // HANDLERS — LIFECYCLE & MOLTS
   // --------------------------------------------------------------------------
   const handleTogglePremolt = async (enable) => {
+    if (!canConfigure) return;
     setRefusalPremoltPrompt(false);
     if (enable) {
       await patchSettings(
@@ -578,15 +579,19 @@ export default function BloomApp({
 
   const handleSubmitMolt = async (e) => {
     e.preventDefault();
-    const isTodayMolt = moltDateInput === todayKey;
-    const shouldStartHardening = moltStartHardening && isTodayMolt;
+    if (!canConfigure) return;
+    const targetDate = moltDateInput || todayKey;
+    const isTodayMolt = targetDate === todayKey;
+    const isLatestMolt = !summary.molts[0]?.dateKey || targetDate >= summary.molts[0].dateKey;
+    const shouldStartHardening =
+      hardeningHours > 0 && moltStartHardening && isTodayMolt && isLatestMolt;
 
     try {
       const res = await fetch('/api/bloom/molts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          dateKey: moltDateInput || todayKey,
+          dateKey: targetDate,
           fromInstar: moltFromInput,
           toInstar: moltToInput,
           lengthMm: moltLengthInput ? Number(moltLengthInput) : null,
@@ -594,11 +599,14 @@ export default function BloomApp({
           quality: moltQualityInput,
           loggedBy: activeCaregiver,
           note: moltNoteInput.trim(),
-          advanceInstar: true,
+          advanceInstar: isLatestMolt,
           startHardening: shouldStartHardening
         })
       });
-      if (!res.ok) throw new Error('Failed to log molt');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.error || 'Could not save molt milestone');
+      }
       const data = await res.json();
       setLocalSnapshot((prev) => ({
         ...prev,
@@ -608,17 +616,20 @@ export default function BloomApp({
       setMoltModalOpen(false);
       setRefusalPremoltPrompt(false);
       notify(
-        `🎉 ${settings.mantisName} molted from ${moltFromInput} to ${moltToInput}!${
-          shouldStartHardening ? ` (${settings.hardeningHours}h hardening timer started)` : ''
-        }`
+        isLatestMolt
+          ? `🎉 ${settings.mantisName} molted from ${moltFromInput} to ${moltToInput}!${
+              shouldStartHardening ? ` (${hardeningHours}h hardening timer started)` : ''
+            }`
+          : `Added historical molt (${moltFromInput} → ${moltToInput} on ${targetDate})`
       );
-      if (onGlobalSync) onGlobalSync();
-    } catch {
-      notify('Could not save molt milestone', 'error');
+      if (onGlobalSync) onGlobalSync({ force: true });
+    } catch (err) {
+      notify(err?.message || 'Could not save molt milestone', 'error');
     }
   };
 
   const handleDeleteMolt = async (moltId) => {
+    if (!canConfigure) return;
     try {
       const res = await fetch(`/api/bloom/molts/${encodeURIComponent(moltId)}`, {
         method: 'DELETE'
@@ -630,7 +641,7 @@ export default function BloomApp({
         molts: data.molts || []
       }));
       notify('Removed molt record');
-      if (onGlobalSync) onGlobalSync();
+      if (onGlobalSync) onGlobalSync({ force: true });
     } catch {
       notify('Could not delete molt record', 'error');
     }
@@ -641,7 +652,7 @@ export default function BloomApp({
   // --------------------------------------------------------------------------
   const handleAddFeederCulture = async (e) => {
     e.preventDefault();
-    if (!feederNameInput.trim()) return;
+    if (!canConfigure || !feederNameInput.trim()) return;
     const id = `feeder-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     try {
       const res = await fetch(`/api/bloom/feeders/${encodeURIComponent(id)}`, {
@@ -663,13 +674,14 @@ export default function BloomApp({
       setNewFeederOpen(false);
       setFeederNoteInput('');
       notify(`Added feeder culture "${feederNameInput.trim()}"`);
-      if (onGlobalSync) onGlobalSync();
+      if (onGlobalSync) onGlobalSync({ force: true });
     } catch {
       notify('Could not save feeder culture', 'error');
     }
   };
 
   const handleUpdateFeederStatus = async (feeder, nextStatus) => {
+    if (!canConfigure) return;
     try {
       const res = await fetch(`/api/bloom/feeders/${encodeURIComponent(feeder.id)}`, {
         method: 'PUT',
@@ -680,13 +692,14 @@ export default function BloomApp({
       const data = await res.json();
       setLocalSnapshot((prev) => ({ ...prev, feeders: data.feeders || [] }));
       notify(`Updated "${feeder.name}" to ${nextStatus}`);
-      if (onGlobalSync) onGlobalSync();
+      if (onGlobalSync) onGlobalSync({ force: true });
     } catch {
       notify('Could not update feeder culture', 'error');
     }
   };
 
   const handleDeleteFeeder = async (feederId) => {
+    if (!canConfigure) return;
     try {
       const res = await fetch(`/api/bloom/feeders/${encodeURIComponent(feederId)}`, {
         method: 'DELETE'
@@ -695,45 +708,78 @@ export default function BloomApp({
       const data = await res.json();
       setLocalSnapshot((prev) => ({ ...prev, feeders: data.feeders || [] }));
       notify('Removed feeder culture');
-      if (onGlobalSync) onGlobalSync();
+      if (onGlobalSync) onGlobalSync({ force: true });
     } catch {
       notify('Could not remove feeder culture', 'error');
     }
   };
 
+  const clampFiniteSetting = (val, fallback, min, max) => {
+    if (val === '' || val === null || val === undefined) return fallback;
+    const n = Number(val);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  };
+
   const handleSaveEnclosure = async (e) => {
     e.preventDefault();
-    await patchSettings(
+    if (!canConfigure) return;
+    const ok = await patchSettings(
       {
         enclosureInfo: {
           ...enclosureDraft,
-          currentBodyLengthMm: Number(enclosureDraft.currentBodyLengthMm) || 10,
-          enclosureHeightMm: Number(enclosureDraft.enclosureHeightMm) || 110,
-          enclosureWidthMm: Number(enclosureDraft.enclosureWidthMm) || 75
+          currentBodyLengthMm: clampFiniteSetting(enclosureDraft.currentBodyLengthMm, 10, 1, 500),
+          enclosureHeightMm: clampFiniteSetting(enclosureDraft.enclosureHeightMm, 110, 1, 2000),
+          enclosureWidthMm: clampFiniteSetting(enclosureDraft.enclosureWidthMm, 75, 1, 2000)
         }
       },
       `Updated ${settings.mantisName}'s enclosure specs`
     );
-    setEditingEnclosure(false);
+    if (ok) {
+      setEditingEnclosure(false);
+    }
   };
 
   const handleSaveFullSettings = async (e) => {
     e.preventDefault();
-    await patchSettings(
-      {
-        ...settingsForm,
-        dayTempMinC: Number(settingsForm.dayTempMinC) || 25,
-        dayTempMaxC: Number(settingsForm.dayTempMaxC) || 28,
-        nightTempMinC: Number(settingsForm.nightTempMinC) || 20,
-        humidityMinPct: Number(settingsForm.humidityMinPct) || 50,
-        humidityMaxPct: Number(settingsForm.humidityMaxPct) || 65,
-        mistTargetHours: Number(settingsForm.mistTargetHours) || 24,
-        hardeningHours: Number(settingsForm.hardeningHours) || 36,
-        typicalInterMoltDays: Number(settingsForm.typicalInterMoltDays) || 14
-      },
-      `Saved ${settingsForm.mantisName || 'Mantis'}'s Bloom settings`
-    );
-    setSettingsModalOpen(false);
+    if (!canConfigure) return;
+    const mantisName =
+      (settingsForm.mantisName || '').trim() || DEFAULT_BLOOM_SETTINGS.mantisName;
+    const dayTempMinC = clampFiniteSetting(settingsForm.dayTempMinC, 25, 10, 45);
+    const dayTempMaxC = clampFiniteSetting(settingsForm.dayTempMaxC, 28, dayTempMinC, 50);
+    const nightTempMinC = clampFiniteSetting(settingsForm.nightTempMinC, 20, 5, dayTempMaxC);
+    const humidityMinPct = clampFiniteSetting(settingsForm.humidityMinPct, 50, 10, 100);
+    const humidityMaxPct = clampFiniteSetting(settingsForm.humidityMaxPct, 65, humidityMinPct, 100);
+    const mistTargetHours = clampFiniteSetting(settingsForm.mistTargetHours, 24, 1, 168);
+    const nextHardeningHours = clampFiniteSetting(settingsForm.hardeningHours, 36, 0, 168);
+    const typicalInterMoltDays = clampFiniteSetting(settingsForm.typicalInterMoltDays, 14, 1, 180);
+
+    const editableSettings = {
+      mantisName,
+      speciesPreset: settingsForm.speciesPreset || DEFAULT_BLOOM_SETTINGS.speciesPreset,
+      commonName:
+        (settingsForm.commonName || '').trim() || DEFAULT_BLOOM_SETTINGS.commonName,
+      scientificName:
+        (settingsForm.scientificName || '').trim() || DEFAULT_BLOOM_SETTINGS.scientificName,
+      sex: settingsForm.sex || DEFAULT_BLOOM_SETTINGS.sex,
+      currentInstar: settingsForm.currentInstar || DEFAULT_BLOOM_SETTINGS.currentInstar,
+      arrivalDate: settingsForm.arrivalDate || settings.arrivalDate || todayKey,
+      currentColorMorph: (settingsForm.currentColorMorph || '').trim(),
+      dayTempMinC,
+      dayTempMaxC,
+      nightTempMinC,
+      humidityMinPct,
+      humidityMaxPct,
+      mistTargetHours,
+      hardeningHours: nextHardeningHours,
+      typicalInterMoltDays,
+      careNote: (settingsForm.careNote || '').trim()
+    };
+
+    const ok = await patchSettings(editableSettings, `Saved ${mantisName}'s Bloom settings`);
+    if (ok) {
+      setSettingsModalOpen(false);
+    }
   };
 
   // Recent 7 days with any activity
@@ -815,7 +861,7 @@ export default function BloomApp({
           <div className="flex flex-wrap items-center gap-2">
             {/* Internal Sub-Tabs */}
             <div
-              className={`inline-flex items-center p-1 rounded-2xl border ${
+              className={`inline-flex items-center p-1 rounded-2xl border max-w-full overflow-x-auto ${
                 darkMode
                   ? 'bg-slate-950/70 border-slate-800'
                   : 'bg-slate-100/90 border-slate-200/80'
@@ -843,7 +889,7 @@ export default function BloomApp({
                     key={t.id}
                     type="button"
                     onClick={() => setActiveTab(t.id)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer ${
                       active
                         ? 'bg-lime-600 text-white shadow-xs'
                         : darkMode
@@ -851,11 +897,11 @@ export default function BloomApp({
                           : 'text-slate-600 hover:bg-white'
                     }`}
                   >
-                    <Icon className="w-3.5 h-3.5" />
+                    <Icon className="w-3.5 h-3.5 shrink-0" />
                     <span>{t.label}</span>
                     {t.badge && (
                       <span
-                        className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                        className={`px-1.5 py-0.5 rounded-full text-[10px] ${
                           active ? 'bg-white/25 text-white' : 'bg-slate-200 dark:bg-slate-700'
                         }`}
                       >
@@ -863,7 +909,7 @@ export default function BloomApp({
                       </span>
                     )}
                     {t.alert && (
-                      <span className="w-2 h-2 rounded-full bg-amber-400" title="Needs attention" />
+                      <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" title="Needs attention" />
                     )}
                   </button>
                 );
@@ -883,6 +929,7 @@ export default function BloomApp({
                     : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
                 }`}
                 title={`Configure ${settings.mantisName}'s Species & Care Settings`}
+                aria-label={`Configure ${settings.mantisName}'s Species & Care Settings`}
               >
                 <Settings className="w-4 h-4" />
                 <span className="hidden sm:inline">Settings</span>
@@ -954,23 +1001,25 @@ export default function BloomApp({
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={openLogMoltModal}
-              className="px-4 py-2.5 rounded-xl bg-lime-600 hover:bg-lime-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>🎉 {settings.mantisName} Molted!</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleTogglePremolt(false)}
-              className="px-3 py-2.5 rounded-xl bg-white/70 dark:bg-slate-800 text-xs font-bold border border-amber-500/40 cursor-pointer"
-            >
-              Exit Premolt
-            </button>
-          </div>
+          {canConfigure && (
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={openLogMoltModal}
+                className="px-4 py-2.5 rounded-xl bg-lime-600 hover:bg-lime-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>🎉 {settings.mantisName} Molted!</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleTogglePremolt(false)}
+                className="px-3 py-2.5 rounded-xl bg-white/70 dark:bg-slate-800 text-xs font-bold border border-amber-500/40 cursor-pointer"
+              >
+                Exit Premolt
+              </button>
+            </div>
+          )}
         </section>
       )}
 
@@ -989,18 +1038,20 @@ export default function BloomApp({
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() =>
-              patchSettings(
-                { lifecycleStatus: 'normal', hardeningUntil: null },
-                `Ended post-molt cooldown for ${settings.mantisName}`
-              )
-            }
-            className="px-3.5 py-2 rounded-xl bg-fuchsia-600/20 hover:bg-fuchsia-600/30 border border-fuchsia-500/40 text-xs font-bold shrink-0 cursor-pointer"
-          >
-            Mark Ready Early
-          </button>
+          {canConfigure && (
+            <button
+              type="button"
+              onClick={() =>
+                patchSettings(
+                  { lifecycleStatus: 'normal', hardeningUntil: null },
+                  `Ended post-molt cooldown for ${settings.mantisName}`
+                )
+              }
+              className="px-3.5 py-2 rounded-xl bg-fuchsia-600/20 hover:bg-fuchsia-600/30 border border-fuchsia-500/40 text-xs font-bold shrink-0 cursor-pointer"
+            >
+              Mark Ready Early
+            </button>
+          )}
         </section>
       )}
 
@@ -1015,26 +1066,28 @@ export default function BloomApp({
                 ✨ {settings.mantisName}&apos;s {settings.currentInstar} Exoskeleton Has Hardened!
               </div>
               <p className="opacity-85">
-                Post-molt cooldown is complete—safe to offer {settings.mantisName} his first {settings.currentInstar} meal.
+                Post-molt cooldown is complete—safe to offer {settings.mantisName} {pronounPossessive} first {settings.currentInstar} meal.
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() =>
-              patchSettings(
-                { lifecycleStatus: 'normal', hardeningUntil: null },
-                `${settings.mantisName} is back in active hunting mode`
-              )
-            }
-            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shrink-0 cursor-pointer"
-          >
-            Resume Hunting Mode
-          </button>
+          {canConfigure && (
+            <button
+              type="button"
+              onClick={() =>
+                patchSettings(
+                  { lifecycleStatus: 'normal', hardeningUntil: null },
+                  `${settings.mantisName} is back in active hunting mode`
+                )
+              }
+              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shrink-0 cursor-pointer"
+            >
+              Resume Hunting Mode
+            </button>
+          )}
         </section>
       )}
 
-      {refusalPremoltPrompt && summary.effectiveStatus === 'normal' && (
+      {refusalPremoltPrompt && summary.effectiveStatus === 'normal' && canConfigure && (
         <section className="rounded-2xl p-3.5 border bg-amber-500/10 border-amber-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
           <div>
             <strong>{settings.mantisName} refused prey!</strong> Refusing food is the #1 early sign of Premolt in Spiny Flower nymphs. Switch on Premolt Watch?
@@ -1123,26 +1176,36 @@ export default function BloomApp({
               }`}
             >
               <div className="text-[11px] font-bold uppercase tracking-wider opacity-60">
-                Lifecycle Actions
+                Lifecycle Mode
               </div>
-              <div className="flex items-center gap-1.5 pt-1.5">
-                {summary.effectiveStatus !== 'premolt' && !summary.isAdult && (
+              {canConfigure ? (
+                <div className="flex items-center gap-1.5 pt-1.5">
+                  {summary.effectiveStatus !== 'premolt' && !summary.isAdult && (
+                    <button
+                      type="button"
+                      onClick={() => handleTogglePremolt(true)}
+                      className="flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 cursor-pointer"
+                    >
+                      Premolt
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => handleTogglePremolt(true)}
-                    className="flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 cursor-pointer"
+                    onClick={openLogMoltModal}
+                    className="flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold bg-lime-600 hover:bg-lime-700 text-white cursor-pointer"
                   >
-                    Premolt
+                    + Log Molt
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={openLogMoltModal}
-                  className="flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold bg-lime-600 hover:bg-lime-700 text-white cursor-pointer"
-                >
-                  + Log Molt
-                </button>
-              </div>
+                </div>
+              ) : (
+                <div className="text-xs font-bold capitalize mt-1">
+                  {summary.effectiveStatus === 'premolt'
+                    ? 'Premolt Watch (No Prey)'
+                    : summary.effectiveStatus === 'hardening'
+                      ? `Hardening (${summary.hardeningRemainingLabel})`
+                      : 'Normal Hunting'}
+                </div>
+              )}
             </div>
           </div>
 
@@ -1198,7 +1261,7 @@ export default function BloomApp({
                         {summary.lastMist.dropletDrinkObserved ? ' • 💧 Drank droplets!' : ''}
                       </span>
                       <span className="font-mono text-[11px] opacity-75">
-                        {formatTimeShort(summary.lastMist.timestamp)}
+                        {formatTimeDisplay(summary.lastMist.timestamp)}
                       </span>
                     </div>
                   ) : (
@@ -1247,7 +1310,7 @@ export default function BloomApp({
                       className="flex items-center justify-between text-xs py-1 px-2.5 rounded-xl bg-slate-100/70 dark:bg-slate-800/50"
                     >
                       <span>
-                        <strong>{formatTimeShort(m.timestamp)}</strong> • {m.by}
+                        <strong>{formatTimeDisplay(m.timestamp)}</strong> • {m.by}
                         {m.dropletDrinkObserved ? ' • 💧 Drank' : ''}
                         {m.note ? ` — "${m.note}"` : ''}
                       </span>
@@ -1256,6 +1319,7 @@ export default function BloomApp({
                         onClick={() => handleDeleteMist(m.id)}
                         className="text-slate-400 hover:text-rose-500 p-1 cursor-pointer"
                         title="Undo mist log"
+                        aria-label="Undo mist log"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -1265,7 +1329,7 @@ export default function BloomApp({
               )}
             </section>
 
-            {/* CARD B: FEEDING & ABDOMEN ("BOOTY") GAUGE */}
+            {/* CARD B: FEEDING & ABDOMEN PLUMPNESS GAUGE */}
             <section
               className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between space-y-4 ${
                 darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
@@ -1290,7 +1354,7 @@ export default function BloomApp({
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-bold opacity-75">
-                      {settings.mantisName}&apos;s Abdomen (&ldquo;Booty&rdquo;) Check:
+                      {settings.mantisName}&apos;s Abdomen Plumpness Check:
                     </span>
                     <button
                       type="button"
@@ -1368,6 +1432,7 @@ export default function BloomApp({
                           <button
                             type="button"
                             onClick={() => setPreyCount((c) => Math.max(1, c - 1))}
+                            aria-label="Decrease prey count"
                             className="px-2.5 py-2 text-xs font-extrabold bg-slate-100 dark:bg-slate-800 cursor-pointer"
                           >
                             -
@@ -1378,6 +1443,7 @@ export default function BloomApp({
                           <button
                             type="button"
                             onClick={() => setPreyCount((c) => Math.min(25, c + 1))}
+                            aria-label="Increase prey count"
                             className="px-2.5 py-2 text-xs font-extrabold bg-slate-100 dark:bg-slate-800 cursor-pointer"
                           >
                             +
@@ -1442,7 +1508,7 @@ export default function BloomApp({
                       className="flex items-center justify-between text-xs py-1 px-2.5 rounded-xl bg-slate-100/70 dark:bg-slate-800/50"
                     >
                       <span>
-                        <strong>{formatTimeShort(f.timestamp)}</strong> •{' '}
+                        <strong>{formatTimeDisplay(f.timestamp)}</strong> •{' '}
                         {f.outcome === 'refused' ? (
                           <span className="text-amber-600 dark:text-amber-400 font-bold">
                             Refused {f.preyLabel?.split(' (')[0]}
@@ -1459,6 +1525,7 @@ export default function BloomApp({
                         onClick={() => handleDeleteFeeding(f.id)}
                         className="text-slate-400 hover:text-rose-500 p-1 cursor-pointer"
                         title="Remove feeding log"
+                        aria-label="Remove feeding log"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -1509,7 +1576,7 @@ export default function BloomApp({
                   </span>
                   <span className="text-[11px] opacity-70">
                     {formatFriendlyDate(summary.latestClimate.dateKey, todayKey)}{' '}
-                    {formatTimeShort(summary.latestClimate.timestamp)}
+                    {formatTimeDisplay(summary.latestClimate.timestamp)}
                   </span>
                 </div>
               )}
@@ -1517,19 +1584,23 @@ export default function BloomApp({
               <form onSubmit={handleLogClimate} className="grid grid-cols-3 gap-2">
                 <input
                   type="number"
-                  step="0.5"
+                  step="0.1"
+                  min="0"
+                  max="60"
                   value={tempInput}
                   onChange={(e) => setTempInput(e.target.value)}
                   placeholder="Temp °C"
-                  className="px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                  className="w-full min-w-0 px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
                 />
                 <input
                   type="number"
                   step="1"
+                  min="0"
+                  max="100"
                   value={humidityInput}
                   onChange={(e) => setHumidityInput(e.target.value)}
                   placeholder="RH %"
-                  className="px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                  className="w-full min-w-0 px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
                 />
                 <button
                   type="submit"
@@ -1581,7 +1652,7 @@ export default function BloomApp({
                   value={journalDraft}
                   onChange={(e) => setJournalDraft(e.target.value)}
                   placeholder={`Quick observation about ${settings.mantisName} today...`}
-                  className="flex-1 px-3.5 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                  className="flex-1 min-w-0 px-3.5 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
                 />
                 <button
                   type="submit"
@@ -1678,14 +1749,16 @@ export default function BloomApp({
                     : ' • Final winged adult stage reached!'}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={openLogMoltModal}
-                className="px-4 py-2.5 rounded-xl bg-lime-600 hover:bg-lime-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>Log New Molt</span>
-              </button>
+              {canConfigure && (
+                <button
+                  type="button"
+                  onClick={openLogMoltModal}
+                  className="px-4 py-2.5 rounded-xl bg-lime-600 hover:bg-lime-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>Log New Molt</span>
+                </button>
+              )}
             </div>
 
             <div className="grid grid-cols-3 sm:grid-cols-9 gap-1.5">
@@ -1733,7 +1806,7 @@ export default function BloomApp({
                 <div className="py-8 text-center space-y-2 text-xs text-slate-500">
                   <p>No molts logged yet for {settings.mantisName}.</p>
                   <p>
-                    When {settings.mantisName} sheds his exuvia, click <strong>Log New Molt</strong> to advance his instar and start the post-molt hardening timer!
+                    When {settings.mantisName} sheds {pronounPossessive} exuvia, click <strong>Log New Molt</strong> to advance {pronounPossessive} instar and start the post-molt hardening timer!
                   </p>
                 </div>
               ) : (
@@ -1786,9 +1859,16 @@ export default function BloomApp({
                       {canConfigure && (
                         <button
                           type="button"
-                          onClick={() => handleDeleteMolt(m.id)}
+                          onClick={() =>
+                            setConfirmDeleteModal({
+                              kind: 'molt',
+                              id: m.id,
+                              label: `${m.fromInstar} → ${m.toInstar} molt on ${m.dateKey}`
+                            })
+                          }
                           className="p-1.5 text-slate-400 hover:text-rose-500 cursor-pointer"
                           title="Delete molt record"
+                          aria-label="Delete molt record"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -1817,7 +1897,7 @@ export default function BloomApp({
                   <strong>Counting Segments (L4+):</strong> Males show <strong>8</strong> underside abdominal segments (ending in a slimmer terminal segment), whereas females show <strong>6</strong> broader segments and a larger spiny sub-adult pronotum.
                 </p>
                 <p>
-                  <strong>Molt Clearance:</strong> Always ensure at least <strong>3× body length</strong> of unobstructed vertical drop beneath the soft mesh lid so {settings.mantisName} can slide cleanly out of his old skin.
+                  <strong>Molt Clearance:</strong> Always ensure at least <strong>3× body length</strong> of unobstructed vertical drop beneath the soft mesh lid so {settings.mantisName} can slide cleanly out of {pronounPossessive} old skin.
                 </p>
               </div>
             </section>
@@ -1843,14 +1923,19 @@ export default function BloomApp({
                   Track fruit fly pots &amp; casters so you never get caught by a culture crash
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setNewFeederOpen(!newFeederOpen)}
-                className="px-3 py-2 rounded-xl bg-lime-600 hover:bg-lime-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer shrink-0"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add Culture</span>
-              </button>
+              {canConfigure && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFeederStartedInput(todayKey);
+                    setNewFeederOpen(!newFeederOpen);
+                  }}
+                  className="px-3 py-2 rounded-xl bg-lime-600 hover:bg-lime-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Culture</span>
+                </button>
+              )}
             </div>
 
             <div
@@ -1863,7 +1948,7 @@ export default function BloomApp({
               <strong>{settings.currentInstar} Sizing Tip:</strong> {instarFeederTip}
             </div>
 
-            {newFeederOpen && (
+            {newFeederOpen && canConfigure && (
               <form
                 onSubmit={handleAddFeederCulture}
                 className={`p-4 rounded-2xl border space-y-3 ${
@@ -1986,14 +2071,23 @@ export default function BloomApp({
                             {f.storageNote ? ` • ${f.storageNote}` : ''}
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteFeeder(f.id)}
-                          className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
-                          title="Remove culture"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {canConfigure && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setConfirmDeleteModal({
+                                kind: 'feeder',
+                                id: f.id,
+                                label: f.name
+                              })
+                            }
+                            className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
+                            title="Remove culture"
+                            aria-label="Remove culture"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
 
                       <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
@@ -2015,8 +2109,11 @@ export default function BloomApp({
                           <button
                             key={st.id}
                             type="button"
+                            disabled={!canConfigure}
                             onClick={() => handleUpdateFeederStatus(f, st.id)}
-                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer ${
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border ${
+                              canConfigure ? 'cursor-pointer' : 'cursor-default'
+                            } ${
                               f.status === st.id
                                 ? st.id === 'low' || st.id === 'crashed'
                                   ? 'bg-amber-500 text-slate-950 border-amber-600'
@@ -2089,7 +2186,7 @@ export default function BloomApp({
               </p>
             </div>
 
-            {editingEnclosure ? (
+            {editingEnclosure && canConfigure ? (
               <form onSubmit={handleSaveEnclosure} className="space-y-2.5 text-xs">
                 <div>
                   <label className="block text-[10px] font-bold uppercase opacity-60 mb-0.5">
@@ -2111,7 +2208,8 @@ export default function BloomApp({
                     </label>
                     <input
                       type="number"
-                      value={enclosureDraft.currentBodyLengthMm || ''}
+                      min="1"
+                      value={enclosureDraft.currentBodyLengthMm ?? ''}
                       onChange={(e) =>
                         setEnclosureDraft({
                           ...enclosureDraft,
@@ -2127,7 +2225,8 @@ export default function BloomApp({
                     </label>
                     <input
                       type="number"
-                      value={enclosureDraft.enclosureHeightMm || ''}
+                      min="1"
+                      value={enclosureDraft.enclosureHeightMm ?? ''}
                       onChange={(e) =>
                         setEnclosureDraft({ ...enclosureDraft, enclosureHeightMm: e.target.value })
                       }
@@ -2140,7 +2239,8 @@ export default function BloomApp({
                     </label>
                     <input
                       type="number"
-                      value={enclosureDraft.enclosureWidthMm || ''}
+                      min="1"
+                      value={enclosureDraft.enclosureWidthMm ?? ''}
                       onChange={(e) =>
                         setEnclosureDraft({ ...enclosureDraft, enclosureWidthMm: e.target.value })
                       }
@@ -2201,27 +2301,29 @@ export default function BloomApp({
                     <strong>{settings.enclosureInfo.lastDeepCleanDate || 'Not recorded'}</strong>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    patchSettings(
-                      {
-                        enclosureInfo: {
-                          ...settings.enclosureInfo,
-                          lastDeepCleanDate: todayKey
-                        }
-                      },
-                      `Logged enclosure substrate clean for ${settings.mantisName}`
-                    )
-                  }
-                  className={`w-full py-2.5 rounded-xl border text-xs font-bold cursor-pointer ${
-                    darkMode
-                      ? 'border-slate-700 hover:bg-slate-800'
-                      : 'border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  ✓ Mark Substrate / Enclosure Cleaned Today
-                </button>
+                {canConfigure && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      patchSettings(
+                        {
+                          enclosureInfo: {
+                            ...settings.enclosureInfo,
+                            lastDeepCleanDate: todayKey
+                          }
+                        },
+                        `Logged enclosure substrate clean for ${settings.mantisName}`
+                      )
+                    }
+                    className={`w-full py-2.5 rounded-xl border text-xs font-bold cursor-pointer ${
+                      darkMode
+                        ? 'border-slate-700 hover:bg-slate-800'
+                        : 'border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    ✓ Mark Substrate / Enclosure Cleaned Today
+                  </button>
+                )}
               </div>
             )}
           </section>
@@ -2231,13 +2333,16 @@ export default function BloomApp({
       {/* ====================================================================
           MODAL A: LOG A NEW MOLT MILESTONE
       ==================================================================== */}
-      {moltModalOpen && (
+      {moltModalOpen && canConfigure && (
         <div
           onClick={() => setMoltModalOpen(false)}
           className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
         >
           <div
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Log Molt Milestone"
             className={`max-w-md w-full max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${
               darkMode
                 ? 'bg-slate-900 border-slate-800 text-slate-100'
@@ -2254,18 +2359,32 @@ export default function BloomApp({
                     Log {settings.mantisName}&apos;s Molt!
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Record exuvia shed &amp; advance instar stage
+                    {isLatestMoltModal
+                      ? 'Record exuvia shed & advance instar stage'
+                      : 'Add a historical exuvia shed to growth history'}
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setMoltModalOpen(false)}
+                aria-label="Close Log Molt Modal"
                 className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {!isLatestMoltModal && (
+              <div className="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-700 dark:text-sky-300 flex items-start gap-2 text-[11px] font-semibold">
+                <Info className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>
+                  This date precedes the latest recorded molt ({summary.molts[0]?.dateKey}), so it
+                  will be added as a historical milestone without changing {settings.mantisName}
+                  &apos;s current instar ({settings.currentInstar}).
+                </span>
+              </div>
+            )}
 
             <form onSubmit={handleSubmitMolt} className="space-y-3.5 text-xs">
               <div className="grid grid-cols-2 gap-2.5">
@@ -2315,6 +2434,8 @@ export default function BloomApp({
                   </label>
                   <input
                     type="number"
+                    min="0.1"
+                    step="0.1"
                     placeholder="e.g. 15"
                     value={moltLengthInput}
                     onChange={(e) => setMoltLengthInput(e.target.value)}
@@ -2373,7 +2494,7 @@ export default function BloomApp({
                 />
               </div>
 
-              {moltDateInput === todayKey && (
+              {isLatestMoltModal && moltDateInput === todayKey && hardeningHours > 0 && (
                 <label className="flex items-center gap-2 p-3 rounded-2xl bg-fuchsia-500/10 border border-fuchsia-500/30 font-semibold cursor-pointer">
                   <input
                     type="checkbox"
@@ -2382,7 +2503,7 @@ export default function BloomApp({
                     className="rounded accent-fuchsia-600 w-4 h-4"
                   />
                   <span>
-                    Start {settings.hardeningHours}h Post-Molt No-Feed Hardening Timer
+                    Start {hardeningHours}h Post-Molt No-Feed Hardening Timer
                   </span>
                 </label>
               )}
@@ -2417,6 +2538,9 @@ export default function BloomApp({
         >
           <div
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Bloom Mantis and Care Settings"
             className={`max-w-lg w-full max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${
               darkMode
                 ? 'bg-slate-900 border-slate-800 text-slate-100'
@@ -2428,6 +2552,7 @@ export default function BloomApp({
               <button
                 type="button"
                 onClick={() => setSettingsModalOpen(false)}
+                aria-label="Close Bloom Settings Modal"
                 className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 cursor-pointer"
               >
                 <X className="w-4 h-4" />
@@ -2481,11 +2606,11 @@ export default function BloomApp({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 <div>
                   <label className="block font-bold uppercase opacity-70 mb-1">Sex</label>
                   <select
-                    value={settingsForm.sex || 'Male'}
+                    value={settingsForm.sex || 'Unsexed'}
                     onChange={(e) => setSettingsForm({ ...settingsForm, sex: e.target.value })}
                     className="w-full px-3 py-2 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
                   >
@@ -2546,7 +2671,9 @@ export default function BloomApp({
                   </label>
                   <input
                     type="number"
-                    value={settingsForm.mistTargetHours || 24}
+                    min="1"
+                    max="168"
+                    value={settingsForm.mistTargetHours ?? ''}
                     onChange={(e) =>
                       setSettingsForm({ ...settingsForm, mistTargetHours: e.target.value })
                     }
@@ -2559,7 +2686,9 @@ export default function BloomApp({
                   </label>
                   <input
                     type="number"
-                    value={settingsForm.hardeningHours || 36}
+                    min="0"
+                    max="168"
+                    value={settingsForm.hardeningHours ?? ''}
                     onChange={(e) =>
                       setSettingsForm({ ...settingsForm, hardeningHours: e.target.value })
                     }
@@ -2572,7 +2701,9 @@ export default function BloomApp({
                   </label>
                   <input
                     type="number"
-                    value={settingsForm.typicalInterMoltDays || 14}
+                    min="1"
+                    max="180"
+                    value={settingsForm.typicalInterMoltDays ?? ''}
                     onChange={(e) =>
                       setSettingsForm({ ...settingsForm, typicalInterMoltDays: e.target.value })
                     }
@@ -2581,12 +2712,14 @@ export default function BloomApp({
                 </div>
               </div>
 
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div>
                   <label className="block font-bold uppercase opacity-70 mb-1">Min °C</label>
                   <input
                     type="number"
-                    value={settingsForm.dayTempMinC || 25}
+                    min="10"
+                    max="45"
+                    value={settingsForm.dayTempMinC ?? ''}
                     onChange={(e) =>
                       setSettingsForm({ ...settingsForm, dayTempMinC: e.target.value })
                     }
@@ -2597,7 +2730,9 @@ export default function BloomApp({
                   <label className="block font-bold uppercase opacity-70 mb-1">Max °C</label>
                   <input
                     type="number"
-                    value={settingsForm.dayTempMaxC || 28}
+                    min="10"
+                    max="50"
+                    value={settingsForm.dayTempMaxC ?? ''}
                     onChange={(e) =>
                       setSettingsForm({ ...settingsForm, dayTempMaxC: e.target.value })
                     }
@@ -2608,7 +2743,9 @@ export default function BloomApp({
                   <label className="block font-bold uppercase opacity-70 mb-1">Min RH%</label>
                   <input
                     type="number"
-                    value={settingsForm.humidityMinPct || 50}
+                    min="10"
+                    max="100"
+                    value={settingsForm.humidityMinPct ?? ''}
                     onChange={(e) =>
                       setSettingsForm({ ...settingsForm, humidityMinPct: e.target.value })
                     }
@@ -2619,7 +2756,9 @@ export default function BloomApp({
                   <label className="block font-bold uppercase opacity-70 mb-1">Max RH%</label>
                   <input
                     type="number"
-                    value={settingsForm.humidityMaxPct || 65}
+                    min="10"
+                    max="100"
+                    value={settingsForm.humidityMaxPct ?? ''}
                     onChange={(e) =>
                       setSettingsForm({ ...settingsForm, humidityMaxPct: e.target.value })
                     }
@@ -2659,6 +2798,71 @@ export default function BloomApp({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================================
+          MODAL C: DELETE CONFIRMATION (MOLT / FEEDER)
+      ==================================================================== */}
+      {confirmDeleteModal && canConfigure && (
+        <div
+          onClick={() => setConfirmDeleteModal(null)}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirm Deletion"
+            className={`max-w-sm w-full rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${
+              darkMode
+                ? 'bg-slate-900 border-slate-800 text-slate-100'
+                : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-rose-500/15 text-rose-500 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-extrabold">
+                  Delete {confirmDeleteModal.kind === 'molt' ? 'Molt Record' : 'Feeder Culture'}?
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 break-words">
+                  Are you sure you want to permanently remove{' '}
+                  <span className="font-bold text-slate-700 dark:text-slate-200">
+                    {confirmDeleteModal.label}
+                  </span>
+                  ? This cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteModal(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const target = confirmDeleteModal;
+                  setConfirmDeleteModal(null);
+                  if (target.kind === 'molt') {
+                    await handleDeleteMolt(target.id);
+                  } else if (target.kind === 'feeder') {
+                    await handleDeleteFeeder(target.id);
+                  }
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-extrabold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       )}

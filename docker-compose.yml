@@ -7,4 +7,14 @@ services:
       - "5170:80"
     volumes:
       - ./data:/app/data
+      # Optional alternative: Docker Named Volume (keeps SQLite on native Linux ext4 under Docker Desktop)
+      # - howard_data:/app/data
+    environment:
+      - TZ=Europe/London # Adjust to your local IANA timezone if outside the UK
+      # - SQLITE_JOURNAL_MODE=TRUNCATE # Uncomment if storing ./data on a network share / NAS
     restart: unless-stopped
+
+# Optional: uncomment alongside howard_data:/app/data above if using a Docker Named Volume
+# volumes:
+#   howard_data:
+#     name: howard_data

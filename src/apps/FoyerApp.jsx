@@ -1,5 +1,11 @@
 import React, { useMemo } from 'react';
 import {
+  getLocalDateKey,
+  parseLocalDateKey,
+  formatTimeDisplay,
+  formatGBP,
+  toMonthlyAmount,
+  isAlmanacEventVisibleToProfile,
   doesAlmanacEventOccurOnDate,
   getLedgerScheduleInfo,
   computeBloomSummary
@@ -24,40 +30,6 @@ import {
   UserCheck
 } from 'lucide-react';
 
-const getLocalDateKey = (dateObj = new Date()) => {
-  const year = dateObj.getFullYear();
-  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-  const day = String(dateObj.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const formatTimeDisplay = (isoString) => {
-  if (!isoString) return '';
-  try {
-    return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return '';
-  }
-};
-
-const formatGBP = (num) => {
-  const val = Number(num) || 0;
-  return val.toLocaleString('en-GB', {
-    style: 'currency',
-    currency: 'GBP',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-};
-
-const toMonthlyAmount = (amount, cycle) => {
-  const val = Number(amount) || 0;
-  if (cycle === 'annual') return val / 12;
-  if (cycle === 'quarterly') return val / 3;
-  if (cycle === 'weekly') return (val * 52) / 12;
-  return val;
-};
-
 export default function FoyerApp({
   activeProfile,
   profiles,
@@ -68,6 +40,7 @@ export default function FoyerApp({
   almanacEvents,
   ledgerData,
   beaconInfo,
+  nowMs = Date.now(),
   onNavigateApp,
   onQuickRecordDose,
   onQuickMistMantis,
@@ -76,7 +49,7 @@ export default function FoyerApp({
   onOpenAlmanacDate,
   onOpenProfileModal
 }) {
-  const now = new Date();
+  const now = useMemo(() => new Date(nowMs), [nowMs]);
   const todayKey = getLocalDateKey(now);
   const hour = now.getHours();
 
@@ -86,7 +59,7 @@ export default function FoyerApp({
   const catName = cadenceSnapshot?.settings?.catName || 'Pet';
   const bloomSummary = useMemo(
     () => computeBloomSummary(bloomSnapshot, now),
-    [bloomSnapshot, todayKey]
+    [bloomSnapshot, now]
   );
   const mantisName = bloomSummary.settings.mantisName || 'Mantis';
   const partner1Name = (profiles || []).find((p) => p.id === 'partner1')?.name || 'Partner 1';
@@ -104,8 +77,7 @@ export default function FoyerApp({
   const bottleAlert = useMemo(() => {
     const openedStr = cadenceSnapshot?.settings?.bottleOpenedDate || todayKey;
     const shelfLife = Number(cadenceSnapshot?.settings?.bottleShelfLifeDays) || 180;
-    const [y, m, d] = openedStr.split('-').map(Number);
-    const expiryDate = new Date(y, m - 1, d);
+    const expiryDate = parseLocalDateKey(openedStr);
     expiryDate.setDate(expiryDate.getDate() + shelfLife);
     const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const daysRemaining = Math.round(
@@ -120,18 +92,12 @@ export default function FoyerApp({
       }),
       isAlert: daysRemaining <= 14
     };
-  }, [cadenceSnapshot?.settings, todayKey]);
+  }, [cadenceSnapshot?.settings, todayKey, now]);
 
   // Upcoming Almanac events (today + next 21 days, expanding recurring events & filtering Partner 2-private GP events when not Partner 2)
   const upcomingEvents = useMemo(() => {
-    const visibleEvents = (almanacEvents || []).filter(
-      (e) =>
-        !(
-          activeProfile.id !== 'partner2' &&
-          (e.linkToGpReport ||
-            (e.category === 'medical' &&
-              (e.assignedTo === 'Partner 2' || e.assignedTo === partner2Name)))
-        )
+    const visibleEvents = (almanacEvents || []).filter((e) =>
+      isAlmanacEventVisibleToProfile(e, activeProfile, partner2Name)
     );
 
     const occurrences = [];
@@ -161,7 +127,7 @@ export default function FoyerApp({
     return occurrences
       .sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')))
       .slice(0, 4);
-  }, [almanacEvents, todayKey, activeProfile.id]);
+  }, [almanacEvents, todayKey, activeProfile, partner2Name, now]);
 
   // Ledger Bookkeeping Briefing (Upcoming Direct Debits/Subs + Current Month Spend)
   const ledgerBriefing = useMemo(() => {
@@ -171,7 +137,7 @@ export default function FoyerApp({
 
     const upcomingBills = recurring
       .map((r) => {
-        const { daysUntil, nextDateFormatted } = getLedgerScheduleInfo(r, false);
+        const { daysUntil, nextDateFormatted } = getLedgerScheduleInfo(r, false, now);
         return {
           ...r,
           daysUntil,
@@ -193,7 +159,7 @@ export default function FoyerApp({
       totalMonthlyCommitted,
       currentMonthExpenses
     };
-  }, [ledgerData, todayKey]);
+  }, [ledgerData, todayKey, now]);
 
   // Partner 2's Floodgate today status
   const partner2TodayLog = floodgateSnapshot?.logsByDate?.[todayKey] || null;
@@ -247,6 +213,7 @@ export default function FoyerApp({
               : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
           }`}
           title={`Switch User (${activeProfile.name})`}
+          aria-label={`Switch User (${activeProfile.name})`}
         >
           <UserCheck className="w-4 h-4 text-teal-500" />
           <span className="hidden sm:inline">Switch User ({activeProfile.name})</span>
@@ -269,7 +236,9 @@ export default function FoyerApp({
                   : `${catName}'s ${medName} Bottle Expires in ${bottleAlert.daysRemaining} Days`}
               </h3>
               <p className="text-xs opacity-85">
-                Discard date: {bottleAlert.expiryFormatted}. Open Cadence when starting a fresh bottle.
+                {activeProfile.id === 'caregiver'
+                  ? `Discard date: ${bottleAlert.expiryFormatted}. Please let a household member know a fresh bottle is needed.`
+                  : `Discard date: ${bottleAlert.expiryFormatted}. Open Cadence when starting a fresh bottle.`}
               </p>
             </div>
           </div>
@@ -278,7 +247,9 @@ export default function FoyerApp({
             onClick={() => onNavigateApp('cadence')}
             className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shrink-0 cursor-pointer"
           >
-            Manage Bottle in Cadence &rarr;
+            {activeProfile.id === 'caregiver'
+              ? 'View in Cadence →'
+              : 'Manage Bottle in Cadence →'}
           </button>
         </section>
       )}
@@ -689,7 +660,7 @@ export default function FoyerApp({
                   <div className="font-bold text-sm">Feeding &amp; Abdomen</div>
                   <div className="text-xs text-slate-500 dark:text-slate-400">
                     {bloomSummary.lastMeal
-                      ? `Last ate ${bloomSummary.lastMeal.friendlyWhen} (${bloomSummary.lastMeal.count}× ${bloomSummary.lastMeal.preyLabel?.split(' (')[0]})`
+                      ? `Last ate ${bloomSummary.lastMeal.friendlyWhen} (${bloomSummary.lastMeal.count}× ${bloomSummary.lastMeal.preyLabel ? bloomSummary.lastMeal.preyLabel.split(' (')[0] : 'feeder prey'})`
                       : 'No meals logged yet'}
                   </div>
                 </div>
@@ -742,9 +713,9 @@ export default function FoyerApp({
               : 'bg-white border-slate-200/90'
           }`}
         >
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-sky-500/15 text-sky-600 dark:text-sky-400 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-2xl bg-sky-500/15 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
                 <ShieldAlert className="w-5 h-5" />
               </div>
               <div>
@@ -759,7 +730,7 @@ export default function FoyerApp({
             <button
               type="button"
               onClick={() => onNavigateApp('beacon')}
-              className="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold cursor-pointer"
+              className="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold cursor-pointer shrink-0 self-start sm:self-auto"
             >
               Open Full Guide &rarr;
             </button>
@@ -775,8 +746,7 @@ export default function FoyerApp({
                 🐾 Pet Care &amp; Feeding
               </div>
               <p className="leading-relaxed">
-                {beaconInfo?.petCare?.feedingGuide ||
-                  'Wet food morning and evening; fresh water daily.'}
+                {beaconInfo?.petCare?.feedingGuide?.trim() || 'No feeding guide entered yet.'}
               </p>
             </div>
 
@@ -788,11 +758,31 @@ export default function FoyerApp({
               <div className="font-bold text-rose-600 dark:text-rose-400 uppercase">
                 🏥 Emergency Vet
               </div>
-              <div className="font-bold text-sm">{beaconInfo?.vetInfo?.clinicName}</div>
-              <div>Daytime: {beaconInfo?.vetInfo?.phone}</div>
-              <div className="text-rose-600 dark:text-rose-400 font-semibold">
-                Emergency: {beaconInfo?.vetInfo?.emergencyPhone}
+              <div className="font-bold text-sm">
+                {beaconInfo?.vetInfo?.clinicName?.trim() || 'Veterinary Clinic not set'}
               </div>
+              {beaconInfo?.vetInfo?.phone?.trim() && (
+                <div>
+                  Daytime:{' '}
+                  <a
+                    href={`tel:${beaconInfo.vetInfo.phone.trim()}`}
+                    className="font-mono underline"
+                  >
+                    {beaconInfo.vetInfo.phone.trim()}
+                  </a>
+                </div>
+              )}
+              {beaconInfo?.vetInfo?.emergencyPhone?.trim() && (
+                <div className="text-rose-600 dark:text-rose-400 font-semibold">
+                  Emergency:{' '}
+                  <a
+                    href={`tel:${beaconInfo.vetInfo.emergencyPhone.trim()}`}
+                    className="font-mono underline"
+                  >
+                    {beaconInfo.vetInfo.emergencyPhone.trim()}
+                  </a>
+                </div>
+              )}
             </div>
 
             <div
@@ -803,17 +793,25 @@ export default function FoyerApp({
               <div className="font-bold text-teal-600 dark:text-teal-400 uppercase">
                 📞 Contact {partner1Name} &amp; {partner2Name}
               </div>
-              {(beaconInfo?.contacts || []).map((c) => (
-                <div key={c.id} className="flex items-center justify-between py-0.5">
-                  <span className="font-semibold">{c.name}:</span>
-                  <a
-                    href={`tel:${c.phone}`}
-                    className="font-mono underline text-teal-600 dark:text-teal-400"
-                  >
-                    {c.phone}
-                  </a>
-                </div>
-              ))}
+              {(beaconInfo?.contacts || []).length > 0 ? (
+                (beaconInfo?.contacts || []).map((c) => (
+                  <div key={c.id} className="flex items-center justify-between py-0.5 gap-2">
+                    <span className="font-semibold truncate">{c.name || 'Contact'}:</span>
+                    {c.phone?.trim() ? (
+                      <a
+                        href={`tel:${c.phone.trim()}`}
+                        className="font-mono underline text-teal-600 dark:text-teal-400 shrink-0"
+                      >
+                        {c.phone.trim()}
+                      </a>
+                    ) : (
+                      <span className="text-slate-400 italic shrink-0">No number</span>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className="text-xs text-slate-500">No contacts listed.</div>
+              )}
             </div>
           </div>
         </section>
@@ -860,10 +858,11 @@ export default function FoyerApp({
                   {upcomingEvents.map((evt) => {
                     const isToday = evt.date === todayKey;
                     return (
-                      <div
+                      <button
                         key={evt.id}
+                        type="button"
                         onClick={() => onOpenAlmanacDate(evt.date)}
-                        className={`p-3 rounded-2xl border transition cursor-pointer ${
+                        className={`w-full text-left p-3 rounded-2xl border transition cursor-pointer ${
                           isToday
                             ? 'bg-indigo-500/10 border-indigo-500/40'
                             : darkMode
@@ -888,7 +887,7 @@ export default function FoyerApp({
                             {evt.notes}
                           </p>
                         )}
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -978,32 +977,39 @@ export default function FoyerApp({
                 <div className="text-[11px] font-bold uppercase tracking-wider opacity-60">
                   Next Billing Dates
                 </div>
-                {ledgerBriefing.upcomingBills.map((bill) => (
-                  <div
-                    key={bill.id}
-                    onClick={() => onNavigateApp('ledger')}
-                    className={`p-2.5 rounded-2xl border flex items-center justify-between gap-2 cursor-pointer transition ${
-                      darkMode
-                        ? 'bg-slate-800/40 border-slate-700 hover:bg-slate-800'
-                        : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100'
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <div className="text-xs font-bold truncate">{bill.title}</div>
-                      <div className="text-[11px] text-slate-500">
-                        {bill.owner === 'joint'
-                          ? '🤝 Joint'
-                          : bill.owner === 'partner1'
-                            ? `⚡ ${partner1Name}`
-                            : `🌸 ${partner2Name}`}{' '}
-                        • {bill.daysUntil === 0 ? 'Due Today' : `In ${bill.daysUntil}d (${bill.nextFormatted})`}
+                {ledgerBriefing.upcomingBills.length > 0 ? (
+                  ledgerBriefing.upcomingBills.map((bill) => (
+                    <button
+                      key={bill.id}
+                      type="button"
+                      onClick={() => onNavigateApp('ledger')}
+                      className={`w-full text-left p-2.5 rounded-2xl border flex items-center justify-between gap-2 cursor-pointer transition ${
+                        darkMode
+                          ? 'bg-slate-800/40 border-slate-700 hover:bg-slate-800'
+                          : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold truncate">{bill.title}</div>
+                        <div className="text-[11px] text-slate-500">
+                          {bill.owner === 'joint'
+                            ? '🤝 Joint'
+                            : bill.owner === 'partner1'
+                              ? `⚡ ${partner1Name}`
+                              : `🌸 ${partner2Name}`}{' '}
+                          • {bill.daysUntil === 0 ? 'Due Today' : `In ${bill.daysUntil}d (${bill.nextFormatted})`}
+                        </div>
                       </div>
-                    </div>
-                    <span className="text-xs font-extrabold shrink-0">
-                      {formatGBP(bill.amount)}
-                    </span>
-                  </div>
-                ))}
+                      <span className="text-xs font-extrabold shrink-0">
+                        {formatGBP(bill.amount)}
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-500 py-3 text-center">
+                    No active recurring bills scheduled yet.
+                  </p>
+                )}
               </div>
             </div>
 

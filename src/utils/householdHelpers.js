@@ -5,19 +5,19 @@ export const getLocalDateKey = (dateObj = new Date()) => {
   return `${year}-${month}-${day}`;
 };
 
-const parseLocalDateKey = (dateKey) => {
+export const parseLocalDateKey = (dateKey) => {
   if (!dateKey || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return new Date();
   const [y, m, d] = dateKey.split('-').map(Number);
   return new Date(y, m - 1, d);
 };
 
-const shiftDateKey = (dateKey, deltaDays) => {
+export const shiftDateKey = (dateKey, deltaDays) => {
   const dt = parseLocalDateKey(dateKey);
   dt.setDate(dt.getDate() + deltaDays);
   return getLocalDateKey(dt);
 };
 
-const formatFriendlyDate = (dateKey, todayKey) => {
+export const formatFriendlyDate = (dateKey, todayKey = getLocalDateKey(new Date())) => {
   if (!dateKey) return '';
   if (dateKey === todayKey) return 'Today';
   if (dateKey === shiftDateKey(todayKey, -1)) return 'Yesterday';
@@ -28,9 +28,22 @@ const formatFriendlyDate = (dateKey, todayKey) => {
   });
 };
 
-const formatDurationAgo = (isoString, nowMs) => {
+export const formatTimeDisplay = (isoString) => {
+  if (!isoString) return '';
+  try {
+    const d = new Date(isoString);
+    if (!Number.isFinite(d.getTime())) return '';
+    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+};
+
+export const formatDurationAgo = (isoString, nowMs = Date.now()) => {
   if (!isoString) return null;
-  const diffMs = Math.max(0, nowMs - new Date(isoString).getTime());
+  const ts = new Date(isoString).getTime();
+  if (!Number.isFinite(ts)) return null;
+  const diffMs = Math.max(0, nowMs - ts);
   const mins = Math.floor(diffMs / 60000);
   if (mins < 1) return 'Just now';
   if (mins < 60) return `${mins}m ago`;
@@ -41,9 +54,11 @@ const formatDurationAgo = (isoString, nowMs) => {
   return `${days}d ago`;
 };
 
-const formatCountdown = (targetIso, nowMs) => {
+export const formatCountdown = (targetIso, nowMs = Date.now()) => {
   if (!targetIso) return '';
-  const diffMs = Math.max(0, new Date(targetIso).getTime() - nowMs);
+  const ts = new Date(targetIso).getTime();
+  if (!Number.isFinite(ts)) return '';
+  const diffMs = Math.max(0, ts - nowMs);
   const totalMins = Math.ceil(diffMs / 60000);
   const hrs = Math.floor(totalMins / 60);
   const mins = totalMins % 60;
@@ -51,7 +66,7 @@ const formatCountdown = (targetIso, nowMs) => {
   return `${hrs}h ${mins}m`;
 };
 
-const formatOrdinalDay = (dayNum) => {
+export const formatOrdinalDay = (dayNum) => {
   const d = Number(dayNum) || 1;
   const j = d % 10;
   const k = d % 100;
@@ -61,7 +76,75 @@ const formatOrdinalDay = (dayNum) => {
   return `${d}th`;
 };
 
-const WEEKDAY_OPTIONS = [
+export const formatGBP = (num) => {
+  const val = Number(num) || 0;
+  return val.toLocaleString('en-GB', {
+    style: 'currency',
+    currency: 'GBP',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+};
+
+export const toMonthlyAmount = (amount, cycleOrFreq) => {
+  const val = Number(amount) || 0;
+  switch (cycleOrFreq) {
+    case 'annual':
+      return val / 12;
+    case 'quarterly':
+      return val / 3;
+    case 'weekly':
+      return (val * 52) / 12;
+    case 'one-off':
+    case 'monthly':
+    default:
+      return val;
+  }
+};
+
+export const escapeCSVCell = (val) => {
+  if (val === null || val === undefined) return '""';
+  if (typeof val === 'number') {
+    return `"${String(val).replace(/"/g, '""')}"`;
+  }
+  const raw = String(val);
+  // Prefix spreadsheet formula triggers with an apostrophe so Excel/Sheets treat text literally
+  const safe = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+  return `"${safe.replace(/"/g, '""')}"`;
+};
+
+export async function copyTextToClipboard(text) {
+  if (text === undefined || text === null) return false;
+  const str = String(text);
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(str);
+      return true;
+    }
+  } catch {
+    // Fall back for plain HTTP LAN origins where navigator.clipboard is unavailable
+  }
+  if (typeof document === 'undefined') return false;
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = str;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '0';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return Boolean(ok);
+  } catch {
+    return false;
+  }
+}
+
+export const WEEKDAY_OPTIONS = [
   { id: 1, label: 'Monday', shortLabel: 'Mon' },
   { id: 2, label: 'Tuesday', shortLabel: 'Tue' },
   { id: 3, label: 'Wednesday', shortLabel: 'Wed' },
@@ -71,53 +154,59 @@ const WEEKDAY_OPTIONS = [
   { id: 7, label: 'Sunday', shortLabel: 'Sun' }
 ];
 
-export const DEFAULT_BLOOM_SETTINGS = {
-  mantisName: 'Mantis',
-  speciesPreset: 'spiny_flower',
-  commonName: 'Spiny Flower Mantis',
-  scientificName: 'Pseudocreobotra wahlbergii',
-  sex: 'Male',
-  pronouns: 'he/him',
-  currentInstar: 'L2',
-  arrivalDate: getLocalDateKey(new Date()),
-  hatchDate: '',
-  currentColorMorph: 'Spiky creamy-white & dark banded nymph',
-  lifecycleStatus: 'normal',
-  premoltStartedAt: null,
-  hardeningUntil: null,
-  hardeningHours: 36,
-  livePreyInside: false,
-  livePreyNote: '',
-  dayTempMinC: 25,
-  dayTempMaxC: 28,
-  nightTempMinC: 20,
-  humidityMinPct: 50,
-  humidityMaxPct: 65,
-  mistTargetHours: 24,
-  typicalInterMoltDays: 14,
-  enclosureInfo: {
-    currentSizeLabel: 'Ventilated Nymph Cup / Mini Tall Enclosure',
-    meshType: 'Soft nylon / fabric mesh (tarsal-safe)',
-    substrate: 'Paper towel / coco fibre + climbing twigs & blossoms',
-    lastDeepCleanDate: getLocalDateKey(new Date()),
-    currentBodyLengthMm: 10,
-    enclosureHeightMm: 110,
-    enclosureWidthMm: 75
-  },
-  caregivers: ['Partner 1', 'Partner 2', 'Caregiver'],
-  careNote:
-    'Mist one enclosure wall lightly once daily for drinking droplets—never spray the mantis directly, and let the enclosure dry between mists (Spiny Flower Mantises need cross-ventilation!). Do NOT offer live prey during Premolt Watch or Post-Molt Hardening.'
+export const createDefaultBloomSettings = (dateObj = new Date()) => {
+  const todayKey = getLocalDateKey(dateObj);
+  return {
+    mantisName: 'Mantis',
+    speciesPreset: 'spiny_flower',
+    commonName: 'Spiny Flower Mantis',
+    scientificName: 'Pseudocreobotra wahlbergii',
+    sex: 'Unsexed',
+    pronouns: 'they/them',
+    currentInstar: 'L2',
+    arrivalDate: todayKey,
+    hatchDate: '',
+    currentColorMorph: 'Spiky creamy-white & dark banded nymph',
+    lifecycleStatus: 'normal',
+    premoltStartedAt: null,
+    hardeningUntil: null,
+    hardeningHours: 36,
+    livePreyInside: false,
+    livePreyNote: '',
+    dayTempMinC: 25,
+    dayTempMaxC: 28,
+    nightTempMinC: 20,
+    humidityMinPct: 50,
+    humidityMaxPct: 65,
+    mistTargetHours: 24,
+    typicalInterMoltDays: 14,
+    enclosureInfo: {
+      currentSizeLabel: 'Ventilated Nymph Cup / Mini Tall Enclosure',
+      meshType: 'Soft nylon / fabric mesh (tarsal-safe)',
+      substrate: 'Paper towel / coco fibre + climbing twigs & blossoms',
+      lastDeepCleanDate: todayKey,
+      currentBodyLengthMm: 10,
+      enclosureHeightMm: 110,
+      enclosureWidthMm: 75
+    },
+    caregivers: ['Partner 1', 'Partner 2', 'Caregiver'],
+    careNote:
+      'Mist one enclosure wall lightly once daily for drinking droplets—never spray the mantis directly, and let the enclosure dry between mists (Spiny Flower Mantises need cross-ventilation!). Do NOT offer live prey during Premolt Watch or Post-Molt Hardening.'
+  };
 };
+
+export const DEFAULT_BLOOM_SETTINGS = createDefaultBloomSettings();
 
 export function computeBloomSummary(bloomSnapshot, now = new Date()) {
   const nowMs = now.getTime();
   const todayKey = getLocalDateKey(now);
+  const baseDefaults = createDefaultBloomSettings(now);
   const rawSettings = bloomSnapshot?.settings || {};
   const settings = {
-    ...DEFAULT_BLOOM_SETTINGS,
+    ...baseDefaults,
     ...rawSettings,
     enclosureInfo: {
-      ...DEFAULT_BLOOM_SETTINGS.enclosureInfo,
+      ...baseDefaults.enclosureInfo,
       ...rawSettings.enclosureInfo
     }
   };
@@ -133,8 +222,8 @@ export function computeBloomSummary(bloomSnapshot, now = new Date()) {
   if (settings.lifecycleStatus === 'premolt') {
     effectiveStatus = 'premolt';
   } else if (settings.lifecycleStatus === 'hardening') {
-    const untilMs = settings.hardeningUntil ? new Date(settings.hardeningUntil).getTime() : 0;
-    if (untilMs > nowMs) {
+    const untilMs = settings.hardeningUntil ? new Date(settings.hardeningUntil).getTime() : NaN;
+    if (Number.isFinite(untilMs) && untilMs > nowMs) {
       effectiveStatus = 'hardening';
       hardeningRemainingLabel = formatCountdown(settings.hardeningUntil, nowMs);
     } else {
@@ -156,26 +245,29 @@ export function computeBloomSummary(bloomSnapshot, now = new Date()) {
       const m = [...dayLog.mists].sort((a, b) =>
         (b.timestamp || '').localeCompare(a.timestamp || '')
       )[0];
-      const mMs = m.timestamp ? new Date(m.timestamp).getTime() : parseLocalDateKey(dKey).getTime();
+      const parsedMistMs = m.timestamp ? new Date(m.timestamp).getTime() : NaN;
+      const hasValidTs = Number.isFinite(parsedMistMs);
+      const mMs = hasValidTs ? parsedMistMs : parseLocalDateKey(dKey).getTime();
       const hoursAgo = Math.max(0, (nowMs - mMs) / 3600000);
       lastMist = {
         ...m,
         dateKey: dKey,
         hoursAgo,
-        timeAgoLabel: m.timestamp
+        timeAgoLabel: hasValidTs
           ? formatDurationAgo(m.timestamp, nowMs)
           : formatFriendlyDate(dKey, todayKey),
         isToday: dKey === todayKey
       };
     }
 
+    let newestFeedWithAbdomen = null;
     if (Array.isArray(dayLog.feedings) && dayLog.feedings.length > 0) {
       const sortedFeeds = [...dayLog.feedings].sort((a, b) =>
         (b.timestamp || '').localeCompare(a.timestamp || '')
       );
       for (const f of sortedFeeds) {
-        if (!latestAbdomen && f.abdomenAfter) {
-          latestAbdomen = f.abdomenAfter;
+        if (!newestFeedWithAbdomen && f.abdomenAfter) {
+          newestFeedWithAbdomen = f;
         }
         if (!lastMeal && (f.outcome === 'eaten' || f.outcome === 'partial' || !f.outcome)) {
           const daysAgo = Math.max(
@@ -198,8 +290,23 @@ export function computeBloomSummary(bloomSnapshot, now = new Date()) {
       }
     }
 
-    if (!latestAbdomen && dayLog.abdomenStatus) {
-      latestAbdomen = dayLog.abdomenStatus;
+    if (!latestAbdomen) {
+      if (dayLog.abdomenStatus && newestFeedWithAbdomen) {
+        const abMs = dayLog.abdomenUpdatedAt ? new Date(dayLog.abdomenUpdatedAt).getTime() : NaN;
+        const feedMs = newestFeedWithAbdomen.timestamp
+          ? new Date(newestFeedWithAbdomen.timestamp).getTime()
+          : NaN;
+        if (Number.isFinite(abMs) && Number.isFinite(feedMs)) {
+          latestAbdomen =
+            abMs >= feedMs ? dayLog.abdomenStatus : newestFeedWithAbdomen.abdomenAfter;
+        } else {
+          latestAbdomen = dayLog.abdomenStatus;
+        }
+      } else if (dayLog.abdomenStatus) {
+        latestAbdomen = dayLog.abdomenStatus;
+      } else if (newestFeedWithAbdomen) {
+        latestAbdomen = newestFeedWithAbdomen.abdomenAfter;
+      }
     }
 
     if (!latestClimate && Array.isArray(dayLog.climateChecks) && dayLog.climateChecks.length > 0) {
@@ -321,6 +428,25 @@ export function computeBloomSummary(bloomSnapshot, now = new Date()) {
   };
 }
 
+export const isAlmanacEventVisibleToProfile = (
+  evt,
+  activeProfile,
+  partner2Name = 'Partner 2'
+) => {
+  if (!evt) return false;
+  if (activeProfile?.id === 'partner2') return true;
+  if (evt.linkToGpReport) return false;
+  if (
+    evt.category === 'medical' &&
+    (evt.assignedToProfileId === 'partner2' ||
+      evt.assignedTo === 'Partner 2' ||
+      (partner2Name && evt.assignedTo === partner2Name))
+  ) {
+    return false;
+  }
+  return true;
+};
+
 export const doesAlmanacEventOccurOnDate = (evt, targetDateStr) => {
   if (!evt || !evt.date || !targetDateStr) return false;
   if (targetDateStr < evt.date) return false;
@@ -356,8 +482,7 @@ export const doesAlmanacEventOccurOnDate = (evt, targetDateStr) => {
   return evt.date === targetDateStr;
 };
 
-export const getLedgerScheduleInfo = (item, isIncome = false) => {
-  const now = new Date();
+export const getLedgerScheduleInfo = (item, isIncome = false, now = new Date()) => {
   const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const cycle = (isIncome ? item?.frequency : item?.cycle) || 'monthly';
   const rawDay = Math.min(
@@ -381,7 +506,13 @@ export const getLedgerScheduleInfo = (item, isIncome = false) => {
   let candidate = todayDate;
   let scheduleLabel = '';
 
-  if (cycle === 'weekly') {
+  if (cycle === 'one-off') {
+    const rawOneOffDate = item?.date || anchorDateStr;
+    candidate = /^\d{4}-\d{2}-\d{2}$/.test(rawOneOffDate)
+      ? parseLocalDateKey(rawOneOffDate)
+      : todayDate;
+    scheduleLabel = 'One-off';
+  } else if (cycle === 'weekly') {
     const todayIsoWeekday = ((todayDate.getDay() + 6) % 7) + 1;
     const diff = (weekday - todayIsoWeekday + 7) % 7;
     candidate = new Date(
@@ -392,7 +523,7 @@ export const getLedgerScheduleInfo = (item, isIncome = false) => {
     const weekdayMeta = WEEKDAY_OPTIONS.find((w) => w.id === weekday) || WEEKDAY_OPTIONS[0];
     scheduleLabel = `Every ${weekdayMeta.label}`;
   } else if (cycle === 'annual') {
-    let am = now.getMonth() + 1;
+    let am = 1;
     let ad = rawDay;
     if (/^\d{4}-\d{2}-\d{2}$/.test(anchorDateStr)) {
       const parts = anchorDateStr.split('-').map(Number);
@@ -409,7 +540,7 @@ export const getLedgerScheduleInfo = (item, isIncome = false) => {
     });
     scheduleLabel = `Annually on ${dayMonthText}`;
   } else if (cycle === 'quarterly') {
-    let am = now.getMonth() + 1;
+    let am = 1;
     let ad = rawDay;
     if (/^\d{4}-\d{2}-\d{2}$/.test(anchorDateStr)) {
       const parts = anchorDateStr.split('-').map(Number);
@@ -481,7 +612,7 @@ export const doesLedgerItemOccurOnDate = (item, targetDateStr, isIncome = false)
   const maxDayInTargetMonth = new Date(ty, tm, 0).getDate();
 
   if (cycle === 'annual') {
-    let am = tm;
+    let am = 1;
     let ad = rawDay;
     if (/^\d{4}-\d{2}-\d{2}$/.test(anchorDateStr)) {
       const parts = anchorDateStr.split('-').map(Number);
@@ -504,4 +635,56 @@ export const doesLedgerItemOccurOnDate = (item, targetDateStr, isIncome = false)
   }
 
   return td === Math.min(maxDayInTargetMonth, rawDay);
+};
+
+export const computeLedgerSettlement = (monthExpenses = [], partner1JointShare = 0.5) => {
+  const s1 = Number.isFinite(partner1JointShare) ? partner1JointShare : 0.5;
+  const s2 = 1 - s1;
+  let partner1PaidForJoint = 0;
+  let partner2PaidForJoint = 0;
+  let partner1PaidForPartner2Personal = 0;
+  let partner2PaidForPartner1Personal = 0;
+  let partner1PersonalPaidByJoint = 0;
+  let partner2PersonalPaidByJoint = 0;
+  let netPartner1Balance = 0;
+
+  for (const e of monthExpenses || []) {
+    if (!e) continue;
+    const amt = Number(e.amount) || 0;
+    if (e.owner === 'joint') {
+      if (e.paidBy === 'partner1') {
+        partner1PaidForJoint += amt;
+        netPartner1Balance += amt * s2;
+      } else if (e.paidBy === 'partner2') {
+        partner2PaidForJoint += amt;
+        netPartner1Balance -= amt * s1;
+      }
+    } else if (e.owner === 'partner2') {
+      if (e.paidBy === 'partner1') {
+        partner1PaidForPartner2Personal += amt;
+        netPartner1Balance += amt;
+      } else if (e.paidBy === 'joint') {
+        partner2PersonalPaidByJoint += amt;
+        netPartner1Balance += amt * s1;
+      }
+    } else if (e.owner === 'partner1') {
+      if (e.paidBy === 'partner2') {
+        partner2PaidForPartner1Personal += amt;
+        netPartner1Balance -= amt;
+      } else if (e.paidBy === 'joint') {
+        partner1PersonalPaidByJoint += amt;
+        netPartner1Balance -= amt * s2;
+      }
+    }
+  }
+
+  return {
+    partner1PaidForJoint,
+    partner2PaidForJoint,
+    partner1PaidForPartner2Personal,
+    partner2PaidForPartner1Personal,
+    partner1PersonalPaidByJoint,
+    partner2PersonalPaidByJoint,
+    netPartner1Balance
+  };
 };

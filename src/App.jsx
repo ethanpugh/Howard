@@ -16,6 +16,7 @@ import {
   Download,
   Upload,
   CheckCircle2,
+  AlertTriangle,
   Wifi,
   X,
   KeyRound,
@@ -29,9 +30,11 @@ import {
 import FoyerApp from './apps/FoyerApp.jsx';
 import {
   getLocalDateKey,
+  parseLocalDateKey,
   DEFAULT_BLOOM_SETTINGS,
   computeBloomSummary,
   doesAlmanacEventOccurOnDate,
+  isAlmanacEventVisibleToProfile,
   getLedgerScheduleInfo
 } from './utils/householdHelpers.js';
 
@@ -150,6 +153,65 @@ const FALLBACK_PROFILES = [
   }
 ];
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidUpdate(prevProps) {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      const { darkMode, appName } = this.props;
+      return (
+        <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4">
+          <div
+            className={`rounded-2xl sm:rounded-3xl p-6 border shadow-xs space-y-3 ${
+              darkMode
+                ? 'bg-slate-900 border-rose-900/60 text-slate-200'
+                : 'bg-white border-rose-200 text-slate-800'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 text-rose-600 dark:text-rose-400 font-extrabold text-base">
+              <AlertTriangle className="w-5 h-5 shrink-0" />
+              <span>Could not load {appName || 'module'}</span>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              If Howard was recently rebuilt or updated, reloading the page fetches the latest module bundle.
+            </p>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold cursor-pointer"
+              >
+                Reload Howard
+              </button>
+              <button
+                type="button"
+                onClick={() => this.setState({ hasError: false })}
+                className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold cursor-pointer"
+              >
+                Try Again
+              </button>
+            </div>
+          </div>
+        </main>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   // --------------------------------------------------------------------------
   // THEME & SHELL STATE ('warm' | 'dark')
@@ -260,14 +322,26 @@ export default function App() {
   const [unlockedProfiles, setUnlockedProfiles] = useState(() => ({
     caregiver: true
   }));
-  const [hasCheckedBootPin, setHasCheckedBootPin] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const clockTimer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 60000);
+    return () => clearInterval(clockTimer);
+  }, []);
 
   // Toast feedback
   const [toast, setToast] = useState(null);
+  const toastTimerRef = useRef(null);
   const showToast = useCallback((text, type = 'success') => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
     setToast({ text, type });
-    setTimeout(() => {
+    toastTimerRef.current = setTimeout(() => {
       setToast((prev) => (prev?.text === text ? null : prev));
+      toastTimerRef.current = null;
     }, 3200);
   }, []);
 
@@ -316,25 +390,46 @@ export default function App() {
     });
   }, []);
 
+  const resetProfileSubforms = useCallback(() => {
+    setPinPromptTarget(null);
+    setPinInput('');
+    setPinPromptError('');
+    setPinManageOpen(false);
+    setPinManageCurrent('');
+    setPinManageNew('');
+    setPinManageConfirm('');
+    setPinManageError('');
+    setRenameOpen(false);
+    setRenameDraft('');
+  }, []);
+
   const handleNavigateModule = useCallback((targetAppId) => {
+    setAlmanacIntentDate(null);
+    setFloodgateIntent(null);
     setActiveAppId(targetAppId);
     setAppLauncherOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
-  // Global Ctrl+K / Cmd+K shortcut for Bento Module Switcher & Escape to close
+  // Global Ctrl+K / Cmd+K shortcut for Bento Module Switcher & Escape to close modals
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      if ((e.ctrlKey || e.metaKey) && (e.key || '').toLowerCase() === 'k') {
+        if (profileModalOpen || backupModalOpen) return;
         e.preventDefault();
         setAppLauncherOpen((prev) => !prev);
-      } else if (e.key === 'Escape' && appLauncherOpen) {
-        setAppLauncherOpen(false);
+      } else if (e.key === 'Escape') {
+        if (appLauncherOpen) setAppLauncherOpen(false);
+        if (profileModalOpen) {
+          setProfileModalOpen(false);
+          resetProfileSubforms();
+        }
+        if (backupModalOpen) setBackupModalOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [appLauncherOpen]);
+  }, [appLauncherOpen, profileModalOpen, backupModalOpen, resetProfileSubforms]);
 
   // Active profile object
   const activeProfile = useMemo(() => {
@@ -353,7 +448,7 @@ export default function App() {
 
   // Live per-module micro-status badges for Bento Sheet & Desktop Sidebar
   const moduleStatuses = useMemo(() => {
-    const now = new Date();
+    const now = new Date(nowMs);
     const todayKey = getLocalDateKey(now);
     const hour = now.getHours();
 
@@ -365,8 +460,7 @@ export default function App() {
     const pmTarget = cadenceSnapshot?.settings?.eveningTargetTime || '20:00';
     const openedStr = cadenceSnapshot?.settings?.bottleOpenedDate || todayKey;
     const shelfLife = Number(cadenceSnapshot?.settings?.bottleShelfLifeDays) || 180;
-    const [oy, om, od] = openedStr.split('-').map(Number);
-    const expiryDate = new Date(oy, (om || 1) - 1, od || 1);
+    const expiryDate = parseLocalDateKey(openedStr);
     expiryDate.setDate(expiryDate.getDate() + shelfLife);
     const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const bottleDaysLeft = Math.round(
@@ -397,7 +491,7 @@ export default function App() {
         label: bloomSummary.effectiveStatus === 'premolt' ? 'Premolt' : 'Hardening',
         urgent: true
       };
-    } else if (bloomSummary.todayMistCount === 0 || bloomSummary.isMistDue) {
+    } else if (bloomSummary.isMistDue) {
       bloomStatus = { label: 'Mist due', urgent: true };
     } else if (bloomSummary.feederAlerts.length > 0 && activeProfile.id !== 'caregiver') {
       bloomStatus = { label: 'Feeder low', urgent: true };
@@ -408,12 +502,7 @@ export default function App() {
     const todayEvents = (almanacEvents || []).filter(
       (evt) =>
         doesAlmanacEventOccurOnDate(evt, todayKey) &&
-        !(
-          activeProfile.id !== 'partner2' &&
-          (evt.linkToGpReport ||
-            (evt.category === 'medical' &&
-              (evt.assignedTo === 'Partner 2' || evt.assignedTo === partner2Name)))
-        )
+        isAlmanacEventVisibleToProfile(evt, activeProfile, partner2Name)
     );
     const almanacStatus =
       todayEvents.length > 0
@@ -429,7 +518,7 @@ export default function App() {
     // Ledger status
     const activeRecurring = (ledgerData?.recurring || []).filter((r) => r.active !== false);
     const dueSoonCount = activeRecurring.filter((r) => {
-      const { daysUntil } = getLedgerScheduleInfo(r, false);
+      const { daysUntil } = getLedgerScheduleInfo(r, false, now);
       return daysUntil >= 0 && daysUntil <= 3;
     }).length;
     const ledgerStatus =
@@ -455,13 +544,14 @@ export default function App() {
       beacon: beaconStatus
     };
   }, [
+    nowMs,
     cadenceSnapshot,
     bloomSnapshot,
     almanacEvents,
     floodgateSnapshot,
     ledgerData,
     beaconInfo,
-    activeProfile.id,
+    activeProfile,
     profiles
   ]);
 
@@ -478,15 +568,6 @@ export default function App() {
       setActiveAppId('foyer');
     }
   }, [activeProfile, activeAppId]);
-
-  useEffect(() => {
-    if (!hasSavedProfile) return;
-    try {
-      localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, activeProfileId);
-    } catch {
-      // ignore
-    }
-  }, [activeProfileId, hasSavedProfile]);
 
   useEffect(() => {
     try {
@@ -509,102 +590,163 @@ export default function App() {
   const isConnectedRef = useRef(true);
   const hasCheckedBootPinRef = useRef(false);
   const unlockedProfilesRef = useRef(unlockedProfiles);
+  const abortControllerRef = useRef(null);
 
   useEffect(() => {
     unlockedProfilesRef.current = unlockedProfiles;
   }, [unlockedProfiles]);
 
-  const fetchUnifiedSync = useCallback(async ({ force = false } = {}) => {
-    try {
-      const sinceParam = !force && syncTokenRef.current ? syncTokenRef.current : '';
-      const url = `/api/howard/sync?profile=${encodeURIComponent(activeProfileId)}${
-        sinceParam ? `&since=${encodeURIComponent(sinceParam)}` : ''
-      }`;
-
-      const res = await fetch(url, {
-        headers: { Accept: 'application/json' },
-        cache: 'no-store'
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-
-      // Fast path: server state unchanged since last syncToken -> zero React re-renders
-      if (data.unchanged) {
-        if (data.syncToken) syncTokenRef.current = data.syncToken;
-        if (!isConnectedRef.current) {
-          isConnectedRef.current = true;
-          setIsConnected(true);
-          setSyncError(null);
-        }
-        return;
+  const fetchUnifiedSync = useCallback(
+    async ({ force = false, overrideProfile = null } = {}) => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
       }
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
 
-      if (data.syncToken) {
-        syncTokenRef.current = data.syncToken;
-      }
+      try {
+        const targetProfile = overrideProfile || activeProfileId;
+        const needsBootPinCheck =
+          !hasCheckedBootPinRef.current &&
+          targetProfile !== 'caregiver' &&
+          !unlockedProfilesRef.current[targetProfile];
+        const queryProfile = needsBootPinCheck ? 'caregiver' : targetProfile;
+        const sinceParam =
+          !force && !needsBootPinCheck && syncTokenRef.current ? syncTokenRef.current : '';
+        const url = `/api/howard/sync?profile=${encodeURIComponent(queryProfile)}${
+          sinceParam ? `&since=${encodeURIComponent(sinceParam)}` : ''
+        }`;
 
-      if (data.howard) {
-        if (Array.isArray(data.howard.profiles)) {
-          setProfiles(data.howard.profiles);
-          // Enforce PIN lock if booting into a PIN-enabled profile that hasn't been unlocked yet
-          if (!hasCheckedBootPinRef.current) {
-            hasCheckedBootPinRef.current = true;
-            setHasCheckedBootPin(true);
-            const currentProf = data.howard.profiles.find((p) => p.id === activeProfileId);
-            if (currentProf && currentProf.pinEnabled && !unlockedProfilesRef.current[currentProf.id]) {
-              setActiveProfileId('caregiver');
-              setPinPromptTarget(currentProf);
-              setProfileModalOpen(true);
-            }
+        const res = await fetch(url, {
+          headers: { Accept: 'application/json' },
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        if (controller.signal.aborted) return;
+
+        // Fast path: server state unchanged since last syncToken -> zero React re-renders
+        if (data.unchanged) {
+          if (data.syncToken) syncTokenRef.current = data.syncToken;
+          if (!isConnectedRef.current) {
+            isConnectedRef.current = true;
+            setIsConnected(true);
+            setSyncError(null);
           }
+          return;
         }
-        if (Array.isArray(data.howard.almanacEvents)) setAlmanacEvents(data.howard.almanacEvents);
-        if (data.howard.ledgerData) setLedgerData(data.howard.ledgerData);
-        if (data.howard.beaconInfo) setBeaconInfo(data.howard.beaconInfo);
-      }
 
-      if (data.cadence) {
-        setCadenceSnapshot({
-          settings: data.cadence.settings || {},
-          logsByDate: data.cadence.logsByDate || {}
-        });
-      }
+        if (needsBootPinCheck && Array.isArray(data.howard?.profiles)) {
+          hasCheckedBootPinRef.current = true;
+          const savedProf = data.howard.profiles.find((p) => p.id === targetProfile);
+          if (savedProf && savedProf.pinEnabled && !unlockedProfilesRef.current[savedProf.id]) {
+            // Apply safe caregiver-scoped snapshot without overwriting localStorage preference
+            setProfiles(data.howard.profiles);
+            if (Array.isArray(data.howard.almanacEvents)) setAlmanacEvents(data.howard.almanacEvents);
+            if (data.howard.ledgerData) setLedgerData(data.howard.ledgerData);
+            if (data.howard.beaconInfo) setBeaconInfo(data.howard.beaconInfo);
+            if (data.cadence) {
+              setCadenceSnapshot({
+                settings: data.cadence.settings || {},
+                logsByDate: data.cadence.logsByDate || {}
+              });
+            }
+            if (data.bloom) {
+              setBloomSnapshot({
+                settings: data.bloom.settings || DEFAULT_BLOOM_SETTINGS,
+                logsByDate: data.bloom.logsByDate || {},
+                molts: data.bloom.molts || [],
+                feeders: data.bloom.feeders || []
+              });
+            }
+            setFloodgateSnapshot({
+              settings: { ownerName: 'Partner 2', appName: 'Floodgate' },
+              logsByDate: {}
+            });
+            setHasSavedProfile(false);
+            setActiveProfileId('caregiver');
+            setPinPromptTarget(savedProf);
+            setProfileModalOpen(true);
+            isConnectedRef.current = true;
+            setIsConnected(true);
+            setSyncError(null);
+            setLastSyncedAt(new Date());
+            return;
+          }
+          // Saved profile has no PIN: mark unlocked and sync directly as that profile
+          unlockedProfilesRef.current = {
+            ...unlockedProfilesRef.current,
+            [targetProfile]: true
+          };
+          setUnlockedProfiles((prev) => ({ ...prev, [targetProfile]: true }));
+          syncTokenRef.current = '';
+          return await fetchUnifiedSync({ force: true, overrideProfile: targetProfile });
+        }
 
-      if (data.bloom) {
-        setBloomSnapshot({
-          settings: data.bloom.settings || DEFAULT_BLOOM_SETTINGS,
-          logsByDate: data.bloom.logsByDate || {},
-          molts: data.bloom.molts || [],
-          feeders: data.bloom.feeders || []
-        });
-      }
+        if (!hasCheckedBootPinRef.current) {
+          hasCheckedBootPinRef.current = true;
+        }
 
-      if (data.floodgate) {
-        setFloodgateSnapshot({
-          settings: data.floodgate.settings || {},
-          logsByDate: data.floodgate.logsByDate || {}
-        });
-      } else {
-        // Clear private Floodgate state in memory when not on Partner 2's profile
-        setFloodgateSnapshot({
-          settings: { ownerName: 'Partner 2', appName: 'Floodgate' },
-          logsByDate: {}
-        });
-      }
+        if (data.syncToken) {
+          syncTokenRef.current = data.syncToken;
+        }
 
-      isConnectedRef.current = true;
-      setIsConnected(true);
-      setSyncError(null);
-      setLastSyncedAt(new Date());
-    } catch (err) {
-      console.error('Howard live sync error:', err);
-      if (isConnectedRef.current) {
-        isConnectedRef.current = false;
-        setIsConnected(false);
-        setSyncError('Reconnecting to local Howard server...');
+        if (data.howard) {
+          if (Array.isArray(data.howard.profiles)) {
+            setProfiles(data.howard.profiles);
+          }
+          if (Array.isArray(data.howard.almanacEvents)) setAlmanacEvents(data.howard.almanacEvents);
+          if (data.howard.ledgerData) setLedgerData(data.howard.ledgerData);
+          if (data.howard.beaconInfo) setBeaconInfo(data.howard.beaconInfo);
+        }
+
+        if (data.cadence) {
+          setCadenceSnapshot({
+            settings: data.cadence.settings || {},
+            logsByDate: data.cadence.logsByDate || {}
+          });
+        }
+
+        if (data.bloom) {
+          setBloomSnapshot({
+            settings: data.bloom.settings || DEFAULT_BLOOM_SETTINGS,
+            logsByDate: data.bloom.logsByDate || {},
+            molts: data.bloom.molts || [],
+            feeders: data.bloom.feeders || []
+          });
+        }
+
+        if (data.floodgate && targetProfile === 'partner2') {
+          setFloodgateSnapshot({
+            settings: data.floodgate.settings || {},
+            logsByDate: data.floodgate.logsByDate || {}
+          });
+        } else {
+          // Clear private Floodgate state in memory when not on Partner 2's profile
+          setFloodgateSnapshot({
+            settings: { ownerName: 'Partner 2', appName: 'Floodgate' },
+            logsByDate: {}
+          });
+        }
+
+        isConnectedRef.current = true;
+        setIsConnected(true);
+        setSyncError(null);
+        setLastSyncedAt(new Date());
+      } catch (err) {
+        if (err?.name === 'AbortError') return;
+        console.error('Howard live sync error:', err);
+        if (isConnectedRef.current) {
+          isConnectedRef.current = false;
+          setIsConnected(false);
+          setSyncError('Reconnecting to local Howard server...');
+        }
       }
-    }
-  }, [activeProfileId]);
+    },
+    [activeProfileId]
+  );
 
   useEffect(() => {
     syncTokenRef.current = '';
@@ -628,6 +770,9 @@ export default function App() {
       clearInterval(timer);
       window.removeEventListener('focus', handleWake);
       document.removeEventListener('visibilitychange', handleWake);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
     };
   }, [fetchUnifiedSync]);
 
@@ -635,7 +780,19 @@ export default function App() {
   // PROFILE SWITCHING & PIN LOCK HANDLERS
   // --------------------------------------------------------------------------
   const handleSelectProfile = (targetProfile) => {
-    if (targetProfile.id === activeProfileId && hasSavedProfile) {
+    let storedProfileId = null;
+    try {
+      storedProfileId = localStorage.getItem(ACTIVE_PROFILE_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+
+    if (
+      targetProfile.id === activeProfileId &&
+      hasSavedProfile &&
+      storedProfileId === targetProfile.id
+    ) {
+      resetProfileSubforms();
       setProfileModalOpen(false);
       return;
     }
@@ -648,6 +805,7 @@ export default function App() {
       } catch {
         // ignore
       }
+      resetProfileSubforms();
       setActiveProfileId(targetProfile.id);
       setProfileModalOpen(false);
       showToast(`Switched to ${targetProfile.name} (${targetProfile.role})`);
@@ -655,9 +813,8 @@ export default function App() {
     }
 
     // Otherwise open the PIN verification modal
+    resetProfileSubforms();
     setPinPromptTarget(targetProfile);
-    setPinInput('');
-    setPinPromptError('');
   };
 
   const handleVerifyPinSubmit = async (e) => {
@@ -677,19 +834,23 @@ export default function App() {
         setPinPromptError(data.error || 'Incorrect PIN');
         return;
       }
-      setUnlockedProfiles((prev) => ({ ...prev, [pinPromptTarget.id]: true }));
+      const unlockedName = pinPromptTarget.name;
+      const unlockedId = pinPromptTarget.id;
       setHasSavedProfile(true);
       try {
-        localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, pinPromptTarget.id);
+        localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, unlockedId);
       } catch {
         // ignore
       }
-      setUnlockedProfiles((prev) => ({ ...prev, [pinPromptTarget.id]: true }));
-      setActiveProfileId(pinPromptTarget.id);
-      setPinPromptTarget(null);
+      unlockedProfilesRef.current = {
+        ...unlockedProfilesRef.current,
+        [unlockedId]: true
+      };
+      setUnlockedProfiles((prev) => ({ ...prev, [unlockedId]: true }));
+      setActiveProfileId(unlockedId);
+      resetProfileSubforms();
       setProfileModalOpen(false);
-      setPinInput('');
-      showToast(`Unlocked ${pinPromptTarget.name}'s profile`);
+      showToast(`Unlocked ${unlockedName}'s profile`);
     } catch {
       setPinPromptError('Could not verify PIN with server');
     }
@@ -782,36 +943,38 @@ export default function App() {
     const todayKey = getLocalDateKey(new Date());
     const nowIso = new Date().toISOString();
     const caregiverName = activeProfile.caregiverName || activeProfile.name;
-    const currentDay = cadenceSnapshot.logsByDate[todayKey] || { dateKey: todayKey };
-
-    const updatedDay = {
-      ...currentDay,
-      dateKey: todayKey,
-      [slot]: {
-        given: true,
-        timestamp: nowIso,
-        givenBy: caregiverName,
-        dosage: cadenceSnapshot.settings?.dosageLabel || '2.5 mg / 0.5 ml',
-        note: note.trim(),
-        recordedByUid: `howard-${activeProfile.id}`
-      },
-      updatedAt: nowIso
+    const prevCadence = cadenceSnapshot;
+    const dosePayload = {
+      given: true,
+      timestamp: nowIso,
+      givenBy: caregiverName,
+      dosage: cadenceSnapshot.settings?.dosageLabel || '2.5 mg / 0.5 ml',
+      note: note.trim(),
+      recordedByUid: `howard-${activeProfile.id}`
     };
 
-    // Optimistic update
-    setCadenceSnapshot((prev) => ({
-      ...prev,
-      logsByDate: {
-        ...prev.logsByDate,
-        [todayKey]: updatedDay
-      }
-    }));
+    // Optimistic update (functional merge so sibling slots stay intact)
+    setCadenceSnapshot((prev) => {
+      const existingDay = prev.logsByDate?.[todayKey] || { dateKey: todayKey };
+      return {
+        ...prev,
+        logsByDate: {
+          ...prev.logsByDate,
+          [todayKey]: {
+            ...existingDay,
+            dateKey: todayKey,
+            [slot]: dosePayload,
+            updatedAt: nowIso
+          }
+        }
+      };
+    });
 
     try {
       const res = await fetch(`/api/cadence/logs/${encodeURIComponent(todayKey)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedDay)
+        body: JSON.stringify({ [slot]: dosePayload, updatedAt: nowIso })
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       showToast(
@@ -819,7 +982,9 @@ export default function App() {
       );
       fetchUnifiedSync({ force: true });
     } catch {
-      showToast('Failed to save dose to server', 'error');
+      setCadenceSnapshot(prevCadence);
+      fetchUnifiedSync({ force: true });
+      showToast('Failed to save dose to server — reverted', 'error');
     }
   };
 
@@ -828,13 +993,8 @@ export default function App() {
     const nowIso = new Date().toISOString();
     const caregiverName = activeProfile.caregiverName || activeProfile.name;
     const mantisName = bloomSnapshot.settings?.mantisName || 'Mantis';
-    const currentDay = bloomSnapshot.logsByDate?.[todayKey] || {
-      dateKey: todayKey,
-      mists: [],
-      feedings: [],
-      climateChecks: [],
-      behaviors: []
-    };
+    const prevBloom = bloomSnapshot;
+    const existingMists = bloomSnapshot.logsByDate?.[todayKey]?.mists || [];
 
     const newMist = {
       id: `mist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -843,38 +1003,49 @@ export default function App() {
       dropletDrinkObserved: false,
       note: ''
     };
+    const nextMists = [...existingMists, newMist];
 
-    const updatedDay = {
-      ...currentDay,
-      dateKey: todayKey,
-      mists: [...(currentDay.mists || []), newMist],
-      updatedAt: nowIso
-    };
-
-    setBloomSnapshot((prev) => ({
-      ...prev,
-      logsByDate: {
-        ...prev.logsByDate,
-        [todayKey]: updatedDay
-      }
-    }));
+    setBloomSnapshot((prev) => {
+      const existingDay = prev.logsByDate?.[todayKey] || {
+        dateKey: todayKey,
+        mists: [],
+        feedings: [],
+        climateChecks: [],
+        behaviors: []
+      };
+      return {
+        ...prev,
+        logsByDate: {
+          ...prev.logsByDate,
+          [todayKey]: {
+            ...existingDay,
+            dateKey: todayKey,
+            mists: [...(existingDay.mists || []), newMist],
+            updatedAt: nowIso
+          }
+        }
+      };
+    });
 
     try {
       const res = await fetch(`/api/bloom/logs/${encodeURIComponent(todayKey)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedDay)
+        body: JSON.stringify({ mists: nextMists, updatedAt: nowIso })
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       showToast(`Logged ${mantisName}'s enclosure mist (${caregiverName})`);
       fetchUnifiedSync({ force: true });
     } catch {
-      showToast('Failed to save mist log to server', 'error');
+      setBloomSnapshot(prevBloom);
+      fetchUnifiedSync({ force: true });
+      showToast('Failed to save mist log to server — reverted', 'error');
     }
   };
 
   const handleClearMantisLivePrey = async () => {
     const mantisName = bloomSnapshot.settings?.mantisName || 'Mantis';
+    const prevBloom = bloomSnapshot;
     setBloomSnapshot((prev) => ({
       ...prev,
       settings: {
@@ -893,7 +1064,9 @@ export default function App() {
       showToast(`Marked ${mantisName}'s enclosure clear of live prey`);
       fetchUnifiedSync({ force: true });
     } catch {
-      showToast('Failed to update Bloom enclosure status', 'error');
+      setBloomSnapshot(prevBloom);
+      fetchUnifiedSync({ force: true });
+      showToast('Failed to update Bloom enclosure status — reverted', 'error');
     }
   };
 
@@ -901,6 +1074,7 @@ export default function App() {
     { nextEvents, upserts = [], deleteIds = [] },
     toastText = 'Updated Almanac calendar'
   ) => {
+    const prevEvents = almanacEvents;
     if (Array.isArray(nextEvents)) {
       setAlmanacEvents(nextEvents);
     }
@@ -913,12 +1087,17 @@ export default function App() {
       if (!res.ok) throw new Error('Failed to save Almanac event');
       if (toastText) showToast(toastText);
       fetchUnifiedSync({ force: true });
+      return true;
     } catch {
-      showToast('Could not save calendar event', 'error');
+      setAlmanacEvents(prevEvents);
+      fetchUnifiedSync({ force: true });
+      showToast('Could not save calendar event — reverted', 'error');
+      return false;
     }
   };
 
   const handleSaveAlmanacEvents = async (nextEvents, toastText = 'Updated Almanac calendar') => {
+    const prevEvents = almanacEvents;
     setAlmanacEvents(nextEvents);
     try {
       const res = await fetch('/api/howard/almanac', {
@@ -929,8 +1108,12 @@ export default function App() {
       if (!res.ok) throw new Error('Failed to save Almanac events');
       if (toastText) showToast(toastText);
       fetchUnifiedSync({ force: true });
+      return true;
     } catch {
-      showToast('Could not save calendar event', 'error');
+      setAlmanacEvents(prevEvents);
+      fetchUnifiedSync({ force: true });
+      showToast('Could not save calendar event — reverted', 'error');
+      return false;
     }
   };
 
@@ -938,6 +1121,7 @@ export default function App() {
     { kind, record, nextLedgerData },
     toastText = 'Updated Ledger bookkeeping'
   ) => {
+    const prevLedger = ledgerData;
     if (nextLedgerData) setLedgerData(nextLedgerData);
     try {
       const res = await fetch(`/api/howard/ledger/items/${encodeURIComponent(record.id)}`, {
@@ -948,8 +1132,12 @@ export default function App() {
       if (!res.ok) throw new Error('Failed to save Ledger item');
       if (toastText) showToast(toastText);
       fetchUnifiedSync({ force: true });
+      return true;
     } catch {
-      showToast('Could not save Ledger item', 'error');
+      setLedgerData(prevLedger);
+      fetchUnifiedSync({ force: true });
+      showToast('Could not save Ledger item — reverted', 'error');
+      return false;
     }
   };
 
@@ -957,6 +1145,7 @@ export default function App() {
     { id, nextLedgerData },
     toastText = 'Removed Ledger item'
   ) => {
+    const prevLedger = ledgerData;
     if (nextLedgerData) setLedgerData(nextLedgerData);
     try {
       const res = await fetch(`/api/howard/ledger/items/${encodeURIComponent(id)}`, {
@@ -965,8 +1154,12 @@ export default function App() {
       if (!res.ok) throw new Error('Failed to delete Ledger item');
       if (toastText) showToast(toastText);
       fetchUnifiedSync({ force: true });
+      return true;
     } catch {
-      showToast('Could not delete Ledger item', 'error');
+      setLedgerData(prevLedger);
+      fetchUnifiedSync({ force: true });
+      showToast('Could not delete Ledger item — reverted', 'error');
+      return false;
     }
   };
 
@@ -974,6 +1167,7 @@ export default function App() {
     { splitRule, nextLedgerData },
     toastText = 'Updated split rule'
   ) => {
+    const prevLedger = ledgerData;
     if (nextLedgerData) setLedgerData(nextLedgerData);
     try {
       const res = await fetch('/api/howard/ledger/settings', {
@@ -984,12 +1178,17 @@ export default function App() {
       if (!res.ok) throw new Error('Failed to save split rule');
       if (toastText) showToast(toastText);
       fetchUnifiedSync({ force: true });
+      return true;
     } catch {
-      showToast('Could not save Ledger split rule', 'error');
+      setLedgerData(prevLedger);
+      fetchUnifiedSync({ force: true });
+      showToast('Could not save Ledger split rule — reverted', 'error');
+      return false;
     }
   };
 
   const handleSaveLedgerData = async (nextLedgerData, toastText = 'Updated Ledger bookkeeping') => {
+    const prevLedger = ledgerData;
     setLedgerData(nextLedgerData);
     try {
       const res = await fetch('/api/howard/ledger', {
@@ -1000,12 +1199,17 @@ export default function App() {
       if (!res.ok) throw new Error('Failed to save Ledger data');
       if (toastText) showToast(toastText);
       fetchUnifiedSync({ force: true });
+      return true;
     } catch {
-      showToast('Could not save Ledger bookkeeping', 'error');
+      setLedgerData(prevLedger);
+      fetchUnifiedSync({ force: true });
+      showToast('Could not save Ledger bookkeeping — reverted', 'error');
+      return false;
     }
   };
 
   const handleSaveBeaconInfo = async (nextBeacon, toastText = 'Updated Beacon house guide') => {
+    const prevBeacon = beaconInfo;
     setBeaconInfo(nextBeacon);
     try {
       const res = await fetch('/api/howard/beacon', {
@@ -1016,8 +1220,12 @@ export default function App() {
       if (!res.ok) throw new Error('Failed to save Beacon guide');
       if (toastText) showToast(toastText);
       fetchUnifiedSync({ force: true });
+      return true;
     } catch {
-      showToast('Could not save Beacon guide', 'error');
+      setBeaconInfo(prevBeacon);
+      fetchUnifiedSync({ force: true });
+      showToast('Could not save Beacon guide — reverted', 'error');
+      return false;
     }
   };
 
@@ -1030,11 +1238,15 @@ export default function App() {
     }
     setFloodgateIntent({ ...intent, timestamp: Date.now() });
     setActiveAppId('floodgate');
+    setAppLauncherOpen(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const openAlmanacOnDate = (dateStr) => {
     setAlmanacIntentDate(dateStr);
     setActiveAppId('almanac');
+    setAppLauncherOpen(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // --------------------------------------------------------------------------
@@ -1066,23 +1278,85 @@ export default function App() {
     const reader = new FileReader();
     reader.onload = async (ev) => {
       try {
-        const parsed = JSON.parse(ev.target.result);
-        // Support restoring either a full Howard bundle OR a standalone Floodgate/Cadence JSON file
-        let bodyToSend = parsed;
-        if (parsed.app === 'Floodgate' && parsed.logs) {
-          bodyToSend = { floodgate: { logsByDate: parsed.logs, settings: { ownerName: parsed.owner || 'Partner 2' } } };
+        let parsed;
+        try {
+          parsed = JSON.parse(ev.target.result);
+        } catch {
+          showToast('Invalid JSON syntax in backup file', 'error');
+          return;
         }
+
+        let bodyToSend = null;
+        let confirmPrompt = '';
+
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          if (parsed.app === 'Floodgate' && parsed.logs && typeof parsed.logs === 'object') {
+            bodyToSend = {
+              mode: 'merge',
+              floodgate: {
+                logsByDate: parsed.logs,
+                settings: { ownerName: parsed.owner || 'Partner 2' }
+              }
+            };
+            confirmPrompt =
+              'Merge this standalone Floodgate backup into your current Floodgate logs?';
+          } else if (
+            !parsed.howard &&
+            parsed.settings &&
+            parsed.logsByDate &&
+            typeof parsed.logsByDate === 'object'
+          ) {
+            bodyToSend = {
+              mode: 'merge',
+              cadence: {
+                settings: parsed.settings,
+                logsByDate: parsed.logsByDate
+              }
+            };
+            confirmPrompt =
+              'Merge this standalone Cadence backup into your current Cadence settings & logs?';
+          } else if (
+            (parsed.howard && typeof parsed.howard === 'object') ||
+            (parsed.cadence && typeof parsed.cadence === 'object') ||
+            (parsed.bloom && typeof parsed.bloom === 'object') ||
+            (parsed.floodgate && typeof parsed.floodgate === 'object')
+          ) {
+            bodyToSend = { ...parsed, mode: 'replace' };
+            confirmPrompt =
+              'Restore this full Howard backup? Existing records in included modules will be replaced by the snapshot.';
+          }
+        }
+
+        if (!bodyToSend) {
+          showToast(
+            'Backup file does not contain recognized Howard, Cadence, Bloom, or Floodgate data',
+            'error'
+          );
+          return;
+        }
+
+        if (!window.confirm(confirmPrompt)) {
+          return;
+        }
+
         const res = await fetch('/api/howard/restore', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(bodyToSend)
         });
-        if (!res.ok) throw new Error('Restore failed');
+        const resultData = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(resultData.error || `Server rejected restore (HTTP ${res.status})`);
+        }
         await fetchUnifiedSync({ force: true });
         setBackupModalOpen(false);
-        showToast('Restored household backup successfully!');
-      } catch {
-        showToast('Invalid backup JSON file', 'error');
+        showToast(
+          bodyToSend.mode === 'merge'
+            ? 'Merged standalone backup successfully!'
+            : 'Restored household backup successfully!'
+        );
+      } catch (err) {
+        showToast(err?.message || 'Restore failed on server', 'error');
       } finally {
         e.target.value = '';
       }
@@ -1106,7 +1380,11 @@ export default function App() {
                 : 'bg-slate-900 text-white border-slate-700 dark:bg-slate-800'
             }`}
           >
-            <CheckCircle2 className="w-4 h-4 text-teal-400 shrink-0" />
+            {toast.type === 'error' ? (
+              <AlertTriangle className="w-4 h-4 text-rose-300 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4 text-teal-400 shrink-0" />
+            )}
             <span>{toast.text}</span>
           </div>
         </div>
@@ -1226,7 +1504,7 @@ export default function App() {
               title="Switch Household Profile or Configure PIN"
             >
               <span>{activeProfile.badgeEmoji}</span>
-              <span>{activeProfile.name}</span>
+              <span className="max-w-[96px] sm:max-w-[140px] truncate">{activeProfile.name}</span>
               {activeProfile.pinEnabled && <Lock className="w-3 h-3 opacity-75" />}
             </button>
 
@@ -1241,6 +1519,7 @@ export default function App() {
                     : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
                 }`}
                 title="Household Backups & SQLite Status"
+                aria-label="Household Backups & SQLite Status"
               >
                 <Database className="w-4 h-4" />
               </button>
@@ -1260,6 +1539,11 @@ export default function App() {
                   ? 'Theme: Warm (Click for Dark)'
                   : 'Theme: Dark (Click for Warm)'
               }
+              aria-label={
+                themeMode === 'warm'
+                  ? 'Theme: Warm (Click for Dark)'
+                  : 'Theme: Dark (Click for Warm)'
+              }
             >
               {themeMode === 'warm' ? (
                 <Coffee className="w-4 h-4 text-amber-800" />
@@ -1275,7 +1559,7 @@ export default function App() {
       {/* ====================================================================
           RESPONSIVE SHELL: TABLET/DESKTOP LEFT RAIL + MODULE VIEWPORT
       ==================================================================== */}
-      <div className="flex min-h-[calc(100vh-4rem)]">
+      <div className="flex min-h-[calc(100vh-4rem)] print-block">
         {/* Tablet Slim Icon Rail (md) & Collapsible Desktop Sidebar (lg) */}
         <aside
           aria-label="Howard Module Navigation"
@@ -1307,6 +1591,7 @@ export default function App() {
                   : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
               }`}
               title={sidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar to Icon Rail'}
+              aria-label={sidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar to Icon Rail'}
             >
               {sidebarCollapsed ? (
                 <PanelLeftOpen className="w-4 h-4" />
@@ -1376,117 +1661,141 @@ export default function App() {
 
         {/* Active Module Viewport */}
         <div className="flex-1 min-w-0 pb-24 md:pb-8">
-          <Suspense
-            fallback={
-              <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4">
-                <div
-                  className={`rounded-2xl sm:rounded-3xl p-6 border shadow-xs text-xs font-semibold flex items-center gap-3 ${
-                    darkMode
-                      ? 'bg-slate-900 border-slate-800 text-slate-300'
-                      : 'bg-white border-slate-200/90 text-slate-500'
-                  }`}
+          {!isConnected && syncError && (
+            <div className="max-w-6xl mx-auto px-3 sm:px-5 pt-3 no-print">
+              <div className="rounded-2xl px-4 py-2.5 border bg-amber-500/15 border-amber-500/40 text-amber-900 dark:text-amber-200 text-xs font-bold flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{syncError}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => fetchUnifiedSync({ force: true })}
+                  className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 cursor-pointer"
                 >
-                  <span className="w-2.5 h-2.5 rounded-full bg-teal-500 animate-pulse" />
-                  <span>Loading {activeAppMeta.name}...</span>
-                </div>
-              </main>
-            }
-          >
-            {activeAppId === 'foyer' && (
-              <FoyerApp
-                activeProfile={activeProfile}
-                profiles={profiles}
-                darkMode={darkMode}
-                cadenceSnapshot={cadenceSnapshot}
-                bloomSnapshot={bloomSnapshot}
-                floodgateSnapshot={floodgateSnapshot}
-                almanacEvents={almanacEvents}
-                ledgerData={ledgerData}
-                beaconInfo={beaconInfo}
-                onNavigateApp={handleNavigateModule}
-                onQuickRecordDose={handleQuickRecordPetDose}
-                onQuickMistMantis={handleQuickMistMantis}
-                onClearMantisLivePrey={handleClearMantisLivePrey}
-                onOpenFloodgate={openFloodgateWithIntent}
-                onOpenAlmanacDate={openAlmanacOnDate}
-                onOpenProfileModal={() => setProfileModalOpen(true)}
-              />
-            )}
+                  Retry Now
+                </button>
+              </div>
+            </div>
+          )}
 
-            {activeAppId === 'cadence' && (
-              <CadenceApp
-                activeProfile={activeProfile}
-                darkMode={darkMode}
-                cadenceSnapshot={cadenceSnapshot}
-                onGlobalSync={fetchUnifiedSync}
-              />
-            )}
+          <ErrorBoundary darkMode={darkMode} appName={activeAppMeta.name} resetKey={activeAppId}>
+            <Suspense
+              fallback={
+                <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4">
+                  <div
+                    className={`rounded-2xl sm:rounded-3xl p-6 border shadow-xs text-xs font-semibold flex items-center gap-3 ${
+                      darkMode
+                        ? 'bg-slate-900 border-slate-800 text-slate-300'
+                        : 'bg-white border-slate-200/90 text-slate-500'
+                    }`}
+                  >
+                    <span className="w-2.5 h-2.5 rounded-full bg-teal-500 animate-pulse" />
+                    <span>Loading {activeAppMeta.name}...</span>
+                  </div>
+                </main>
+              }
+            >
+              {activeAppId === 'foyer' && (
+                <FoyerApp
+                  activeProfile={activeProfile}
+                  profiles={profiles}
+                  darkMode={darkMode}
+                  nowMs={nowMs}
+                  cadenceSnapshot={cadenceSnapshot}
+                  bloomSnapshot={bloomSnapshot}
+                  floodgateSnapshot={floodgateSnapshot}
+                  almanacEvents={almanacEvents}
+                  ledgerData={ledgerData}
+                  beaconInfo={beaconInfo}
+                  onNavigateApp={handleNavigateModule}
+                  onQuickRecordDose={handleQuickRecordPetDose}
+                  onQuickMistMantis={handleQuickMistMantis}
+                  onClearMantisLivePrey={handleClearMantisLivePrey}
+                  onOpenFloodgate={openFloodgateWithIntent}
+                  onOpenAlmanacDate={openAlmanacOnDate}
+                  onOpenProfileModal={() => setProfileModalOpen(true)}
+                />
+              )}
 
-            {activeAppId === 'bloom' && (
-              <BloomApp
-                activeProfile={activeProfile}
-                darkMode={darkMode}
-                bloomSnapshot={bloomSnapshot}
-                onGlobalSync={fetchUnifiedSync}
-                showToast={showToast}
-              />
-            )}
+              {activeAppId === 'cadence' && (
+                <CadenceApp
+                  activeProfile={activeProfile}
+                  darkMode={darkMode}
+                  cadenceSnapshot={cadenceSnapshot}
+                  onGlobalSync={fetchUnifiedSync}
+                />
+              )}
 
-            {activeAppId === 'almanac' && (
-              <AlmanacApp
-                activeProfile={activeProfile}
-                profiles={profiles}
-                darkMode={darkMode}
-                almanacEvents={almanacEvents}
-                cadenceSnapshot={cadenceSnapshot}
-                bloomSnapshot={bloomSnapshot}
-                floodgateSnapshot={floodgateSnapshot}
-                ledgerData={ledgerData}
-                initialDate={almanacIntentDate}
-                onMutateEvents={handleMutateAlmanacEvents}
-                onSaveEvents={handleSaveAlmanacEvents}
-                onOpenFloodgate={openFloodgateWithIntent}
-                onNavigateApp={handleNavigateModule}
-              />
-            )}
+              {activeAppId === 'bloom' && (
+                <BloomApp
+                  activeProfile={activeProfile}
+                  darkMode={darkMode}
+                  bloomSnapshot={bloomSnapshot}
+                  onGlobalSync={fetchUnifiedSync}
+                  showToast={showToast}
+                />
+              )}
 
-            {activeAppId === 'floodgate' && activeProfile.allowedApps.includes('floodgate') && (
-              <FloodgateApp
-                activeProfile={activeProfile}
-                darkMode={darkMode}
-                floodgateSnapshot={floodgateSnapshot}
-                navigationIntent={floodgateIntent}
-                onOpenBackupModal={() => setBackupModalOpen(true)}
-                onGlobalSync={fetchUnifiedSync}
-              />
-            )}
+              {activeAppId === 'almanac' && activeProfile.allowedApps.includes('almanac') && (
+                <AlmanacApp
+                  activeProfile={activeProfile}
+                  profiles={profiles}
+                  darkMode={darkMode}
+                  nowMs={nowMs}
+                  almanacEvents={almanacEvents}
+                  cadenceSnapshot={cadenceSnapshot}
+                  bloomSnapshot={bloomSnapshot}
+                  floodgateSnapshot={floodgateSnapshot}
+                  ledgerData={ledgerData}
+                  initialDate={almanacIntentDate}
+                  onMutateEvents={handleMutateAlmanacEvents}
+                  onSaveEvents={handleSaveAlmanacEvents}
+                  onOpenFloodgate={openFloodgateWithIntent}
+                  onNavigateApp={handleNavigateModule}
+                />
+              )}
 
-            {activeAppId === 'ledger' && (
-              <LedgerApp
-                activeProfile={activeProfile}
-                profiles={profiles}
-                darkMode={darkMode}
-                ledgerData={ledgerData}
-                onUpsertLedgerItem={handleUpsertLedgerItem}
-                onDeleteLedgerItem={handleDeleteLedgerItem}
-                onSaveSplitRule={handleSaveLedgerSplitRule}
-                onSaveLedgerData={handleSaveLedgerData}
-              />
-            )}
+              {activeAppId === 'floodgate' && activeProfile.allowedApps.includes('floodgate') && (
+                <FloodgateApp
+                  activeProfile={activeProfile}
+                  darkMode={darkMode}
+                  nowMs={nowMs}
+                  floodgateSnapshot={floodgateSnapshot}
+                  navigationIntent={floodgateIntent}
+                  onOpenBackupModal={() => setBackupModalOpen(true)}
+                  onGlobalSync={fetchUnifiedSync}
+                />
+              )}
 
-            {activeAppId === 'beacon' && (
-              <BeaconApp
-                activeProfile={activeProfile}
-                darkMode={darkMode}
-                beaconInfo={beaconInfo}
-                cadenceSettings={cadenceSnapshot.settings}
-                bloomSnapshot={bloomSnapshot}
-                onSaveBeacon={handleSaveBeaconInfo}
-                onNavigateApp={handleNavigateModule}
-                showToast={showToast}
-              />
-            )}
-          </Suspense>
+              {activeAppId === 'ledger' && activeProfile.allowedApps.includes('ledger') && (
+                <LedgerApp
+                  activeProfile={activeProfile}
+                  profiles={profiles}
+                  darkMode={darkMode}
+                  nowMs={nowMs}
+                  ledgerData={ledgerData}
+                  onUpsertLedgerItem={handleUpsertLedgerItem}
+                  onDeleteLedgerItem={handleDeleteLedgerItem}
+                  onSaveSplitRule={handleSaveLedgerSplitRule}
+                  onSaveLedgerData={handleSaveLedgerData}
+                />
+              )}
+
+              {activeAppId === 'beacon' && (
+                <BeaconApp
+                  activeProfile={activeProfile}
+                  darkMode={darkMode}
+                  beaconInfo={beaconInfo}
+                  cadenceSettings={cadenceSnapshot.settings}
+                  bloomSnapshot={bloomSnapshot}
+                  onSaveBeacon={handleSaveBeaconInfo}
+                  onNavigateApp={handleNavigateModule}
+                  showToast={showToast}
+                />
+              )}
+            </Suspense>
+          </ErrorBoundary>
         </div>
       </div>
 
@@ -1612,6 +1921,7 @@ export default function App() {
                 onClick={() => setAppLauncherOpen(false)}
                 className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
                 title="Close Module Switcher"
+                aria-label="Close Module Switcher"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1684,13 +1994,15 @@ export default function App() {
         <div
           onClick={() => {
             setProfileModalOpen(false);
-            setPinPromptTarget(null);
-            setPinManageOpen(false);
+            resetProfileSubforms();
           }}
           className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
         >
           <div
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Switch Household Profile"
             className={`max-w-md w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-5 ${
               darkMode
                 ? 'bg-slate-900 border-slate-800 text-slate-100'
@@ -1713,9 +2025,9 @@ export default function App() {
                 type="button"
                 onClick={() => {
                   setProfileModalOpen(false);
-                  setPinPromptTarget(null);
-                  setPinManageOpen(false);
+                  resetProfileSubforms();
                 }}
+                aria-label="Close Profile Switcher"
                 className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-800"
               >
                 <X className="w-4 h-4" />
@@ -1884,7 +2196,7 @@ export default function App() {
                           placeholder="Enter display name..."
                           maxLength={24}
                           autoFocus
-                          className="flex-1 px-3 py-1.5 rounded-xl text-xs font-bold border bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
+                          className="flex-1 min-w-0 px-3 py-1.5 rounded-xl text-xs font-bold border bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
                         />
                         <button
                           type="button"
@@ -2019,6 +2331,9 @@ export default function App() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Howard Household Backstage"
             className={`max-w-lg w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-5 ${
               darkMode
                 ? 'bg-slate-900 border-slate-800 text-slate-100'
@@ -2040,6 +2355,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setBackupModalOpen(false)}
+                aria-label="Close Household Backstage"
                 className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500"
               >
                 <X className="w-4 h-4" />
@@ -2051,25 +2367,31 @@ export default function App() {
                 darkMode ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'
               }`}
             >
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-1.5">
                 <span className="font-semibold">Live Household Polling:</span>
-                <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
+                <span
+                  className={`${
+                    isConnected
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-amber-600 dark:text-amber-400'
+                  } font-bold flex items-center gap-1`}
+                >
                   <Wifi className="w-3.5 h-3.5" /> Every 2.5s ({isConnected ? 'Connected' : 'Offline'})
                 </span>
               </div>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-1.5">
                 <span className="font-semibold">Howard Hub DB:</span>
                 <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono">
                   data/howard.db ({almanacEvents.length} events, {(ledgerData?.recurring || []).length} bills, {(ledgerData?.expenses || []).length} expenses)
                 </code>
               </div>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-1.5">
                 <span className="font-semibold">Cadence DB ({cadenceSnapshot.settings?.catName || 'Pet'}):</span>
                 <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono">
                   data/cadence.db ({Object.keys(cadenceSnapshot.logsByDate || {}).length} days)
                 </code>
               </div>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-1.5">
                 <span className="font-semibold">
                   Bloom DB ({bloomSnapshot.settings?.mantisName || 'Mantis'}):
                 </span>
@@ -2078,7 +2400,7 @@ export default function App() {
                 </code>
               </div>
               {activeProfile.id === 'partner2' && (
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-1.5">
                   <span className="font-semibold">Floodgate DB ({activeProfile.name}):</span>
                   <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono">
                     data/floodgate.db ({Object.keys(floodgateSnapshot.logsByDate || {}).length} days)
