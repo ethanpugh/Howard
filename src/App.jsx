@@ -45,10 +45,16 @@ const FloodgateApp = lazy(() => import('./apps/FloodgateApp.jsx'));
 const LedgerApp = lazy(() => import('./apps/LedgerApp.jsx'));
 const BeaconApp = lazy(() => import('./apps/BeaconApp.jsx'));
 
-const POLL_INTERVAL_MS = 2500;
+const POLL_INTERVAL_SSE_MS = 30000;
+const POLL_INTERVAL_FALLBACK_MS = 3000;
 const ACTIVE_PROFILE_STORAGE_KEY = 'howard-active-profile';
 const ACTIVE_APP_STORAGE_KEY = 'howard-active-app';
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'howard-sidebar-collapsed';
+
+const IS_MAC_PLATFORM =
+  typeof navigator !== 'undefined' &&
+  /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '');
+const QUICK_JUMP_SHORTCUT = IS_MAC_PLATFORM ? '⌘K' : 'Ctrl K';
 
 const APP_REGISTRY = [
   {
@@ -270,16 +276,18 @@ export default function App() {
     }
   });
 
-  // Cross-app navigation intent (e.g. jump to Floodgate GP report or specific date)
+  // Cross-app navigation intent (e.g. jump to Floodgate GP report, Bloom habitat, or specific date)
   const [floodgateIntent, setFloodgateIntent] = useState(null); // { tab: 'log'|'calendar'|'insights', date: 'YYYY-MM-DD' }
+  const [bloomIntent, setBloomIntent] = useState(null); // { tab: 'today'|'growth'|'habitat' }
   const [almanacIntentDate, setAlmanacIntentDate] = useState(null);
 
   // --------------------------------------------------------------------------
-  // LIVE HOUSEHOLD SYNC STATE (2.5s POLLING)
+  // LIVE HOUSEHOLD SYNC STATE (SSE LIVE PUSH + POLLING FALLBACK)
   // --------------------------------------------------------------------------
   const [isConnected, setIsConnected] = useState(true);
   const [syncError, setSyncError] = useState(null);
   const [lastSyncedAt, setLastSyncedAt] = useState(null);
+  const [syncTransport, setSyncTransport] = useState('polling'); // 'sse' | 'polling'
 
   const [profiles, setProfiles] = useState(FALLBACK_PROFILES);
   const [almanacEvents, setAlmanacEvents] = useState([]);
@@ -367,6 +375,8 @@ export default function App() {
   const [renameDraft, setRenameDraft] = useState('');
 
   const [backupModalOpen, setBackupModalOpen] = useState(false);
+  const [pendingRestore, setPendingRestore] = useState(null); // { bodyToSend, confirmPrompt, fileName }
+  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
 
   // Navigation Shell State: Bento App Launcher (Sheet / Ctrl+K) & Desktop Collapsible Sidebar
   const [appLauncherOpen, setAppLauncherOpen] = useState(false);
@@ -406,6 +416,7 @@ export default function App() {
   const handleNavigateModule = useCallback((targetAppId) => {
     setAlmanacIntentDate(null);
     setFloodgateIntent(null);
+    setBloomIntent(null);
     setActiveAppId(targetAppId);
     setAppLauncherOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -415,21 +426,25 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && (e.key || '').toLowerCase() === 'k') {
-        if (profileModalOpen || backupModalOpen) return;
+        if (profileModalOpen || backupModalOpen || pendingRestore) return;
         e.preventDefault();
         setAppLauncherOpen((prev) => !prev);
       } else if (e.key === 'Escape') {
-        if (appLauncherOpen) setAppLauncherOpen(false);
-        if (profileModalOpen) {
+        if (pendingRestore) {
+          setPendingRestore(null);
+        } else if (appLauncherOpen) {
+          setAppLauncherOpen(false);
+        } else if (profileModalOpen) {
           setProfileModalOpen(false);
           resetProfileSubforms();
+        } else if (backupModalOpen) {
+          setBackupModalOpen(false);
         }
-        if (backupModalOpen) setBackupModalOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [appLauncherOpen, profileModalOpen, backupModalOpen, resetProfileSubforms]);
+  }, [appLauncherOpen, profileModalOpen, backupModalOpen, pendingRestore, resetProfileSubforms]);
 
   // Active profile object
   const activeProfile = useMemo(() => {
@@ -445,6 +460,11 @@ export default function App() {
   const activeAppMeta = useMemo(() => {
     return allowedApps.find((app) => app.id === activeAppId) || allowedApps[0] || APP_REGISTRY[0];
   }, [allowedApps, activeAppId]);
+
+  const bloomSummary = useMemo(
+    () => computeBloomSummary(bloomSnapshot, new Date(nowMs)),
+    [bloomSnapshot, nowMs]
+  );
 
   // Live per-module micro-status badges for Bento Sheet & Desktop Sidebar
   const moduleStatuses = useMemo(() => {
@@ -479,7 +499,6 @@ export default function App() {
     }
 
     // Bloom status
-    const bloomSummary = computeBloomSummary(bloomSnapshot, now);
     let bloomStatus = {
       label: `${bloomSummary.settings.currentInstar} OK`,
       urgent: false
@@ -546,7 +565,7 @@ export default function App() {
   }, [
     nowMs,
     cadenceSnapshot,
-    bloomSnapshot,
+    bloomSummary,
     almanacEvents,
     floodgateSnapshot,
     ledgerData,
@@ -584,10 +603,11 @@ export default function App() {
   }, [activeAppId, activeProfile]);
 
   // --------------------------------------------------------------------------
-  // UNIFIED 2.5-SECOND INCREMENTAL LIVE POLLING EFFECT (syncToken SHORT-CIRCUIT)
+  // UNIFIED INCREMENTAL LIVE SYNC (SSE PUSH + SELECTIVE DOMAIN DELTA FALLBACK)
   // --------------------------------------------------------------------------
   const syncTokenRef = useRef('');
   const isConnectedRef = useRef(true);
+  const sseConnectedRef = useRef(false);
   const hasCheckedBootPinRef = useRef(false);
   const unlockedProfilesRef = useRef(unlockedProfiles);
   const abortControllerRef = useRef(null);
@@ -595,6 +615,11 @@ export default function App() {
   useEffect(() => {
     unlockedProfilesRef.current = unlockedProfiles;
   }, [unlockedProfiles]);
+
+  const sseProfile =
+    activeProfileId === 'caregiver' || unlockedProfiles[activeProfileId]
+      ? activeProfileId
+      : 'caregiver';
 
   const fetchUnifiedSync = useCallback(
     async ({ force = false, overrideProfile = null } = {}) => {
@@ -718,16 +743,26 @@ export default function App() {
           });
         }
 
-        if (data.floodgate && targetProfile === 'partner2') {
-          setFloodgateSnapshot({
-            settings: data.floodgate.settings || {},
-            logsByDate: data.floodgate.logsByDate || {}
-          });
+        if (targetProfile === 'partner2') {
+          if (data.floodgate) {
+            setFloodgateSnapshot({
+              settings: data.floodgate.settings || {},
+              logsByDate: data.floodgate.logsByDate || {}
+            });
+          }
         } else {
           // Clear private Floodgate state in memory when not on Partner 2's profile
-          setFloodgateSnapshot({
-            settings: { ownerName: 'Partner 2', appName: 'Floodgate' },
-            logsByDate: {}
+          setFloodgateSnapshot((prev) => {
+            if (
+              Object.keys(prev.logsByDate || {}).length === 0 &&
+              prev.settings?.ownerName === 'Partner 2'
+            ) {
+              return prev;
+            }
+            return {
+              settings: { ownerName: 'Partner 2', appName: 'Floodgate' },
+              logsByDate: {}
+            };
           });
         }
 
@@ -751,11 +786,66 @@ export default function App() {
   useEffect(() => {
     syncTokenRef.current = '';
     fetchUnifiedSync({ force: true });
-    const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        fetchUnifiedSync();
+
+    let eventSource = null;
+    let pollTimer = null;
+
+    const schedulePollLoop = (intervalMs) => {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          fetchUnifiedSync();
+        }
+      }, intervalMs);
+    };
+
+    schedulePollLoop(POLL_INTERVAL_FALLBACK_MS);
+
+    if (typeof EventSource !== 'undefined') {
+      try {
+        eventSource = new EventSource(
+          `/api/howard/events?profile=${encodeURIComponent(sseProfile)}`
+        );
+        eventSource.addEventListener('ready', (ev) => {
+          sseConnectedRef.current = true;
+          setSyncTransport('sse');
+          schedulePollLoop(POLL_INTERVAL_SSE_MS);
+          try {
+            const parsed = JSON.parse(ev.data || '{}');
+            if (
+              parsed.syncToken &&
+              syncTokenRef.current &&
+              parsed.syncToken !== syncTokenRef.current
+            ) {
+              fetchUnifiedSync();
+            }
+          } catch {
+            // ignore parse error
+          }
+        });
+        eventSource.addEventListener('sync', (ev) => {
+          try {
+            const parsed = JSON.parse(ev.data || '{}');
+            if (parsed.syncToken && parsed.syncToken === syncTokenRef.current) {
+              return;
+            }
+          } catch {
+            // ignore parse error and still sync
+          }
+          fetchUnifiedSync();
+        });
+        eventSource.onerror = () => {
+          if (sseConnectedRef.current) {
+            sseConnectedRef.current = false;
+            setSyncTransport('polling');
+            schedulePollLoop(POLL_INTERVAL_FALLBACK_MS);
+          }
+        };
+      } catch {
+        sseConnectedRef.current = false;
+        setSyncTransport('polling');
       }
-    }, POLL_INTERVAL_MS);
+    }
 
     const handleWake = () => {
       if (document.visibilityState === 'visible') {
@@ -767,14 +857,16 @@ export default function App() {
     document.addEventListener('visibilitychange', handleWake);
 
     return () => {
-      clearInterval(timer);
+      if (pollTimer) clearInterval(pollTimer);
+      if (eventSource) eventSource.close();
+      sseConnectedRef.current = false;
       window.removeEventListener('focus', handleWake);
       document.removeEventListener('visibilitychange', handleWake);
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
     };
-  }, [fetchUnifiedSync]);
+  }, [fetchUnifiedSync, sseProfile]);
 
   // --------------------------------------------------------------------------
   // PROFILE SWITCHING & PIN LOCK HANDLERS
@@ -805,6 +897,11 @@ export default function App() {
       } catch {
         // ignore
       }
+      unlockedProfilesRef.current = {
+        ...unlockedProfilesRef.current,
+        [targetProfile.id]: true
+      };
+      setUnlockedProfiles((prev) => ({ ...prev, [targetProfile.id]: true }));
       resetProfileSubforms();
       setActiveProfileId(targetProfile.id);
       setProfileModalOpen(false);
@@ -929,7 +1026,7 @@ export default function App() {
         setProfiles(data.profiles);
       }
       setRenameOpen(false);
-      fetchUnifiedSync({ force: true });
+      fetchUnifiedSync();
       showToast(`Updated profile name to ${cleaned}`);
     } catch {
       showToast('Server error while updating profile name', 'error');
@@ -980,7 +1077,7 @@ export default function App() {
       showToast(
         `Logged ${cadenceSnapshot.settings?.catName || 'Pet'}'s ${slot === 'morning' ? 'Morning' : 'Evening'} dose (${caregiverName})`
       );
-      fetchUnifiedSync({ force: true });
+      fetchUnifiedSync();
     } catch {
       setCadenceSnapshot(prevCadence);
       fetchUnifiedSync({ force: true });
@@ -994,7 +1091,6 @@ export default function App() {
     const caregiverName = activeProfile.caregiverName || activeProfile.name;
     const mantisName = bloomSnapshot.settings?.mantisName || 'Mantis';
     const prevBloom = bloomSnapshot;
-    const existingMists = bloomSnapshot.logsByDate?.[todayKey]?.mists || [];
 
     const newMist = {
       id: `mist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -1003,7 +1099,6 @@ export default function App() {
       dropletDrinkObserved: false,
       note: ''
     };
-    const nextMists = [...existingMists, newMist];
 
     setBloomSnapshot((prev) => {
       const existingDay = prev.logsByDate?.[todayKey] || {
@@ -1031,11 +1126,11 @@ export default function App() {
       const res = await fetch(`/api/bloom/logs/${encodeURIComponent(todayKey)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mists: nextMists, updatedAt: nowIso })
+        body: JSON.stringify({ appendMist: newMist, updatedAt: nowIso })
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       showToast(`Logged ${mantisName}'s enclosure mist (${caregiverName})`);
-      fetchUnifiedSync({ force: true });
+      fetchUnifiedSync();
     } catch {
       setBloomSnapshot(prevBloom);
       fetchUnifiedSync({ force: true });
@@ -1062,7 +1157,7 @@ export default function App() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       showToast(`Marked ${mantisName}'s enclosure clear of live prey`);
-      fetchUnifiedSync({ force: true });
+      fetchUnifiedSync();
     } catch {
       setBloomSnapshot(prevBloom);
       fetchUnifiedSync({ force: true });
@@ -1086,7 +1181,7 @@ export default function App() {
       });
       if (!res.ok) throw new Error('Failed to save Almanac event');
       if (toastText) showToast(toastText);
-      fetchUnifiedSync({ force: true });
+      fetchUnifiedSync();
       return true;
     } catch {
       setAlmanacEvents(prevEvents);
@@ -1107,7 +1202,7 @@ export default function App() {
       });
       if (!res.ok) throw new Error('Failed to save Almanac events');
       if (toastText) showToast(toastText);
-      fetchUnifiedSync({ force: true });
+      fetchUnifiedSync();
       return true;
     } catch {
       setAlmanacEvents(prevEvents);
@@ -1131,7 +1226,7 @@ export default function App() {
       });
       if (!res.ok) throw new Error('Failed to save Ledger item');
       if (toastText) showToast(toastText);
-      fetchUnifiedSync({ force: true });
+      fetchUnifiedSync();
       return true;
     } catch {
       setLedgerData(prevLedger);
@@ -1153,7 +1248,7 @@ export default function App() {
       });
       if (!res.ok) throw new Error('Failed to delete Ledger item');
       if (toastText) showToast(toastText);
-      fetchUnifiedSync({ force: true });
+      fetchUnifiedSync();
       return true;
     } catch {
       setLedgerData(prevLedger);
@@ -1177,7 +1272,7 @@ export default function App() {
       });
       if (!res.ok) throw new Error('Failed to save split rule');
       if (toastText) showToast(toastText);
-      fetchUnifiedSync({ force: true });
+      fetchUnifiedSync();
       return true;
     } catch {
       setLedgerData(prevLedger);
@@ -1198,7 +1293,7 @@ export default function App() {
       });
       if (!res.ok) throw new Error('Failed to save Ledger data');
       if (toastText) showToast(toastText);
-      fetchUnifiedSync({ force: true });
+      fetchUnifiedSync();
       return true;
     } catch {
       setLedgerData(prevLedger);
@@ -1219,7 +1314,7 @@ export default function App() {
       });
       if (!res.ok) throw new Error('Failed to save Beacon guide');
       if (toastText) showToast(toastText);
-      fetchUnifiedSync({ force: true });
+      fetchUnifiedSync();
       return true;
     } catch {
       setBeaconInfo(prevBeacon);
@@ -1236,13 +1331,26 @@ export default function App() {
       showToast(`Switch to ${partner2Name}'s profile to open Floodgate`, 'error');
       return;
     }
+    setBloomIntent(null);
+    setAlmanacIntentDate(null);
     setFloodgateIntent({ ...intent, timestamp: Date.now() });
     setActiveAppId('floodgate');
     setAppLauncherOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const openBloomWithIntent = (intent = { tab: 'today' }) => {
+    setAlmanacIntentDate(null);
+    setFloodgateIntent(null);
+    setBloomIntent({ ...intent, timestamp: Date.now() });
+    setActiveAppId('bloom');
+    setAppLauncherOpen(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const openAlmanacOnDate = (dateStr) => {
+    setBloomIntent(null);
+    setFloodgateIntent(null);
     setAlmanacIntentDate(dateStr);
     setActiveAppId('almanac');
     setAppLauncherOpen(false);
@@ -1335,33 +1443,45 @@ export default function App() {
           return;
         }
 
-        if (!window.confirm(confirmPrompt)) {
-          return;
-        }
-
-        const res = await fetch('/api/howard/restore', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(bodyToSend)
+        setPendingRestore({
+          bodyToSend,
+          confirmPrompt,
+          fileName: file.name
         });
-        const resultData = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(resultData.error || `Server rejected restore (HTTP ${res.status})`);
-        }
-        await fetchUnifiedSync({ force: true });
-        setBackupModalOpen(false);
-        showToast(
-          bodyToSend.mode === 'merge'
-            ? 'Merged standalone backup successfully!'
-            : 'Restored household backup successfully!'
-        );
-      } catch (err) {
-        showToast(err?.message || 'Restore failed on server', 'error');
       } finally {
         e.target.value = '';
       }
     };
     reader.readAsText(file);
+  };
+
+  const handleConfirmRestore = async () => {
+    if (!pendingRestore || isRestoringBackup) return;
+    const { bodyToSend } = pendingRestore;
+    setIsRestoringBackup(true);
+    try {
+      const res = await fetch('/api/howard/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bodyToSend)
+      });
+      const resultData = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(resultData.error || `Server rejected restore (HTTP ${res.status})`);
+      }
+      await fetchUnifiedSync({ force: true });
+      setPendingRestore(null);
+      setBackupModalOpen(false);
+      showToast(
+        bodyToSend.mode === 'merge'
+          ? 'Merged standalone backup successfully!'
+          : 'Restored household backup successfully!'
+      );
+    } catch (err) {
+      showToast(err?.message || 'Restore failed on server', 'error');
+    } finally {
+      setIsRestoringBackup(false);
+    }
   };
 
   return (
@@ -1372,16 +1492,20 @@ export default function App() {
     >
       {/* FLOATING TOAST */}
       {toast && (
-        <div className="fixed top-4 right-4 z-50 no-print animate-fade-in">
+        <div className="fixed top-4 right-4 z-[70] no-print animate-fade-in">
           <div
             className={`flex items-center gap-2.5 px-4 py-3 rounded-2xl shadow-xl border text-xs sm:text-sm font-semibold ${
               toast.type === 'error'
                 ? 'bg-rose-900 text-white border-rose-700'
-                : 'bg-slate-900 text-white border-slate-700 dark:bg-slate-800'
+                : toast.type === 'info'
+                  ? 'bg-amber-900 text-amber-50 border-amber-700'
+                  : 'bg-slate-900 text-white border-slate-700 dark:bg-slate-800'
             }`}
           >
             {toast.type === 'error' ? (
               <AlertTriangle className="w-4 h-4 text-rose-300 shrink-0" />
+            ) : toast.type === 'info' ? (
+              <AlertTriangle className="w-4 h-4 text-amber-300 shrink-0" />
             ) : (
               <CheckCircle2 className="w-4 h-4 text-teal-400 shrink-0" />
             )}
@@ -1425,7 +1549,7 @@ export default function App() {
                     }`}
                     title={
                       lastSyncedAt
-                        ? `Live 2.5s Household Sync • Last synced ${lastSyncedAt.toLocaleTimeString()}`
+                        ? `Live Household Sync (${syncTransport === 'sse' ? 'Instant SSE Push' : 'Polling Fallback'}) • Last synced ${lastSyncedAt.toLocaleTimeString()}`
                         : 'Connecting to local SQLite server'
                     }
                   >
@@ -1454,7 +1578,7 @@ export default function App() {
                   ? 'bg-slate-800/70 border-slate-700 text-slate-300 hover:bg-slate-800'
                   : 'bg-slate-100/90 border-slate-200 text-slate-600 hover:bg-slate-200/70'
               }`}
-              title="Open Bento Module Switcher (Ctrl+K)"
+              title={`Open Bento Module Switcher (${QUICK_JUMP_SHORTCUT})`}
             >
               <span className="flex items-center gap-2 min-w-0 truncate">
                 <LayoutGrid className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
@@ -1476,7 +1600,7 @@ export default function App() {
                       : 'bg-white border-slate-300 text-slate-600'
                   }`}
                 >
-                  Ctrl K
+                  {QUICK_JUMP_SHORTCUT}
                 </kbd>
               </div>
             </button>
@@ -1704,6 +1828,7 @@ export default function App() {
                   nowMs={nowMs}
                   cadenceSnapshot={cadenceSnapshot}
                   bloomSnapshot={bloomSnapshot}
+                  bloomSummary={bloomSummary}
                   floodgateSnapshot={floodgateSnapshot}
                   almanacEvents={almanacEvents}
                   ledgerData={ledgerData}
@@ -1713,6 +1838,7 @@ export default function App() {
                   onQuickMistMantis={handleQuickMistMantis}
                   onClearMantisLivePrey={handleClearMantisLivePrey}
                   onOpenFloodgate={openFloodgateWithIntent}
+                  onOpenBloom={openBloomWithIntent}
                   onOpenAlmanacDate={openAlmanacOnDate}
                   onOpenProfileModal={() => setProfileModalOpen(true)}
                 />
@@ -1722,8 +1848,10 @@ export default function App() {
                 <CadenceApp
                   activeProfile={activeProfile}
                   darkMode={darkMode}
+                  nowMs={nowMs}
                   cadenceSnapshot={cadenceSnapshot}
                   onGlobalSync={fetchUnifiedSync}
+                  showToast={showToast}
                 />
               )}
 
@@ -1731,7 +1859,10 @@ export default function App() {
                 <BloomApp
                   activeProfile={activeProfile}
                   darkMode={darkMode}
+                  nowMs={nowMs}
                   bloomSnapshot={bloomSnapshot}
+                  bloomSummary={bloomSummary}
+                  navigationIntent={bloomIntent}
                   onGlobalSync={fetchUnifiedSync}
                   showToast={showToast}
                 />
@@ -1746,6 +1877,7 @@ export default function App() {
                   almanacEvents={almanacEvents}
                   cadenceSnapshot={cadenceSnapshot}
                   bloomSnapshot={bloomSnapshot}
+                  bloomSummary={bloomSummary}
                   floodgateSnapshot={floodgateSnapshot}
                   ledgerData={ledgerData}
                   initialDate={almanacIntentDate}
@@ -1765,6 +1897,7 @@ export default function App() {
                   navigationIntent={floodgateIntent}
                   onOpenBackupModal={() => setBackupModalOpen(true)}
                   onGlobalSync={fetchUnifiedSync}
+                  showToast={showToast}
                 />
               )}
 
@@ -1779,6 +1912,7 @@ export default function App() {
                   onDeleteLedgerItem={handleDeleteLedgerItem}
                   onSaveSplitRule={handleSaveLedgerSplitRule}
                   onSaveLedgerData={handleSaveLedgerData}
+                  showToast={showToast}
                 />
               )}
 
@@ -2368,7 +2502,7 @@ export default function App() {
               }`}
             >
               <div className="flex flex-wrap items-center justify-between gap-1.5">
-                <span className="font-semibold">Live Household Polling:</span>
+                <span className="font-semibold">Live Household Sync:</span>
                 <span
                   className={`${
                     isConnected
@@ -2376,7 +2510,10 @@ export default function App() {
                       : 'text-amber-600 dark:text-amber-400'
                   } font-bold flex items-center gap-1`}
                 >
-                  <Wifi className="w-3.5 h-3.5" /> Every 2.5s ({isConnected ? 'Connected' : 'Offline'})
+                  <Wifi className="w-3.5 h-3.5" />{' '}
+                  {syncTransport === 'sse'
+                    ? `SSE Push (${isConnected ? 'Connected' : 'Reconnecting'})`
+                    : `Polling Fallback 3s (${isConnected ? 'Connected' : 'Offline'})`}
                 </span>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-1.5">
@@ -2435,6 +2572,72 @@ export default function App() {
                   className="hidden"
                 />
               </label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================================
+          MODAL 3: BACKUP RESTORE CONFIRMATION MODAL
+      ==================================================================== */}
+      {pendingRestore && (
+        <div
+          onClick={() => !isRestoringBackup && setPendingRestore(null)}
+          className="fixed inset-0 z-[60] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirm Backup Restore"
+            className={`max-w-md w-full rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${
+              darkMode
+                ? 'bg-slate-900 border-slate-800 text-slate-100'
+                : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                <Upload className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-extrabold">
+                  {pendingRestore.bodyToSend.mode === 'merge'
+                    ? 'Merge Standalone Backup?'
+                    : 'Restore Household Snapshot?'}
+                </h3>
+                {pendingRestore.fileName && (
+                  <p className="text-xs font-mono text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                    {pendingRestore.fileName}
+                  </p>
+                )}
+                <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 leading-relaxed">
+                  {pendingRestore.confirmPrompt}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                disabled={isRestoringBackup}
+                onClick={() => setPendingRestore(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isRestoringBackup}
+                onClick={handleConfirmRestore}
+                className="px-4 py-2 rounded-xl text-xs font-extrabold bg-teal-600 hover:bg-teal-700 text-white disabled:opacity-50"
+              >
+                {isRestoringBackup
+                  ? 'Restoring...'
+                  : pendingRestore.bodyToSend.mode === 'merge'
+                    ? 'Merge Backup'
+                    : 'Restore Snapshot'}
+              </button>
             </div>
           </div>
         </div>

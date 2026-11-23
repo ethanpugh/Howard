@@ -86,7 +86,8 @@ export default function LedgerApp({
   onUpsertLedgerItem,
   onDeleteLedgerItem,
   onSaveSplitRule,
-  onSaveLedgerData
+  onSaveLedgerData,
+  showToast
 }) {
   const now = useMemo(() => new Date(nowMs), [nowMs]);
   const todayStr = getLocalDateKey(now);
@@ -1037,6 +1038,7 @@ export default function LedgerApp({
     a.download = `Howard_Ledger_${selectedMonth}${perspective !== 'unified' ? `_${perspective}` : ''}.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast?.(`Exported ${rows.length} Ledger row${rows.length === 1 ? '' : 's'} to CSV`);
   };
 
   const cardSurface = darkMode
@@ -1069,7 +1071,7 @@ export default function LedgerApp({
             <button
               type="button"
               onClick={openNewExpenseModal}
-              className="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+              className="px-4 py-2.5 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Log Expense</span>
@@ -1077,7 +1079,7 @@ export default function LedgerApp({
             <button
               type="button"
               onClick={() => openNewIncomeModal('one-off')}
-              className="px-3.5 py-2.5 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+              className="px-3.5 py-2.5 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer"
               title="Log a one-off or variable income payment for this month"
             >
               <Plus className="w-4 h-4" />
@@ -1178,6 +1180,54 @@ export default function LedgerApp({
             )}
           </div>
         </div>
+
+        {/* INTERNAL SUB-NAVIGATION TABS */}
+        <div className="pt-3 border-t border-slate-200/70 dark:border-slate-800">
+          <div
+            className={`w-full grid grid-cols-2 lg:grid-cols-4 gap-1 p-1 rounded-2xl border ${
+              darkMode
+                ? 'bg-slate-950/70 border-slate-800'
+                : 'bg-slate-100/90 border-slate-200/80'
+            }`}
+          >
+            {[
+              { id: 'overview', label: 'Overview & Split', icon: Scale },
+              {
+                id: 'recurring',
+                label: `Subscriptions & Direct Debits (${perspectiveCounts.recurring})`,
+                icon: CreditCard
+              },
+              {
+                id: 'expenses',
+                label: `Expenses Log (${perspectiveCounts.expenses})`,
+                icon: Receipt
+              },
+              {
+                id: 'income',
+                label: `Income & Split Rules (${perspectiveCounts.incomes})`,
+                icon: TrendingUp
+              }
+            ].map((t) => {
+              const Icon = t.icon;
+              const active = activeTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setActiveTab(t.id)}
+                  className={`flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
+                    active
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{t.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </section>
 
       {/* ====================================================================
@@ -1264,50 +1314,6 @@ export default function LedgerApp({
           </div>
         </div>
       </section>
-
-      {/* ====================================================================
-          3. INTERNAL SUB-NAVIGATION TABS
-      ==================================================================== */}
-      <div className="w-full grid grid-cols-2 lg:grid-cols-4 gap-1.5 bg-slate-200/70 dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800">
-        {[
-          { id: 'overview', label: 'Overview & Split', icon: Scale },
-          {
-            id: 'recurring',
-            label: `Subscriptions & Direct Debits (${perspectiveCounts.recurring})`,
-            icon: CreditCard
-          },
-          {
-            id: 'expenses',
-            label: `Expenses Log (${perspectiveCounts.expenses})`,
-            icon: Receipt
-          },
-          {
-            id: 'income',
-            label: `Income & Split Rules (${perspectiveCounts.incomes})`,
-            icon: TrendingUp
-          }
-        ].map((t) => {
-          const Icon = t.icon;
-          const active = activeTab === t.id;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setActiveTab(t.id)}
-              className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
-                active
-                  ? darkMode
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'bg-slate-900 text-white shadow-xs'
-                  : 'text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800'
-              }`}
-            >
-              <Icon className="w-4 h-4 shrink-0" />
-              <span className="truncate">{t.label}</span>
-            </button>
-          );
-        })}
-      </div>
 
       {/* ====================================================================
           TAB 1: OVERVIEW, HOUSEHOLD SPLIT & CATEGORY BREAKDOWN
@@ -1830,7 +1836,7 @@ export default function LedgerApp({
               <button
                 type="button"
                 onClick={openNewExpenseModal}
-                className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Log Expense</span>
@@ -1924,7 +1930,7 @@ export default function LedgerApp({
               <button
                 type="button"
                 onClick={openNewExpenseModal}
-                className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold cursor-pointer"
               >
                 + Log First Expense for {selectedMonthLabel}
               </button>
@@ -1962,7 +1968,7 @@ export default function LedgerApp({
                 <button
                   type="button"
                   onClick={() => openNewIncomeModal('one-off')}
-                  className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                  className="px-3 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>One-Off Income</span>
@@ -2173,7 +2179,7 @@ export default function LedgerApp({
       {expenseModalOpen && (
         <div
           onClick={() => setExpenseModalOpen(false)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
         >
           <div
             role="dialog"
@@ -2314,7 +2320,7 @@ export default function LedgerApp({
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {isSaving ? 'Saving...' : 'Save Expense'}
                 </button>
@@ -2330,7 +2336,7 @@ export default function LedgerApp({
       {recurringModalOpen && (
         <div
           onClick={() => setRecurringModalOpen(false)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
         >
           <div
             role="dialog"
@@ -2545,7 +2551,7 @@ export default function LedgerApp({
       {incomeModalOpen && (
         <div
           onClick={() => setIncomeModalOpen(false)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
         >
           <div
             role="dialog"
@@ -2783,7 +2789,7 @@ export default function LedgerApp({
       {confirmDeleteItem && (
         <div
           onClick={() => setConfirmDeleteItem(null)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
         >
           <div
             role="dialog"

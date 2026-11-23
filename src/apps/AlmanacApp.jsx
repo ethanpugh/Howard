@@ -61,6 +61,7 @@ export default function AlmanacApp({
   almanacEvents,
   cadenceSnapshot,
   bloomSnapshot,
+  bloomSummary: bloomSummaryProp,
   floodgateSnapshot,
   ledgerData,
   initialDate,
@@ -138,10 +139,21 @@ export default function AlmanacApp({
 
   const catName = cadenceSnapshot?.settings?.catName || 'Pet';
   const bloomSummary = useMemo(
-    () => computeBloomSummary(bloomSnapshot, nowObj),
-    [bloomSnapshot, nowObj]
+    () => bloomSummaryProp || computeBloomSummary(bloomSnapshot, nowObj),
+    [bloomSummaryProp, bloomSnapshot, nowObj]
   );
   const mantisName = bloomSummary.settings.mantisName || 'Mantis';
+
+  const moltsByDate = useMemo(() => {
+    const map = new Map();
+    for (const m of bloomSummary.molts || []) {
+      if (!m?.dateKey) continue;
+      const existing = map.get(m.dateKey) || [];
+      existing.push(m);
+      map.set(m.dateKey, existing);
+    }
+    return map;
+  }, [bloomSummary.molts]);
 
   // Calculate projected bottle expiry date for calendar overlay
   const bottleExpiryDateStr = useMemo(() => {
@@ -211,7 +223,7 @@ export default function AlmanacApp({
       );
       const cadenceLog = cadenceSnapshot?.logsByDate?.[dateStr] || null;
       const bloomLog = bloomSnapshot?.logsByDate?.[dateStr] || null;
-      const bloomMoltsOnDay = (bloomSnapshot?.molts || []).filter((m) => m.dateKey === dateStr);
+      const bloomMoltsOnDay = moltsByDate.get(dateStr) || [];
       const isProjectedMolt = bloomSummary.projectedNextMoltDateStr === dateStr;
       const floodgateLog =
         activeProfile.allowedApps.includes('floodgate')
@@ -239,6 +251,7 @@ export default function AlmanacApp({
     almanacEvents,
     cadenceSnapshot,
     bloomSnapshot,
+    moltsByDate,
     bloomSummary.projectedNextMoltDateStr,
     floodgateSnapshot,
     getLedgerItemsForDate,
@@ -255,9 +268,7 @@ export default function AlmanacApp({
     );
     const cadenceLog = cadenceSnapshot?.logsByDate?.[selectedDate] || null;
     const bloomLog = bloomSnapshot?.logsByDate?.[selectedDate] || null;
-    const bloomMoltsOnDay = (bloomSnapshot?.molts || []).filter(
-      (m) => m.dateKey === selectedDate
-    );
+    const bloomMoltsOnDay = moltsByDate.get(selectedDate) || [];
     const isProjectedMolt = bloomSummary.projectedNextMoltDateStr === selectedDate;
     const floodgateLog =
       activeProfile.allowedApps.includes('floodgate')
@@ -280,6 +291,7 @@ export default function AlmanacApp({
     almanacEvents,
     cadenceSnapshot,
     bloomSnapshot,
+    moltsByDate,
     bloomSummary.projectedNextMoltDateStr,
     floodgateSnapshot,
     getLedgerItemsForDate,
@@ -1105,7 +1117,7 @@ export default function AlmanacApp({
               <div
                 className={`p-3.5 rounded-2xl border space-y-1.5 text-xs ${
                   darkMode
-                    ? 'bg-stone-900/80 border-rose-950'
+                    ? 'bg-slate-800/40 border-rose-900/50'
                     : 'bg-rose-50/50 border-rose-200/70'
                 }`}
               >
@@ -1182,7 +1194,7 @@ export default function AlmanacApp({
             setEditingEventId(null);
             setEditingEventOriginal(null);
           }}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
         >
           <div
             role="dialog"
@@ -1475,7 +1487,7 @@ export default function AlmanacApp({
       {confirmDeleteEvent && (
         <div
           onClick={() => setConfirmDeleteEvent(null)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
         >
           <div
             role="dialog"

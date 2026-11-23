@@ -6,6 +6,9 @@ import {
   parseLocalDateKey,
   shiftDateKey,
   formatFriendlyDate,
+  getMondayOfWeek,
+  getCalendarWeekDays,
+  formatWeekRangeLabel,
   formatTimeDisplay,
   formatDurationAgo,
   formatCountdown,
@@ -62,11 +65,41 @@ describe('Date & Currency Utilities', () => {
     assert.equal(toMonthlyAmount(45, 'monthly'), 45);
   });
 
-  it('formats friendly relative dates for Today, Yesterday, and older dates', () => {
+  it('formats friendly relative dates for Today, Yesterday, Tomorrow, and older dates', () => {
     assert.equal(formatFriendlyDate('2026-05-10', '2026-05-10'), 'Today');
     assert.equal(formatFriendlyDate('2026-05-09', '2026-05-10'), 'Yesterday');
+    assert.equal(formatFriendlyDate('2026-05-11', '2026-05-10'), 'Tomorrow');
     assert.match(formatFriendlyDate('2026-05-05', '2026-05-10'), /5.*May/);
     assert.equal(formatFriendlyDate('', '2026-05-10'), '');
+  });
+
+  it('computes Monday-Sunday week boundaries, capped day lists, and en-GB week range labels', () => {
+    // 2026-05-13 is a Wednesday, 2026-05-11 is Monday, 2026-05-17 is Sunday
+    assert.equal(getMondayOfWeek('2026-05-11'), '2026-05-11');
+    assert.equal(getMondayOfWeek('2026-05-13'), '2026-05-11');
+    assert.equal(getMondayOfWeek('2026-05-17'), '2026-05-11');
+    // Cross-month & cross-year Monday lookup (Fri 2 Jan 2026 -> Mon 29 Dec 2025)
+    assert.equal(getMondayOfWeek(new Date(2026, 0, 2)), '2025-12-29');
+
+    // Current week capped at Wednesday (newest-first)
+    assert.deepEqual(getCalendarWeekDays('2026-05-11', '2026-05-13'), [
+      '2026-05-13',
+      '2026-05-12',
+      '2026-05-11'
+    ]);
+    // Past full week (all 7 days, Sunday down to Monday)
+    assert.deepEqual(getCalendarWeekDays('2026-05-04', '2026-05-13'), [
+      '2026-05-10',
+      '2026-05-09',
+      '2026-05-08',
+      '2026-05-07',
+      '2026-05-06',
+      '2026-05-05',
+      '2026-05-04'
+    ]);
+
+    assert.equal(formatWeekRangeLabel('2026-05-11'), '11 May – 17 May 2026');
+    assert.equal(formatWeekRangeLabel('2025-12-29'), '29 Dec 2025 – 4 Jan 2026');
   });
 
   it('formats valid timestamps with formatTimeDisplay and rejects invalid values', () => {

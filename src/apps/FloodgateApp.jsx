@@ -21,8 +21,7 @@ import {
   Sliders,
   Stethoscope,
   X,
-  Database,
-  CheckCircle2
+  Database
 } from 'lucide-react';
 import {
   getLocalDateKey,
@@ -36,7 +35,7 @@ import {
 // CLINICAL CONSTANTS & PRESET OPTIONS
 // ============================================================================
 const BLEEDING_LEVELS = [
-  { id: 'none', label: 'None', score: 0, drops: 0, desc: 'No bleeding today', color: 'bg-stone-100 text-stone-600 border-stone-200', activeColor: 'bg-stone-700 text-white border-stone-700', dotColor: 'bg-stone-300' },
+  { id: 'none', label: 'None', score: 0, drops: 0, desc: 'No bleeding today', color: 'bg-slate-100 text-slate-600 border-slate-200', activeColor: 'bg-slate-700 text-white border-slate-700', dotColor: 'bg-slate-300' },
   { id: 'spotting', label: 'Spotting', score: 1, drops: 1, desc: 'Drops / pantyliner only', color: 'bg-rose-50 text-rose-700 border-rose-200', activeColor: 'bg-rose-400 text-white border-rose-500', dotColor: 'bg-rose-300' },
   { id: 'light', label: 'Light', score: 2, drops: 2, desc: 'Light flow, regular change', color: 'bg-rose-50 text-rose-800 border-rose-200', activeColor: 'bg-rose-500 text-white border-rose-600', dotColor: 'bg-rose-400' },
   { id: 'medium', label: 'Medium', score: 3, drops: 3, desc: 'Moderate typical flow', color: 'bg-rose-100 text-rose-900 border-rose-300', activeColor: 'bg-rose-600 text-white border-rose-700', dotColor: 'bg-rose-500' },
@@ -73,7 +72,7 @@ const PAIN_TYPES = [
 ];
 
 const BOWEL_SEVERITIES = [
-  { id: 'none', label: 'None', score: 0, activeColor: 'bg-stone-700 text-white border-stone-700' },
+  { id: 'none', label: 'None', score: 0, activeColor: 'bg-slate-700 text-white border-slate-700' },
   { id: 'mild', label: 'Mild', score: 1, activeColor: 'bg-amber-500 text-white border-amber-600' },
   { id: 'moderate', label: 'Moderate', score: 2, activeColor: 'bg-orange-600 text-white border-orange-700' },
   { id: 'severe', label: 'Severe', score: 3, activeColor: 'bg-red-700 text-white border-red-800' }
@@ -105,7 +104,7 @@ const PRESET_MEDICATIONS = [
 const MED_EFFECTIVENESS = [
   { id: 'helped', label: 'Helped', activeClass: 'bg-emerald-600 text-white border-emerald-700' },
   { id: 'partial', label: 'Partial', activeClass: 'bg-amber-500 text-white border-amber-600' },
-  { id: 'none', label: 'No Relief', activeClass: 'bg-stone-600 text-white border-stone-700' }
+  { id: 'none', label: 'No Relief', activeClass: 'bg-slate-600 text-white border-slate-700' }
 ];
 
 const EXTERNAL_FACTORS = [
@@ -270,7 +269,8 @@ export default function FloodgateApp({
   navigationIntent,
   nowMs = Date.now(),
   onOpenBackupModal,
-  onGlobalSync
+  onGlobalSync,
+  showToast: appShowToast
 }) {
   const now = useMemo(() => new Date(nowMs), [nowMs]);
   const todayKey = getLocalDateKey(now);
@@ -287,12 +287,10 @@ export default function FloodgateApp({
     createEmptyEntry(getLocalDateKey(new Date(nowMs)))
   );
   const [isDirty, setIsDirty] = useState(false);
-  const [toastMessage, setToastMessage] = useState(null);
 
   const isDirtyRef = useRef(false);
   const selectedDateRef = useRef(selectedDate);
   const formDataRef = useRef(formData);
-  const toastTimerRef = useRef(null);
   const saveDayEntryRef = useRef(null);
   const editVersionRef = useRef(0);
   const inFlightMutationRef = useRef(0);
@@ -333,7 +331,7 @@ export default function FloodgateApp({
       })
         .then((res) => {
           if (res.ok && syncAfter) {
-            onGlobalSyncRef.current?.({ force: true });
+            onGlobalSyncRef.current?.();
           }
         })
         .catch(() => {});
@@ -346,7 +344,6 @@ export default function FloodgateApp({
     window.addEventListener('pagehide', handlePageHide);
     return () => {
       window.removeEventListener('pagehide', handlePageHide);
-      clearTimeout(toastTimerRef.current);
       flushUnsavedKeepalive(true);
     };
   }, []);
@@ -382,13 +379,12 @@ export default function FloodgateApp({
   // User Profile / Name State (defaults to Partner 2 inside Howard)
   const [ownerName, setOwnerName] = useState(activeProfile?.name || 'Partner 2');
 
-  const showToast = useCallback((msg, type = 'success') => {
-    clearTimeout(toastTimerRef.current);
-    setToastMessage({ text: msg, type });
-    toastTimerRef.current = setTimeout(() => {
-      setToastMessage((prev) => (prev?.text === msg ? null : prev));
-    }, 3200);
-  }, []);
+  const showToast = useCallback(
+    (msg, type = 'success') => {
+      appShowToast?.(msg, type);
+    },
+    [appShowToast]
+  );
 
   // Apply cross-app navigation intent (e.g. from Foyer or Almanac GP report link)
   useEffect(() => {
@@ -495,7 +491,7 @@ export default function FloodgateApp({
         setIsDirty(false);
         isDirtyRef.current = false;
       }
-      if (onGlobalSyncRef.current) onGlobalSyncRef.current({ force: true });
+      if (onGlobalSyncRef.current) onGlobalSyncRef.current();
       if (!silentToast) {
         showToast(`Saved ${ownerName ? `${ownerName}'s ` : ''}log for ${formatShortDate(targetDate)}`);
       }
@@ -579,7 +575,7 @@ export default function FloodgateApp({
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
-      if (onGlobalSyncRef.current) onGlobalSyncRef.current({ force: true });
+      if (onGlobalSyncRef.current) onGlobalSyncRef.current();
       showToast(`Deleted log for ${formatShortDate(dateToDelete)}`);
     } catch (err) {
       console.error('Error deleting entry:', err);
@@ -866,7 +862,7 @@ export default function FloodgateApp({
           setFormData(normalizeEntry(selectedDateRef.current, data.logsByDate[selectedDateRef.current]));
         }
       }
-      if (onGlobalSync) onGlobalSync({ force: true });
+      if (onGlobalSync) onGlobalSync();
       showToast(successToastText);
     } catch (err) {
       console.error('Batch upsert failed:', err);
@@ -944,7 +940,7 @@ export default function FloodgateApp({
 
   const getPainBadgeStyle = (score) => {
     const s = Number(score) || 0;
-    if (s === 0) return 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-300';
+    if (s === 0) return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
     if (s <= 3) return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300';
     if (s <= 6) return 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300';
     if (s <= 8) return 'bg-orange-100 text-orange-900 dark:bg-orange-950 dark:text-orange-300';
@@ -955,34 +951,12 @@ export default function FloodgateApp({
   // RENDER UI
   // ============================================================================
   return (
-    <div className={`transition-colors duration-200 ${darkMode ? 'text-stone-100' : 'text-stone-800'} pb-10`}>
-      {/* FLOATING TOAST NOTIFICATION */}
-      {toastMessage && (
-        <div className="fixed top-20 right-4 z-50 no-print animate-fade-in">
-          <div className={`flex items-center gap-2.5 px-4 py-3 rounded-2xl shadow-lg border text-sm font-medium ${
-            toastMessage.type === 'error'
-              ? 'bg-red-900 text-white border-red-700'
-              : toastMessage.type === 'info'
-                ? 'bg-amber-900 text-amber-50 border-amber-700'
-                : 'bg-stone-900 text-stone-50 border-stone-700'
-          }`}>
-            {toastMessage.type === 'error' ? (
-              <AlertCircle className="w-4 h-4 text-rose-300 shrink-0" />
-            ) : toastMessage.type === 'info' ? (
-              <AlertCircle className="w-4 h-4 text-amber-300 shrink-0" />
-            ) : (
-              <CheckCircle2 className="w-4 h-4 text-rose-400 shrink-0" />
-            )}
-            <span>{toastMessage.text}</span>
-          </div>
-        </div>
-      )}
-
+    <>
       {/* CUSTOM CONFIRMATION MODAL */}
       {confirmModal && (
         <div
           onClick={() => setConfirmModal(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 no-print"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 no-print"
         >
           <div
             role="dialog"
@@ -990,7 +964,7 @@ export default function FloodgateApp({
             aria-label={confirmModal.title}
             onClick={(e) => e.stopPropagation()}
             className={`max-w-md w-full rounded-3xl p-6 shadow-xl border ${
-              darkMode ? 'bg-stone-900 border-stone-800 text-stone-100' : 'bg-white border-stone-200 text-stone-800'
+              darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
             }`}
           >
             <div className="flex items-start justify-between gap-3 mb-3">
@@ -1004,12 +978,12 @@ export default function FloodgateApp({
                 type="button"
                 aria-label="Close confirmation modal"
                 onClick={() => setConfirmModal(null)}
-                className="p-1.5 rounded-lg hover:bg-stone-200/50 cursor-pointer"
+                className="p-1.5 rounded-lg hover:bg-slate-200/50 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <p className={`text-sm mb-6 leading-relaxed ${darkMode ? 'text-stone-300' : 'text-stone-600'}`}>
+            <p className={`text-sm mb-6 leading-relaxed ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>
               {confirmModal.message}
             </p>
             <div className="flex items-center justify-end gap-3">
@@ -1017,7 +991,7 @@ export default function FloodgateApp({
                 type="button"
                 onClick={() => setConfirmModal(null)}
                 className={`px-4 py-2.5 rounded-xl text-sm font-medium border cursor-pointer ${
-                  darkMode ? 'border-stone-700 hover:bg-stone-800' : 'border-stone-300 hover:bg-stone-100'
+                  darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'
                 }`}
               >
                 Cancel
@@ -1045,7 +1019,7 @@ export default function FloodgateApp({
       <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4 space-y-4 sm:space-y-5">
         <section
           className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 no-print ${
-            darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
+            darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
           }`}
         >
           <div className="flex items-center gap-3">
@@ -1061,14 +1035,20 @@ export default function FloodgateApp({
                   Private Module
                 </span>
               </div>
-              <p className={`text-xs ${darkMode ? 'text-stone-400' : 'text-stone-500'}`}>
+              <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                 Period, Blood Clots, Pain &amp; Endometriosis Clinical Tracker
               </p>
             </div>
           </div>
 
           {/* Internal Sub-Tabs: 2x2 Grid on Mobile, 1x4 Horizontal Row on Tablet/Desktop */}
-          <div className="w-full lg:w-auto grid grid-cols-2 sm:flex sm:items-center gap-1.5 bg-stone-100 dark:bg-stone-800 p-1.5 rounded-2xl">
+          <div
+            className={`w-full lg:w-auto grid grid-cols-2 sm:flex sm:items-center gap-1 p-1 rounded-2xl border ${
+              darkMode
+                ? 'bg-slate-950/70 border-slate-800'
+                : 'bg-slate-100/90 border-slate-200/80'
+            }`}
+          >
             {[
               { id: 'log', label: 'Daily Log', icon: Droplets },
               { id: 'calendar', label: 'Cycle Calendar', icon: CalendarIcon },
@@ -1090,8 +1070,8 @@ export default function FloodgateApp({
                     active
                       ? 'bg-rose-600 text-white shadow-xs'
                       : darkMode
-                        ? 'text-stone-300 hover:bg-stone-700'
-                        : 'text-stone-600 hover:bg-white'
+                        ? 'text-slate-300 hover:bg-slate-800'
+                        : 'text-slate-600 hover:bg-white'
                   }`}
                 >
                   <Icon className="w-4 h-4 shrink-0" />
@@ -1110,14 +1090,14 @@ export default function FloodgateApp({
           <div className="space-y-4 sm:space-y-5">
             {/* DATE NAVIGATOR & 7-DAY STRIP */}
             <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${
-              darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
+              darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
             }`}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-stone-200/60 dark:border-stone-800">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-slate-200/60 dark:border-slate-800">
                 <div className="flex items-center justify-between sm:justify-start gap-2 w-full sm:w-auto">
                   <button
                     onClick={() => handleSelectDate(shiftDateKey(selectedDate, -1))}
                     className={`p-2.5 rounded-xl border shrink-0 ${
-                      darkMode ? 'border-stone-700 hover:bg-stone-800' : 'border-stone-200 hover:bg-stone-50'
+                      darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-50'
                     }`}
                     aria-label="Previous day"
                   >
@@ -1135,7 +1115,7 @@ export default function FloodgateApp({
                         </span>
                       )}
                     </div>
-                    <p className={`text-xs ${darkMode ? 'text-stone-400' : 'text-stone-500'}`}>
+                    <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                       {logsMap[selectedDate] ? 'Logged entry saved for this date' : 'No entry saved yet for this date'}
                     </p>
                   </div>
@@ -1143,7 +1123,7 @@ export default function FloodgateApp({
                   <button
                     onClick={() => handleSelectDate(shiftDateKey(selectedDate, 1))}
                     className={`p-2.5 rounded-xl border shrink-0 ${
-                      darkMode ? 'border-stone-700 hover:bg-stone-800' : 'border-stone-200 hover:bg-stone-50'
+                      darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-50'
                     }`}
                     aria-label="Next day"
                   >
@@ -1166,7 +1146,7 @@ export default function FloodgateApp({
                     value={selectedDate}
                     onChange={(e) => e.target.value && handleSelectDate(e.target.value)}
                     className={`px-3 py-2 rounded-xl text-xs font-medium border ${
-                      darkMode ? 'bg-stone-800 border-stone-700 text-stone-100' : 'bg-stone-50 border-stone-200 text-stone-700'
+                      darkMode ? 'bg-slate-800 border-slate-700 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-700'
                     }`}
                   />
                   {logsMap[selectedDate] && (
@@ -1183,7 +1163,7 @@ export default function FloodgateApp({
                       }
                       title="Clear this day's entry"
                       aria-label="Clear this day's entry"
-                      className="p-2 rounded-xl text-stone-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
+                      className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -1209,8 +1189,8 @@ export default function FloodgateApp({
                         isSelected
                           ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
                           : darkMode
-                            ? 'bg-stone-800/60 border-stone-800 hover:bg-stone-800 text-stone-300'
-                            : 'bg-stone-50/80 border-stone-200/70 hover:bg-rose-50/50 text-stone-700'
+                            ? 'bg-slate-800/60 border-slate-800 hover:bg-slate-800 text-slate-300'
+                            : 'bg-slate-50/80 border-slate-200/70 hover:bg-rose-50/50 text-slate-700'
                       }`}
                     >
                       <span className={`text-[11px] font-medium ${isSelected ? 'text-rose-100' : 'opacity-70'}`}>
@@ -1238,7 +1218,7 @@ export default function FloodgateApp({
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
               {/* 1. BLEEDING & CLOTS CARD */}
               <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-5 ${
-                darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
+                darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
@@ -1247,7 +1227,7 @@ export default function FloodgateApp({
                     </div>
                     <div>
                       <h3 className="text-base sm:text-lg font-bold">Period &amp; Bleeding</h3>
-                      <p className={`text-xs ${darkMode ? 'text-stone-400' : 'text-stone-500'}`}>
+                      <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                         Flow severity, sanitary products &amp; blood clots
                       </p>
                     </div>
@@ -1270,7 +1250,7 @@ export default function FloodgateApp({
                             active
                               ? level.activeColor + ' shadow-xs scale-[1.01]'
                               : darkMode
-                                ? 'bg-stone-800/70 border-stone-700 text-stone-200 hover:bg-stone-800'
+                                ? 'bg-slate-800/70 border-slate-700 text-slate-200 hover:bg-slate-800'
                                 : level.color + ' hover:brightness-95'
                           }`}
                         >
@@ -1282,7 +1262,7 @@ export default function FloodgateApp({
                                   key={idx}
                                   className={`w-1.5 h-2.5 rounded-full ${
                                     level.drops === 0
-                                      ? 'bg-stone-400/40'
+                                      ? 'bg-slate-400/40'
                                       : active
                                         ? 'bg-white'
                                         : 'bg-rose-500'
@@ -1302,7 +1282,7 @@ export default function FloodgateApp({
 
                 {formData.bleedingSeverity !== 'none' && (
                   <div className={`p-4 rounded-2xl border space-y-4 ${
-                    darkMode ? 'bg-stone-800/40 border-stone-800' : 'bg-rose-50/40 border-rose-100'
+                    darkMode ? 'bg-slate-800/40 border-slate-800' : 'bg-rose-50/40 border-rose-100'
                   }`}>
                     <div className="text-xs font-semibold uppercase tracking-wider opacity-75">
                       Protection Used Today (Optional)
@@ -1316,7 +1296,7 @@ export default function FloodgateApp({
                         <div
                           key={item.field}
                           className={`p-2.5 rounded-xl border text-center ${
-                            darkMode ? 'bg-stone-900 border-stone-700' : 'bg-white border-stone-200'
+                            darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'
                           }`}
                         >
                           <div className="text-xs font-medium mb-1.5">{item.label}</div>
@@ -1325,7 +1305,7 @@ export default function FloodgateApp({
                               type="button"
                               aria-label={`Decrease ${item.label}`}
                               onClick={() => updateField(item.field, Math.max(0, (formData[item.field] || 0) - 1))}
-                              className="p-1.5 rounded-lg bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700"
+                              className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
                             >
                               <Minus className="w-3.5 h-3.5" />
                             </button>
@@ -1350,13 +1330,13 @@ export default function FloodgateApp({
                         formData.leakedThrough
                           ? 'bg-red-700 text-white border-red-800'
                           : darkMode
-                            ? 'bg-stone-900 border-stone-700 text-stone-300'
-                            : 'bg-white border-stone-200 text-stone-700'
+                            ? 'bg-slate-900 border-slate-700 text-slate-300'
+                            : 'bg-white border-slate-200 text-slate-700'
                       }`}
                     >
                       <span>Leaked through clothes or bedding today</span>
                       <div className={`w-5 h-5 rounded-md flex items-center justify-center ${
-                        formData.leakedThrough ? 'bg-white text-red-700' : 'border border-stone-300'
+                        formData.leakedThrough ? 'bg-white text-red-700' : 'border border-slate-300'
                       }`}>
                         {formData.leakedThrough && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                       </div>
@@ -1371,8 +1351,8 @@ export default function FloodgateApp({
                       ? 'bg-purple-950/30 border-purple-800/70'
                       : 'bg-purple-50/60 border-purple-200'
                     : darkMode
-                      ? 'bg-stone-800/40 border-stone-800'
-                      : 'bg-stone-50/70 border-stone-200/80'
+                      ? 'bg-slate-800/40 border-slate-800'
+                      : 'bg-slate-50/70 border-slate-200/80'
                 }`}>
                   <div className="flex items-center justify-between">
                     <div>
@@ -1387,16 +1367,16 @@ export default function FloodgateApp({
                       <p className="text-xs opacity-75">Did you pass any blood clots today?</p>
                     </div>
 
-                    <div className="flex rounded-xl p-1 bg-stone-200/70 dark:bg-stone-900">
+                    <div className="flex rounded-xl p-1 bg-slate-200/70 dark:bg-slate-900">
                       <button
                         type="button"
                         onClick={() => updateField('hasClots', false)}
                         className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                           !formData.hasClots
                             ? darkMode
-                              ? 'bg-stone-700 text-white shadow-2xs'
-                              : 'bg-white text-stone-800 shadow-2xs'
-                            : 'text-stone-500'
+                              ? 'bg-slate-700 text-white shadow-2xs'
+                              : 'bg-white text-slate-800 shadow-2xs'
+                            : 'text-slate-500'
                         }`}
                       >
                         No Clots
@@ -1410,7 +1390,7 @@ export default function FloodgateApp({
                         className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                           formData.hasClots
                             ? 'bg-purple-600 text-white shadow-2xs'
-                            : 'text-stone-500'
+                            : 'text-slate-500'
                         }`}
                       >
                         Yes, Clots
@@ -1427,7 +1407,7 @@ export default function FloodgateApp({
                             type="button"
                             aria-label="Decrease clot count"
                             onClick={() => updateField('clotCount', Math.max(1, (formData.clotCount || 1) - 1))}
-                            className="p-2 rounded-xl bg-white dark:bg-stone-800 border border-purple-200 dark:border-stone-700 hover:bg-purple-100 dark:hover:bg-stone-700"
+                            className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-purple-200 dark:border-slate-700 hover:bg-purple-100 dark:hover:bg-slate-700"
                           >
                             <Minus className="w-4 h-4" />
                           </button>
@@ -1459,8 +1439,8 @@ export default function FloodgateApp({
                                   selected
                                     ? 'bg-purple-700 text-white border-purple-700'
                                     : darkMode
-                                      ? 'bg-stone-900 border-stone-700 text-stone-200'
-                                      : 'bg-white border-purple-200 text-stone-800 hover:bg-purple-50'
+                                      ? 'bg-slate-900 border-slate-700 text-slate-200'
+                                      : 'bg-white border-purple-200 text-slate-800 hover:bg-purple-50'
                                 }`}
                               >
                                 <div className="text-xs font-bold">{sz.label}</div>
@@ -1479,7 +1459,7 @@ export default function FloodgateApp({
 
               {/* 2. PAIN & PELVIC SYMPTOMS CARD */}
               <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-5 ${
-                darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
+                darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
@@ -1488,7 +1468,7 @@ export default function FloodgateApp({
                     </div>
                     <div>
                       <h3 className="text-base sm:text-lg font-bold">Endo Pain &amp; Cramping</h3>
-                      <p className={`text-xs ${darkMode ? 'text-stone-400' : 'text-stone-500'}`}>
+                      <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                         Severity scale (0–10), body locations &amp; pain sensations
                       </p>
                     </div>
@@ -1511,7 +1491,7 @@ export default function FloodgateApp({
                     step="1"
                     value={formData.painScore}
                     onChange={(e) => updateField('painScore', Number(e.target.value))}
-                    className="w-full accent-rose-600 h-2.5 bg-stone-200 dark:bg-stone-700 rounded-lg cursor-pointer"
+                    className="w-full accent-rose-600 h-2.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
                   />
                   <div className="grid grid-cols-11 gap-1">
                     {Array.from({ length: 11 }).map((_, num) => {
@@ -1525,8 +1505,8 @@ export default function FloodgateApp({
                             active
                               ? 'bg-rose-600 text-white border-rose-600 scale-105 shadow-xs'
                               : darkMode
-                                ? 'bg-stone-800 border-stone-700 text-stone-300 hover:bg-stone-700'
-                                : 'bg-stone-50 border-stone-200 text-stone-700 hover:bg-rose-50'
+                                ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                                : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-rose-50'
                           }`}
                         >
                           {num}
@@ -1552,8 +1532,8 @@ export default function FloodgateApp({
                             active
                               ? 'bg-amber-600 text-white border-amber-700 shadow-2xs'
                               : darkMode
-                                ? 'bg-stone-800 border-stone-700 text-stone-300 hover:bg-stone-700'
-                                : 'bg-stone-50 border-stone-200 text-stone-700 hover:bg-amber-50'
+                                ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                                : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-amber-50'
                           }`}
                         >
                           {loc}
@@ -1579,10 +1559,10 @@ export default function FloodgateApp({
                             active
                               ? darkMode
                                 ? 'bg-rose-600 text-white border-rose-500'
-                                : 'bg-stone-800 text-white border-stone-900'
+                                : 'bg-slate-800 text-white border-slate-900'
                               : darkMode
-                                ? 'bg-stone-800/50 border-stone-700 text-stone-300'
-                                : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-100'
+                                ? 'bg-slate-800/50 border-slate-700 text-slate-300'
+                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
                           }`}
                         >
                           {pt}
@@ -1595,7 +1575,7 @@ export default function FloodgateApp({
 
               {/* 3. BOWEL & GI ISSUES CARD */}
               <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-5 ${
-                darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
+                darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
@@ -1604,7 +1584,7 @@ export default function FloodgateApp({
                     </div>
                     <div>
                       <h3 className="text-base sm:text-lg font-bold">Bowel &amp; GI Symptoms</h3>
-                      <p className={`text-xs ${darkMode ? 'text-stone-400' : 'text-stone-500'}`}>
+                      <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                         &ldquo;Endo belly&rdquo; bloating, bowel pain &amp; digestive changes
                       </p>
                     </div>
@@ -1627,8 +1607,8 @@ export default function FloodgateApp({
                             active
                               ? sev.activeColor + ' shadow-xs'
                               : darkMode
-                                ? 'bg-stone-800 border-stone-700 text-stone-300'
-                                : 'bg-stone-50 border-stone-200 text-stone-700 hover:bg-stone-100'
+                                ? 'bg-slate-800 border-slate-700 text-slate-300'
+                                : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
                           }`}
                         >
                           {sev.label}
@@ -1659,8 +1639,8 @@ export default function FloodgateApp({
                             active
                               ? 'bg-orange-600 text-white border-orange-700 shadow-2xs'
                               : darkMode
-                                ? 'bg-stone-800 border-stone-700 text-stone-300 hover:bg-stone-700'
-                                : 'bg-stone-50 border-stone-200 text-stone-700 hover:bg-orange-50'
+                                ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                                : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-orange-50'
                           }`}
                         >
                           {sym}
@@ -1671,7 +1651,7 @@ export default function FloodgateApp({
                 </div>
 
                 <div className={`flex items-center justify-between p-3.5 rounded-2xl border ${
-                  darkMode ? 'bg-stone-800/50 border-stone-800' : 'bg-stone-50 border-stone-200/80'
+                  darkMode ? 'bg-slate-800/50 border-slate-800' : 'bg-slate-50 border-slate-200/80'
                 }`}>
                   <div>
                     <div className="text-xs font-bold">Bowel Movements Today</div>
@@ -1682,7 +1662,7 @@ export default function FloodgateApp({
                       type="button"
                       aria-label="Decrease bowel movements"
                       onClick={() => updateField('bowelMovementsCount', Math.max(0, (formData.bowelMovementsCount || 0) - 1))}
-                      className="p-2 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700"
+                      className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
                     >
                       <Minus className="w-4 h-4" />
                     </button>
@@ -1691,7 +1671,7 @@ export default function FloodgateApp({
                       type="button"
                       aria-label="Increase bowel movements"
                       onClick={() => updateField('bowelMovementsCount', (formData.bowelMovementsCount || 0) + 1)}
-                      className="p-2 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700"
+                      className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
                     >
                       <Plus className="w-4 h-4" />
                     </button>
@@ -1701,7 +1681,7 @@ export default function FloodgateApp({
 
               {/* 4. MEDICATIONS & EXTERNAL FACTORS CARD */}
               <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-5 ${
-                darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
+                darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}>
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2.5">
@@ -1710,7 +1690,7 @@ export default function FloodgateApp({
                     </div>
                     <div>
                       <h3 className="text-base sm:text-lg font-bold">Medication &amp; Relief</h3>
-                      <p className={`text-xs ${darkMode ? 'text-stone-400' : 'text-stone-500'}`}>
+                      <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                         Painkillers, hormones, heat therapy &amp; daily triggers
                       </p>
                     </div>
@@ -1736,8 +1716,8 @@ export default function FloodgateApp({
                         onClick={() => handleAddPresetMed(preset)}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
                           darkMode
-                            ? 'bg-stone-800 border-stone-700 text-stone-200 hover:bg-emerald-950 hover:border-emerald-700'
-                            : 'bg-stone-50 border-stone-200 text-stone-700 hover:bg-emerald-50 hover:border-emerald-300'
+                            ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-emerald-950 hover:border-emerald-700'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-emerald-50 hover:border-emerald-300'
                         }`}
                       >
                         <Plus className="w-3.5 h-3.5 text-emerald-600" />
@@ -1755,7 +1735,7 @@ export default function FloodgateApp({
                     value={customMedName}
                     onChange={(e) => setCustomMedName(e.target.value)}
                     className={`sm:col-span-4 px-3 py-2 rounded-xl text-xs border ${
-                      darkMode ? 'bg-stone-800 border-stone-700 text-white' : 'bg-stone-50 border-stone-200'
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'
                     }`}
                   />
                   <input
@@ -1764,7 +1744,7 @@ export default function FloodgateApp({
                     value={customMedDose}
                     onChange={(e) => setCustomMedDose(e.target.value)}
                     className={`sm:col-span-3 px-3 py-2 rounded-xl text-xs border ${
-                      darkMode ? 'bg-stone-800 border-stone-700 text-white' : 'bg-stone-50 border-stone-200'
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'
                     }`}
                   />
                   <input
@@ -1773,7 +1753,7 @@ export default function FloodgateApp({
                     value={customMedTime}
                     onChange={(e) => setCustomMedTime(e.target.value)}
                     className={`sm:col-span-2 px-3 py-2 rounded-xl text-xs border ${
-                      darkMode ? 'bg-stone-800 border-stone-700 text-white' : 'bg-stone-50 border-stone-200'
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'
                     }`}
                   />
                   <button
@@ -1791,7 +1771,7 @@ export default function FloodgateApp({
                       <div
                         key={med.id}
                         className={`flex flex-col gap-2 p-3 rounded-2xl border ${
-                          darkMode ? 'bg-stone-800/70 border-stone-700' : 'bg-emerald-50/40 border-emerald-200/80'
+                          darkMode ? 'bg-slate-800/70 border-slate-700' : 'bg-emerald-50/40 border-emerald-200/80'
                         }`}
                       >
                         <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2">
@@ -1806,7 +1786,7 @@ export default function FloodgateApp({
                               onChange={(e) => updateMedicationItem(med.id, 'dose', e.target.value)}
                               placeholder="Dose"
                               className={`w-24 px-2 py-1 rounded-lg text-xs border ${
-                                darkMode ? 'bg-stone-900 border-stone-700' : 'bg-white border-stone-200'
+                                darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'
                               }`}
                             />
                             <input
@@ -1815,13 +1795,13 @@ export default function FloodgateApp({
                               onChange={(e) => updateMedicationItem(med.id, 'timeNotes', e.target.value)}
                               placeholder="Time(s)"
                               className={`flex-1 min-w-[80px] px-2 py-1 rounded-lg text-xs border ${
-                                darkMode ? 'bg-stone-900 border-stone-700' : 'bg-white border-stone-200'
+                                darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'
                               }`}
                             />
                             <button
                               type="button"
                               onClick={() => removeMedicationItem(med.id)}
-                              className="p-1.5 text-stone-400 hover:text-red-600"
+                              className="p-1.5 text-slate-400 hover:text-red-600"
                               title="Remove medication"
                               aria-label={`Remove ${med.name}`}
                             >
@@ -1830,7 +1810,7 @@ export default function FloodgateApp({
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between pt-1.5 border-t border-emerald-200/40 dark:border-stone-700/60">
+                        <div className="flex items-center justify-between pt-1.5 border-t border-emerald-200/40 dark:border-slate-700/60">
                           <span className="text-[11px] opacity-70">Relief effectiveness:</span>
                           <div className="flex items-center gap-1">
                             {MED_EFFECTIVENESS.map((eff) => {
@@ -1844,8 +1824,8 @@ export default function FloodgateApp({
                                     active
                                       ? eff.activeClass
                                       : darkMode
-                                        ? 'bg-stone-900 border-stone-700 text-stone-400'
-                                        : 'bg-white border-stone-200 text-stone-600'
+                                        ? 'bg-slate-900 border-slate-700 text-slate-400'
+                                        : 'bg-white border-slate-200 text-slate-600'
                                   }`}
                                 >
                                   {eff.label}
@@ -1875,8 +1855,8 @@ export default function FloodgateApp({
                             active
                               ? 'bg-emerald-700 text-white border-emerald-800 shadow-2xs'
                               : darkMode
-                                ? 'bg-stone-800 border-stone-700 text-stone-300 hover:bg-stone-700'
-                                : 'bg-stone-50 border-stone-200 text-stone-700 hover:bg-emerald-50'
+                                ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                                : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-emerald-50'
                           }`}
                         >
                           {ef.label}
@@ -1890,7 +1870,7 @@ export default function FloodgateApp({
 
             {/* DAILY NOTES & SAVE BAR */}
             <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${
-              darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
+              darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
             }`}>
               <div className="flex items-center gap-2 mb-3">
                 <FileText className="w-5 h-5 text-rose-500" />
@@ -1903,12 +1883,12 @@ export default function FloodgateApp({
                 placeholder="Write any extra details about today (e.g. specific foods eaten, how sleep went, questions for the GP or gynecologist)..."
                 className={`w-full p-3.5 rounded-2xl text-sm border focus:outline-hidden focus:ring-2 focus:ring-rose-500 ${
                   darkMode
-                    ? 'bg-stone-800 border-stone-700 text-stone-100 placeholder-stone-500'
-                    : 'bg-stone-50/70 border-stone-200 text-stone-800 placeholder-stone-400'
+                    ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500'
+                    : 'bg-slate-50/70 border-slate-200 text-slate-800 placeholder-slate-400'
                 }`}
               />
 
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-4 pt-4 border-t border-stone-200/60 dark:border-stone-800">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-4 pt-4 border-t border-slate-200/60 dark:border-slate-800">
                 <div className="text-xs opacity-75 flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-rose-500" />
                   <span>
@@ -1936,7 +1916,7 @@ export default function FloodgateApp({
         {activeTab === 'calendar' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
             <div className={`lg:col-span-8 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${
-              darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
+              darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
             }`}>
               <div className="flex items-center justify-between mb-6">
                 <div>
@@ -1946,7 +1926,7 @@ export default function FloodgateApp({
                       year: 'numeric'
                     })}
                   </h2>
-                  <p className={`text-xs ${darkMode ? 'text-stone-400' : 'text-stone-500'}`}>
+                  <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                     Tap any date to inspect or edit {ownerName}&apos;s daily log
                   </p>
                 </div>
@@ -1962,7 +1942,7 @@ export default function FloodgateApp({
                       })
                     }
                     className={`p-2 rounded-xl border ${
-                      darkMode ? 'border-stone-700 hover:bg-stone-800' : 'border-stone-200 hover:bg-stone-100'
+                      darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-100'
                     }`}
                   >
                     <ChevronLeft className="w-5 h-5" />
@@ -1987,7 +1967,7 @@ export default function FloodgateApp({
                       })
                     }
                     className={`p-2 rounded-xl border ${
-                      darkMode ? 'border-stone-700 hover:bg-stone-800' : 'border-stone-200 hover:bg-stone-100'
+                      darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-100'
                     }`}
                   >
                     <ChevronRight className="w-5 h-5" />
@@ -1995,7 +1975,7 @@ export default function FloodgateApp({
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-4 text-xs mb-4 pb-3 border-b border-stone-200/60 dark:border-stone-800">
+              <div className="flex flex-wrap items-center gap-4 text-xs mb-4 pb-3 border-b border-slate-200/60 dark:border-slate-800">
                 <span className="flex items-center gap-1.5">
                   <span className="w-3 h-3 rounded-full bg-rose-500 inline-block" /> Period / Bleeding
                 </span>
@@ -2041,8 +2021,8 @@ export default function FloodgateApp({
                         isSelected
                           ? 'ring-2 ring-rose-600 border-rose-600 bg-rose-50/40 dark:bg-rose-950/30'
                           : darkMode
-                            ? 'bg-stone-800/50 border-stone-800 hover:bg-stone-800'
-                            : 'bg-stone-50/60 border-stone-200/70 hover:bg-white'
+                            ? 'bg-slate-800/50 border-slate-800 hover:bg-slate-800'
+                            : 'bg-slate-50/60 border-slate-200/70 hover:bg-white'
                       }`}
                     >
                       <div className="flex items-center justify-between w-full">
@@ -2085,10 +2065,10 @@ export default function FloodgateApp({
             </div>
 
             <div className={`lg:col-span-4 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between ${
-              darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
+              darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
             }`}>
               <div className="space-y-5">
-                <div className="flex items-center justify-between border-b pb-4 border-stone-200/60 dark:border-stone-800">
+                <div className="flex items-center justify-between border-b pb-4 border-slate-200/60 dark:border-slate-800">
                   <div>
                     <span className="text-xs font-semibold uppercase tracking-wider text-rose-500">
                       Selected Date
@@ -2106,7 +2086,7 @@ export default function FloodgateApp({
                 {logsMap[selectedDate] ? (
                   <div className="space-y-4 text-sm">
                     <div className={`p-3.5 rounded-2xl border ${
-                      darkMode ? 'bg-stone-800/60 border-stone-700' : 'bg-rose-50/50 border-rose-100'
+                      darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-rose-50/50 border-rose-100'
                     }`}>
                       <div className="text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
                         Bleeding &amp; Clots
@@ -2116,7 +2096,7 @@ export default function FloodgateApp({
                         {logsMap[selectedDate].leakedThrough && ' (Flooded/Leaked)'}
                       </div>
                       {logsMap[selectedDate].hasClots ? (
-                        <div className="mt-2 pt-2 border-t border-rose-200/50 dark:border-stone-700 text-purple-700 dark:text-purple-300 font-semibold text-xs">
+                        <div className="mt-2 pt-2 border-t border-rose-200/50 dark:border-slate-700 text-purple-700 dark:text-purple-300 font-semibold text-xs">
                           Clots: {logsMap[selectedDate].clotCount} passed ({(logsMap[selectedDate].clotSizes || []).join(', ') || 'size not specified'})
                         </div>
                       ) : (
@@ -2125,7 +2105,7 @@ export default function FloodgateApp({
                     </div>
 
                     <div className={`p-3.5 rounded-2xl border ${
-                      darkMode ? 'bg-stone-800/60 border-stone-700' : 'bg-amber-50/40 border-amber-100'
+                      darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-amber-50/40 border-amber-100'
                     }`}>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-bold uppercase tracking-wider opacity-70">Pain Level</span>
@@ -2141,7 +2121,7 @@ export default function FloodgateApp({
                     </div>
 
                     <div className={`p-3.5 rounded-2xl border ${
-                      darkMode ? 'bg-stone-800/60 border-stone-700' : 'bg-orange-50/40 border-orange-100'
+                      darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-orange-50/40 border-orange-100'
                     }`}>
                       <div className="text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
                         Bowel &amp; GI ({logsMap[selectedDate].bowelSeverity})
@@ -2155,7 +2135,7 @@ export default function FloodgateApp({
                   </div>
                 ) : (
                   <div className="py-12 text-center space-y-3">
-                    <CalendarIcon className="w-10 h-10 mx-auto text-stone-300 dark:text-stone-700" />
+                    <CalendarIcon className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700" />
                     <p className="text-sm font-medium">No symptoms logged for this date yet.</p>
                     <button
                       onClick={() => handleSwitchTab('log')}
@@ -2167,7 +2147,7 @@ export default function FloodgateApp({
                 )}
               </div>
 
-              <div className="pt-4 mt-6 border-t border-stone-200/60 dark:border-stone-800 text-xs opacity-70 flex items-center justify-between">
+              <div className="pt-4 mt-6 border-t border-slate-200/60 dark:border-slate-800 text-xs opacity-70 flex items-center justify-between">
                 <span>Total days tracked: {Object.keys(logsMap).length}</span>
                 <button
                   onClick={() => handleSwitchTab('insights')}
@@ -2186,14 +2166,14 @@ export default function FloodgateApp({
         {activeTab === 'insights' && (
           <div className="space-y-4 sm:space-y-5">
             <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 no-print ${
-              darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
+              darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
             }`}>
               <div>
                 <h2 className="text-xl font-bold flex items-center gap-2">
                   <Stethoscope className="w-5 h-5 text-rose-600" />
                   <span>{ownerName}&apos;s Endometriosis Insights &amp; GP Report</span>
                 </h2>
-                <p className={`text-xs ${darkMode ? 'text-stone-400' : 'text-stone-500'}`}>
+                <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                   Symptom correlations, clot tracking &amp; printable clinical summary
                 </p>
               </div>
@@ -2212,8 +2192,8 @@ export default function FloodgateApp({
                       insightsDays === opt.days
                         ? 'bg-rose-600 text-white border-rose-600'
                         : darkMode
-                          ? 'bg-stone-800 border-stone-700 text-stone-300'
-                          : 'bg-stone-50 border-stone-200 text-stone-700'
+                          ? 'bg-slate-800 border-slate-700 text-slate-300'
+                          : 'bg-slate-50 border-slate-200 text-slate-700'
                     }`}
                   >
                     {opt.label}
@@ -2224,8 +2204,8 @@ export default function FloodgateApp({
                   onClick={() => window.print()}
                   className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer ${
                     darkMode
-                      ? 'bg-stone-100 text-stone-900 hover:bg-white'
-                      : 'bg-stone-800 text-white hover:bg-stone-900'
+                      ? 'bg-slate-100 text-slate-900 hover:bg-white'
+                      : 'bg-slate-800 text-white hover:bg-slate-900'
                   }`}
                 >
                   <Printer className="w-4 h-4" />
@@ -2238,14 +2218,14 @@ export default function FloodgateApp({
               <h1 className="text-2xl font-bold">
                 Floodgate Clinical Symptom Summary — {ownerName}
               </h1>
-              <p className="text-sm text-stone-600">
+              <p className="text-sm text-slate-600">
                 Report Window: Last {insightsDays} Days (Generated {formatDateFriendly(todayKey)})
               </p>
             </div>
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
               <div className={`p-4 sm:p-5 rounded-2xl sm:rounded-3xl border shadow-xs ${
-                darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100'
+                darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}>
                 <div className="text-xs font-semibold uppercase tracking-wider text-rose-600 mb-1">
                   Bleeding Days
@@ -2257,7 +2237,7 @@ export default function FloodgateApp({
               </div>
 
               <div className={`p-4 sm:p-5 rounded-2xl sm:rounded-3xl border shadow-xs ${
-                darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100'
+                darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}>
                 <div className="text-xs font-semibold uppercase tracking-wider text-purple-600 mb-1">
                   Blood Clot Episodes
@@ -2269,7 +2249,7 @@ export default function FloodgateApp({
               </div>
 
               <div className={`p-4 sm:p-5 rounded-2xl sm:rounded-3xl border shadow-xs ${
-                darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100'
+                darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}>
                 <div className="text-xs font-semibold uppercase tracking-wider text-amber-600 mb-1">
                   Average Pain Score
@@ -2281,7 +2261,7 @@ export default function FloodgateApp({
               </div>
 
               <div className={`p-4 sm:p-5 rounded-2xl sm:rounded-3xl border shadow-xs ${
-                darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100'
+                darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}>
                 <div className="text-xs font-semibold uppercase tracking-wider text-orange-600 mb-1">
                   Bowel / GI Flare Days
@@ -2323,7 +2303,7 @@ export default function FloodgateApp({
                 <div
                   key={panel.title}
                   className={`p-4 rounded-2xl sm:rounded-3xl border shadow-xs ${
-                    darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100'
+                    darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
                   }`}
                 >
                   <h3 className="text-xs font-bold uppercase tracking-wider opacity-75 mb-2.5">
@@ -2349,7 +2329,7 @@ export default function FloodgateApp({
             </div>
 
             <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${
-              darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
+              darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
             }`}>
               <h3 className="text-base sm:text-lg font-bold mb-4">
                 Chronological Consultation Table ({insightsData.periodLogs.length} Logged Days)
@@ -2358,7 +2338,7 @@ export default function FloodgateApp({
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
-                      <tr className="border-b border-stone-200 dark:border-stone-800 opacity-75">
+                      <tr className="border-b border-slate-200 dark:border-slate-800 opacity-75">
                         <th className="py-2.5 pr-3">Date</th>
                         <th className="py-2.5 px-3">Bleeding &amp; Protection</th>
                         <th className="py-2.5 px-3">Clots</th>
@@ -2367,7 +2347,7 @@ export default function FloodgateApp({
                         <th className="py-2.5 pl-3">Medications &amp; Notes</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-stone-200/60 dark:divide-stone-800">
+                    <tbody className="divide-y divide-slate-200/60 dark:divide-slate-800">
                       {[...insightsData.periodLogs].reverse().map((l) => {
                         const padN = Number(l.padCount) || 0;
                         const tamponN = Number(l.tamponCount) || 0;
@@ -2445,11 +2425,11 @@ export default function FloodgateApp({
           <div className="space-y-4 sm:space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
               <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between space-y-4 ${
-                darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
+                darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}>
                 <div>
                   <h3 className="text-base font-bold mb-1">Clinical Spreadsheet &amp; JSON Export</h3>
-                  <p className={`text-xs ${darkMode ? 'text-stone-400' : 'text-stone-500'}`}>
+                  <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                     Download your Floodgate symptom history as a standalone JSON backup or as a CSV spreadsheet for your GP or specialist.
                   </p>
                 </div>
@@ -2459,8 +2439,8 @@ export default function FloodgateApp({
                     onClick={exportJSON}
                     className={`flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold cursor-pointer ${
                       darkMode
-                        ? 'bg-stone-100 text-stone-900 hover:bg-white'
-                        : 'bg-stone-800 text-white hover:bg-stone-900'
+                        ? 'bg-slate-100 text-slate-900 hover:bg-white'
+                        : 'bg-slate-800 text-white hover:bg-slate-900'
                     }`}
                   >
                     <Download className="w-4 h-4" />
@@ -2475,8 +2455,8 @@ export default function FloodgateApp({
                   </button>
                 </div>
 
-                <div className="pt-3 border-t border-stone-200/60 dark:border-stone-800">
-                  <label className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 text-xs font-semibold cursor-pointer hover:bg-stone-50 dark:hover:bg-stone-800">
+                <div className="pt-3 border-t border-slate-200/60 dark:border-slate-800">
+                  <label className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-xs font-semibold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
                     <Upload className="w-4 h-4 text-rose-600" />
                     <span>Restore / Merge from Floodgate JSON File</span>
                     <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
@@ -2486,20 +2466,20 @@ export default function FloodgateApp({
 
               {/* Howard Unified Backstage Card (Replaces Legacy Webhook) */}
               <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between space-y-4 ${
-                darkMode ? 'bg-stone-900 border-stone-800' : 'bg-white border-rose-100/80'
+                darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}>
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <Database className="w-4 h-4 text-rose-600" />
                     <h3 className="text-base font-bold">Howard Unified Household Storage</h3>
                   </div>
-                  <p className={`text-xs ${darkMode ? 'text-stone-400' : 'text-stone-500'}`}>
+                  <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                     Floodgate runs natively inside Howard on your home server (<code className="font-mono">data/floodgate.db</code>). You can also snapshot the entire household in one click.
                   </p>
                 </div>
 
                 <div className={`p-3.5 rounded-2xl border text-xs space-y-1.5 ${
-                  darkMode ? 'bg-stone-800/50 border-stone-700' : 'bg-stone-50 border-stone-200'
+                  darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
                 }`}>
                   <div className="flex justify-between">
                     <span className="font-semibold">Database File:</span>
@@ -2523,6 +2503,6 @@ export default function FloodgateApp({
           </div>
         )}
       </main>
-    </div>
+    </>
   );
 }

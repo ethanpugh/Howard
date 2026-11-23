@@ -1,6 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -372,6 +373,9 @@ bloomDb.exec(`
     data TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+
+  CREATE INDEX IF NOT EXISTS idx_molt_logs_date_updated ON molt_logs (date_key DESC, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_feeder_cultures_updated ON feeder_cultures (updated_at DESC);
 `);
 
 const bloomGetSettingsStmt = bloomDb.prepare('SELECT data, updated_at FROM bloom_settings WHERE id = ?');
@@ -525,6 +529,9 @@ howardDb.exec(`
     data TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+
+  CREATE INDEX IF NOT EXISTS idx_almanac_events_date_updated ON almanac_events (date_key ASC, updated_at ASC);
+  CREATE INDEX IF NOT EXISTS idx_ledger_items_kind_updated ON ledger_items (kind, updated_at DESC);
 `);
 
 const howardGetStmt = howardDb.prepare('SELECT data, updated_at FROM howard_store WHERE key = ?');
@@ -868,7 +875,6 @@ ensureSchemaVersion(cadenceDb, 1);
 ensureSchemaVersion(floodgateDb, 1);
 ensureSchemaVersion(bloomDb, 1);
 ensureSchemaVersion(howardDb, 2);
-runDailyBackupSnapshots();
 setInterval(runDailyBackupSnapshots, 6 * 3600 * 1000).unref?.();
 
 function readAlmanacEventsFromTable() {
@@ -934,7 +940,9 @@ function readLedgerDataFromTable() {
   }
 
   expenses.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  recurring.reverse();
+  recurring.sort(
+    (a, b) => (a.title || '').localeCompare(b.title || '') || (a.id || '').localeCompare(b.id || '')
+  );
 
   return {
     ledgerData: {
@@ -989,56 +997,197 @@ function replaceAllLedgerDataInTable(
   return { ledgerData: normalized, updatedAt: nowIso };
 }
 
-function readHowardState() {
-  const profilesObj = readHowardKey('profiles', DEFAULT_PROFILES);
-  const eventsObj = readAlmanacEventsFromTable();
-  const ledgerObj = readLedgerDataFromTable();
-  const beaconObj = readHowardKey('beacon_info', DEFAULT_BEACON_INFO);
-
-  const latest = [
-    profilesObj.updatedAt,
-    eventsObj.updatedAt,
-    ledgerObj.updatedAt,
-    beaconObj.updatedAt
-  ]
-    .filter(Boolean)
-    .sort()
-    .pop() || new Date().toISOString();
-
-  return {
-    profiles: sanitizeProfilesForClient(profilesObj.data),
-    almanacEvents: eventsObj.events,
-    ledgerData: ledgerObj.ledgerData,
-    beaconInfo: normalizeBeaconInfo(beaconObj.data),
-    updatedAt: latest
-  };
-}
-
 // ============================================================================
-// IN-MEMORY DOMAIN CACHE & INCREMENTAL SYNC TOKEN
+// IN-MEMORY DOMAIN CACHE, PER-DOMAIN REVISION TOKENS & SSE PUSH HUB
 // ============================================================================
 const SERVER_BOOT_ID = Date.now().toString(36);
-let revisionCounter = 1;
-let cacheHoward = null;
+const domainRevisions = {
+  howard: 1,
+  cadence: 1,
+  bloom: 1,
+  floodgate: 1
+};
+let cacheHowardProfiles = null;
+let cacheHowardAlmanac = null;
+let cacheHowardLedger = null;
+let cacheHowardBeacon = null;
+let cacheHowardCombined = null;
 let cacheCadence = null;
 let cacheBloom = null;
 let cacheFloodgate = null;
 
-function bumpRevision(domain = 'all') {
-  revisionCounter += 1;
-  if (domain === 'howard' || domain === 'all') cacheHoward = null;
-  if (domain === 'cadence' || domain === 'all') cacheCadence = null;
-  if (domain === 'bloom' || domain === 'all') cacheBloom = null;
-  if (domain === 'floodgate' || domain === 'all') cacheFloodgate = null;
+const sseClients = new Set();
+
+function getCachedHowardProfiles() {
+  if (!cacheHowardProfiles) {
+    const profilesObj = readHowardKey('profiles', DEFAULT_PROFILES);
+    cacheHowardProfiles = {
+      profiles: sanitizeProfilesForClient(profilesObj.data),
+      updatedAt: profilesObj.updatedAt
+    };
+  }
+  return cacheHowardProfiles;
 }
 
-function getSyncTokenForProfile(profileId) {
-  return `${SERVER_BOOT_ID}:${profileId || 'caregiver'}:${revisionCounter}`;
+function getCachedHowardAlmanac() {
+  if (!cacheHowardAlmanac) {
+    const eventsObj = readAlmanacEventsFromTable();
+    cacheHowardAlmanac = {
+      almanacEvents: eventsObj.events,
+      updatedAt: eventsObj.updatedAt
+    };
+  }
+  return cacheHowardAlmanac;
+}
+
+function getCachedHowardLedger() {
+  if (!cacheHowardLedger) {
+    cacheHowardLedger = readLedgerDataFromTable();
+  }
+  return cacheHowardLedger;
+}
+
+function getCachedHowardBeacon() {
+  if (!cacheHowardBeacon) {
+    const beaconObj = readHowardKey('beacon_info', DEFAULT_BEACON_INFO);
+    cacheHowardBeacon = {
+      beaconInfo: normalizeBeaconInfo(beaconObj.data),
+      updatedAt: beaconObj.updatedAt
+    };
+  }
+  return cacheHowardBeacon;
 }
 
 function getCachedHowardState() {
-  if (!cacheHoward) cacheHoward = readHowardState();
-  return cacheHoward;
+  if (!cacheHowardCombined) {
+    const p = getCachedHowardProfiles();
+    const a = getCachedHowardAlmanac();
+    const l = getCachedHowardLedger();
+    const b = getCachedHowardBeacon();
+    const latest =
+      [p.updatedAt, a.updatedAt, l.updatedAt, b.updatedAt].filter(Boolean).sort().pop() ||
+      new Date().toISOString();
+    cacheHowardCombined = {
+      profiles: p.profiles,
+      almanacEvents: a.almanacEvents,
+      ledgerData: l.ledgerData,
+      beaconInfo: b.beaconInfo,
+      updatedAt: latest
+    };
+  }
+  return cacheHowardCombined;
+}
+
+function getSyncTokenForProfile(profileId) {
+  const safeProfile = profileId || 'caregiver';
+  const fgRev = safeProfile === 'partner2' ? domainRevisions.floodgate : 0;
+  return `${SERVER_BOOT_ID}:${safeProfile}:${domainRevisions.howard}.${domainRevisions.cadence}.${domainRevisions.bloom}.${fgRev}`;
+}
+
+function parseSyncToken(token, expectedProfile) {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split(':');
+  if (parts.length !== 3) return null;
+  const [bootId, profilePart, revPart] = parts;
+  if (bootId !== SERVER_BOOT_ID || profilePart !== (expectedProfile || 'caregiver')) {
+    return null;
+  }
+  const revSegments = revPart.split('.');
+  if (revSegments.length !== 4) return null;
+  const nums = revSegments.map((s) => Number(s));
+  if (nums.some((n) => !Number.isInteger(n) || n < 0)) return null;
+  return {
+    howard: nums[0],
+    cadence: nums[1],
+    bloom: nums[2],
+    floodgate: nums[3]
+  };
+}
+
+function broadcastSseEvent(domain) {
+  for (const client of sseClients) {
+    if (domain === 'floodgate' && client.profileId !== 'partner2') continue;
+    try {
+      if (client.res.writableEnded || client.res.destroyed) {
+        sseClients.delete(client);
+        continue;
+      }
+      client.res.write(
+        `event: sync\ndata: ${JSON.stringify({
+          domain,
+          syncToken: getSyncTokenForProfile(client.profileId)
+        })}\n\n`
+      );
+    } catch {
+      sseClients.delete(client);
+      try {
+        client.res.end();
+      } catch {
+        // ignore close error
+      }
+    }
+  }
+}
+
+const sseHeartbeatTimer = setInterval(() => {
+  for (const client of sseClients) {
+    try {
+      if (client.res.writableEnded || client.res.destroyed) {
+        sseClients.delete(client);
+        continue;
+      }
+      client.res.write(': ping\n\n');
+    } catch {
+      sseClients.delete(client);
+    }
+  }
+}, 25000);
+sseHeartbeatTimer.unref?.();
+
+function bumpRevision(domain = 'all') {
+  const broadcastDomains = [];
+  if (domain === 'profiles' || domain === 'howard' || domain === 'all') {
+    cacheHowardProfiles = null;
+  }
+  if (domain === 'almanac' || domain === 'howard' || domain === 'all') {
+    cacheHowardAlmanac = null;
+  }
+  if (domain === 'ledger' || domain === 'howard' || domain === 'all') {
+    cacheHowardLedger = null;
+  }
+  if (domain === 'beacon' || domain === 'howard' || domain === 'all') {
+    cacheHowardBeacon = null;
+  }
+  if (
+    domain === 'profiles' ||
+    domain === 'almanac' ||
+    domain === 'ledger' ||
+    domain === 'beacon' ||
+    domain === 'howard' ||
+    domain === 'all'
+  ) {
+    cacheHowardCombined = null;
+    domainRevisions.howard += 1;
+    broadcastDomains.push('howard');
+  }
+  if (domain === 'cadence' || domain === 'all') {
+    cacheCadence = null;
+    domainRevisions.cadence += 1;
+    broadcastDomains.push('cadence');
+  }
+  if (domain === 'bloom' || domain === 'all') {
+    cacheBloom = null;
+    domainRevisions.bloom += 1;
+    broadcastDomains.push('bloom');
+  }
+  if (domain === 'floodgate' || domain === 'all') {
+    cacheFloodgate = null;
+    domainRevisions.floodgate += 1;
+    broadcastDomains.push('floodgate');
+  }
+  if (broadcastDomains.length > 0) {
+    broadcastSseEvent(broadcastDomains.length > 1 ? 'all' : broadcastDomains[0]);
+  }
 }
 
 function getCachedCadenceState() {
@@ -1076,14 +1225,30 @@ function getCachedFloodgateState() {
 // HTTP HELPERS & STATIC FILE SERVER
 // ============================================================================
 function sendJson(res, statusCode, payload, extraHeaders = {}) {
-  const body = JSON.stringify(payload);
+  const rawBuf = Buffer.from(JSON.stringify(payload), 'utf8');
+  const wantsGzip =
+    rawBuf.length >= 1024 && /\bgzip\b/i.test(String(res.__acceptEncoding || ''));
+  if (wantsGzip) {
+    const gzBuf = zlib.gzipSync(rawBuf);
+    res.writeHead(statusCode, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'Content-Encoding': 'gzip',
+      Vary: 'Accept-Encoding',
+      'Content-Length': gzBuf.length,
+      ...extraHeaders
+    });
+    res.end(gzBuf);
+    return;
+  }
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store, no-cache, must-revalidate',
-    'Content-Length': Buffer.byteLength(body),
+    Vary: 'Accept-Encoding',
+    'Content-Length': rawBuf.length,
     ...extraHeaders
   });
-  res.end(body);
+  res.end(rawBuf);
 }
 
 function safeDecodeUriSegment(raw) {
@@ -1209,6 +1374,7 @@ function serveStaticFile(res, filePath, isImmutableAsset = false, isHead = false
 // ============================================================================
 const server = http.createServer(async (req, res) => {
   try {
+    res.__acceptEncoding = String(req.headers['accept-encoding'] || '');
     let parsedUrl;
     try {
       parsedUrl = new URL(req.url || '/', 'http://localhost');
@@ -1241,28 +1407,95 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ------------------------------------------------------------------------
-    // 1. UNIFIED HOWARD SYNC ENDPOINT (Incremental syncToken + In-Memory Cache)
+    // 1. UNIFIED HOWARD LIVE SYNC & SSE EVENTS ENDPOINTS
     // ------------------------------------------------------------------------
+    if (pathname === '/api/howard/events' && req.method === 'GET') {
+      const activeProfile = parsedUrl.searchParams.get('profile') || 'caregiver';
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no'
+      });
+      res.flushHeaders?.();
+      const client = { res, profileId: activeProfile };
+      sseClients.add(client);
+      res.write(
+        `event: ready\ndata: ${JSON.stringify({ syncToken: getSyncTokenForProfile(activeProfile) })}\n\n`
+      );
+      const cleanup = () => {
+        sseClients.delete(client);
+      };
+      req.on('close', cleanup);
+      res.on('close', cleanup);
+      res.on('error', cleanup);
+      return;
+    }
+
     if (pathname === '/api/howard/sync' && req.method === 'GET') {
       const activeProfile = parsedUrl.searchParams.get('profile') || 'caregiver';
       const clientSince = parsedUrl.searchParams.get('since') || '';
       const syncToken = getSyncTokenForProfile(activeProfile);
+      const prev = parseSyncToken(clientSince, activeProfile);
 
-      if (clientSince && clientSince === syncToken) {
+      const curH = domainRevisions.howard;
+      const curC = domainRevisions.cadence;
+      const curB = domainRevisions.bloom;
+      const curF = activeProfile === 'partner2' ? domainRevisions.floodgate : 0;
+
+      if (
+        prev &&
+        prev.howard === curH &&
+        prev.cadence === curC &&
+        prev.bloom === curB &&
+        prev.floodgate === curF
+      ) {
         return sendJson(res, 200, {
           unchanged: true,
           syncToken
         });
       }
 
+      if (prev) {
+        const changedDomains = [];
+        const payload = {
+          unchanged: false,
+          partial: true,
+          syncToken,
+          changedDomains,
+          serverTime: new Date().toISOString()
+        };
+        if (prev.howard !== curH) {
+          payload.howard = getCachedHowardState();
+          changedDomains.push('howard');
+        }
+        if (prev.cadence !== curC) {
+          payload.cadence = getCachedCadenceState();
+          changedDomains.push('cadence');
+        }
+        if (prev.bloom !== curB) {
+          payload.bloom = getCachedBloomState();
+          changedDomains.push('bloom');
+        }
+        if (activeProfile === 'partner2' && prev.floodgate !== curF) {
+          payload.floodgate = getCachedFloodgateState();
+          changedDomains.push('floodgate');
+        }
+        return sendJson(res, 200, payload);
+      }
+
       const howardState = getCachedHowardState();
       const cadence = getCachedCadenceState();
       const bloom = getCachedBloomState();
       const floodgate = activeProfile === 'partner2' ? getCachedFloodgateState() : null;
+      const changedDomains = ['howard', 'cadence', 'bloom'];
+      if (floodgate) changedDomains.push('floodgate');
 
       return sendJson(res, 200, {
         unchanged: false,
+        partial: false,
         syncToken,
+        changedDomains,
         howard: howardState,
         cadence,
         bloom,
@@ -1320,7 +1553,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       writeHowardKey('profiles', profiles);
-      bumpRevision('howard');
+      bumpRevision('profiles');
       return sendJson(res, 200, { profiles: sanitizeProfilesForClient(profiles) });
     }
 
@@ -1477,8 +1710,8 @@ const server = http.createServer(async (req, res) => {
         }
       });
 
-      bumpRevision('howard');
-      const { almanacEvents } = getCachedHowardState();
+      bumpRevision('almanac');
+      const { almanacEvents } = getCachedHowardAlmanac();
       return sendJson(res, 200, { almanacEvents, updatedAt: nowIso });
     }
 
@@ -1497,13 +1730,13 @@ const server = http.createServer(async (req, res) => {
             : getLocalDateKey(new Date());
         const record = { ...evt, id: eventId, date: dateKey, updatedAt: nowIso };
         almanacUpsertStmt.run(eventId, dateKey, JSON.stringify(record), nowIso);
-        bumpRevision('howard');
+        bumpRevision('almanac');
         return sendJson(res, 200, { event: record, updatedAt: nowIso });
       }
 
       if (req.method === 'DELETE') {
         almanacDeleteStmt.run(eventId);
-        bumpRevision('howard');
+        bumpRevision('almanac');
         return sendJson(res, 200, { deleted: true, id: eventId, updatedAt: nowIso });
       }
     }
@@ -1515,8 +1748,8 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: 'Expected events array' });
       }
       const updatedAt = replaceAllAlmanacEventsInTable(incoming.events);
-      bumpRevision('howard');
-      return sendJson(res, 200, { almanacEvents: getCachedHowardState().almanacEvents, updatedAt });
+      bumpRevision('almanac');
+      return sendJson(res, 200, { almanacEvents: getCachedHowardAlmanac().almanacEvents, updatedAt });
     }
 
     // Ledger Bookkeeping — Split Rule Settings Update
@@ -1524,7 +1757,7 @@ const server = http.createServer(async (req, res) => {
       const incoming = await parseJsonBody(req);
       const splitRule = incoming.splitRule === 'proportional' ? 'proportional' : '50-50';
       const updatedAt = writeHowardKey('ledger_settings', { splitRule });
-      bumpRevision('howard');
+      bumpRevision('ledger');
       return sendJson(res, 200, { splitRule, updatedAt });
     }
 
@@ -1541,13 +1774,13 @@ const server = http.createServer(async (req, res) => {
         const rawItem = incoming.item || incoming;
         const record = { ...rawItem, id: itemId, updatedAt: nowIso };
         ledgerUpsertStmt.run(itemId, kind, JSON.stringify(record), nowIso);
-        bumpRevision('howard');
+        bumpRevision('ledger');
         return sendJson(res, 200, { id: itemId, kind, item: record, updatedAt: nowIso });
       }
 
       if (req.method === 'DELETE') {
         ledgerDeleteStmt.run(itemId);
-        bumpRevision('howard');
+        bumpRevision('ledger');
         return sendJson(res, 200, { deleted: true, id: itemId, updatedAt: nowIso });
       }
     }
@@ -1567,7 +1800,7 @@ const server = http.createServer(async (req, res) => {
         });
       }
       const { ledgerData: normalized, updatedAt } = replaceAllLedgerDataInTable(rawLedger);
-      bumpRevision('howard');
+      bumpRevision('ledger');
       return sendJson(res, 200, { ledgerData: normalized, updatedAt });
     }
 
@@ -1578,7 +1811,7 @@ const server = http.createServer(async (req, res) => {
       const { data: current } = readHowardKey('beacon_info', DEFAULT_BEACON_INFO);
       const updated = mergeBeaconInfo(current, patch);
       const updatedAt = writeHowardKey('beacon_info', updated);
-      bumpRevision('howard');
+      bumpRevision('beacon');
       return sendJson(res, 200, { beaconInfo: updated, updatedAt });
     }
 
@@ -1595,6 +1828,7 @@ const server = http.createServer(async (req, res) => {
         version: '1.1.0',
         exportedAt: new Date().toISOString(),
         howard: {
+          profiles: howardState.profiles,
           almanacEvents: howardState.almanacEvents,
           ledgerData: howardState.ledgerData,
           beaconInfo: howardState.beaconInfo
@@ -1642,6 +1876,9 @@ const server = http.createServer(async (req, res) => {
       // Pre-validate & normalize all payloads before touching any DB
       const howardPlan = hasHoward
         ? {
+            profiles: Array.isArray(incoming.howard.profiles)
+              ? incoming.howard.profiles.filter((p) => isPlainObject(p) && typeof p.id === 'string')
+              : null,
             events: Array.isArray(incoming.howard.almanacEvents)
               ? incoming.howard.almanacEvents
                   .filter((evt) => isPlainObject(evt))
@@ -1761,8 +1998,48 @@ const server = http.createServer(async (req, res) => {
 
       let anyDbTouched = false;
       try {
-        if (howardPlan && (howardPlan.events || howardPlan.ledger || howardPlan.beacon)) {
+        if (
+          howardPlan &&
+          (howardPlan.profiles || howardPlan.events || howardPlan.ledger || howardPlan.beacon)
+        ) {
           runInTransaction(howardDb, () => {
+            if (howardPlan.profiles) {
+              const incomingById = new Map(howardPlan.profiles.map((p) => [p.id, p]));
+              const { data: currentProfiles } = readHowardKey('profiles', DEFAULT_PROFILES);
+              const candidateProfiles = (
+                Array.isArray(currentProfiles) ? currentProfiles : DEFAULT_PROFILES
+              ).map((prof) => {
+                if (prof.id !== 'partner1' && prof.id !== 'partner2') return prof;
+                const inc = incomingById.get(prof.id);
+                if (!inc) return prof;
+                const cleanedName = typeof inc.name === 'string' ? inc.name.trim() : '';
+                const lowerName = cleanedName.toLowerCase();
+                const validName =
+                  cleanedName && lowerName !== 'both' && lowerName !== 'pets'
+                    ? cleanedName
+                    : prof.name;
+                const nextEmoji =
+                  typeof inc.badgeEmoji === 'string' && inc.badgeEmoji.trim()
+                    ? inc.badgeEmoji.trim()
+                    : prof.badgeEmoji;
+                return {
+                  ...prof,
+                  name: validName,
+                  caregiverName: validName,
+                  badgeEmoji: nextEmoji
+                };
+              });
+              const seenNames = new Set();
+              const hasDuplicateNames = candidateProfiles.some((p) => {
+                const key = String(p.name || '').trim().toLowerCase();
+                if (seenNames.has(key)) return true;
+                seenNames.add(key);
+                return false;
+              });
+              if (!hasDuplicateNames) {
+                howardUpsertStmt.run('profiles', JSON.stringify(candidateProfiles), nowIso);
+              }
+            }
             if (howardPlan.events) {
               if (!isMerge) almanacClearAllStmt.run();
               for (const item of howardPlan.events) {
@@ -2109,7 +2386,17 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: 'Invalid dateKey format (expected YYYY-MM-DD)' });
       }
       const incoming = await parseJsonBody(req);
-      const { settingsPatch, ...logPayload } = incoming || {};
+      const {
+        settingsPatch,
+        appendMist,
+        removeMistId,
+        appendFeeding,
+        removeFeedingId,
+        appendClimateCheck,
+        removeClimateCheckId,
+        toggleBehavior,
+        ...logPayload
+      } = incoming || {};
       const nowIso = new Date().toISOString();
 
       const { updatedRecord, updatedSettings } = runInTransaction(bloomDb, () => {
@@ -2128,6 +2415,90 @@ const server = http.createServer(async (req, res) => {
           dateKey,
           updatedAt: typeof logPayload.updatedAt === 'string' ? logPayload.updatedAt : nowIso
         };
+        nextRecord.mists = Array.isArray(nextRecord.mists) ? [...nextRecord.mists] : [];
+        nextRecord.feedings = Array.isArray(nextRecord.feedings) ? [...nextRecord.feedings] : [];
+        nextRecord.climateChecks = Array.isArray(nextRecord.climateChecks)
+          ? [...nextRecord.climateChecks]
+          : [];
+        nextRecord.behaviors = Array.isArray(nextRecord.behaviors)
+          ? [...nextRecord.behaviors]
+          : [];
+
+        if (isPlainObject(appendMist)) {
+          const mistId = String(
+            appendMist.id || `mist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+          );
+          const mistObj = {
+            ...appendMist,
+            id: mistId,
+            timestamp: appendMist.timestamp || nowIso
+          };
+          if (!nextRecord.mists.some((m) => m && m.id === mistId)) {
+            nextRecord.mists.push(mistObj);
+          }
+          if (mistObj.dropletDrinkObserved && !nextRecord.behaviors.includes('Drank Droplets')) {
+            nextRecord.behaviors.push('Drank Droplets');
+          }
+        }
+        if (removeMistId !== undefined && removeMistId !== null && String(removeMistId) !== '') {
+          const remId = String(removeMistId);
+          nextRecord.mists = nextRecord.mists.filter((m) => m && m.id !== remId);
+        }
+
+        if (isPlainObject(appendFeeding)) {
+          const feedId = String(
+            appendFeeding.id || `feed-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+          );
+          const feedObj = {
+            ...appendFeeding,
+            id: feedId,
+            timestamp: appendFeeding.timestamp || nowIso
+          };
+          if (!nextRecord.feedings.some((f) => f && f.id === feedId)) {
+            nextRecord.feedings.push(feedObj);
+          }
+        }
+        if (
+          removeFeedingId !== undefined &&
+          removeFeedingId !== null &&
+          String(removeFeedingId) !== ''
+        ) {
+          const remId = String(removeFeedingId);
+          nextRecord.feedings = nextRecord.feedings.filter((f) => f && f.id !== remId);
+        }
+
+        if (isPlainObject(appendClimateCheck)) {
+          const climId = String(
+            appendClimateCheck.id ||
+              `clim-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`
+          );
+          const climObj = {
+            ...appendClimateCheck,
+            id: climId,
+            timestamp: appendClimateCheck.timestamp || nowIso
+          };
+          if (!nextRecord.climateChecks.some((c) => c && c.id === climId)) {
+            nextRecord.climateChecks.push(climObj);
+          }
+        }
+        if (
+          removeClimateCheckId !== undefined &&
+          removeClimateCheckId !== null &&
+          String(removeClimateCheckId) !== ''
+        ) {
+          const remId = String(removeClimateCheckId);
+          nextRecord.climateChecks = nextRecord.climateChecks.filter((c) => c && c.id !== remId);
+        }
+
+        if (typeof toggleBehavior === 'string' && toggleBehavior.trim()) {
+          const tag = toggleBehavior.trim();
+          if (nextRecord.behaviors.includes(tag)) {
+            nextRecord.behaviors = nextRecord.behaviors.filter((b) => b !== tag);
+          } else {
+            nextRecord.behaviors.push(tag);
+          }
+        }
+
         bloomUpsertLogStmt.run(dateKey, JSON.stringify(nextRecord), nextRecord.updatedAt);
 
         let nextSettings = null;
@@ -2342,18 +2713,35 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`   • Cadence:   ${CADENCE_DB_PATH}`);
   console.log(`   • Bloom:     ${BLOOM_DB_PATH}`);
   console.log(`   • Floodgate: ${FLOODGATE_DB_PATH}`);
+  setTimeout(runDailyBackupSnapshots, 2000).unref?.();
 });
 
 let isShuttingDown = false;
 const shutdown = () => {
   if (isShuttingDown) return;
   isShuttingDown = true;
+  clearInterval(sseHeartbeatTimer);
+  for (const client of sseClients) {
+    try {
+      client.res.end();
+    } catch {
+      // ignore close errors
+    }
+  }
+  sseClients.clear();
   const forceTimer = setTimeout(() => {
     server.closeAllConnections?.();
   }, 2500);
   forceTimer.unref?.();
   server.close(() => {
     clearTimeout(forceTimer);
+    for (const dbInstance of [howardDb, cadenceDb, floodgateDb, bloomDb]) {
+      try {
+        dbInstance.exec('PRAGMA optimize;');
+      } catch {
+        // ignore optimize errors
+      }
+    }
     checkpointAllDatabases();
     for (const dbInstance of [howardDb, cadenceDb, floodgateDb, bloomDb]) {
       try {

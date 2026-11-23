@@ -406,7 +406,7 @@ export default function BeaconApp({
                     ...draft,
                     contacts: [
                       ...(draft.contacts || []),
-                      { id: `c-${Date.now()}`, name: '', phone: '', note: '' }
+                      { id: `c-${Date.now()}`, name: '', role: '', phone: '', note: '' }
                     ]
                   })
                 }
@@ -431,6 +431,17 @@ export default function BeaconApp({
                 />
                 <input
                   type="text"
+                  value={contact.role || ''}
+                  onChange={(e) => {
+                    const next = [...(draft.contacts || [])];
+                    next[idx] = { ...next[idx], role: e.target.value };
+                    setDraft({ ...draft, contacts: next });
+                  }}
+                  placeholder="Role (e.g. Member / Neighbour)"
+                  className="sm:col-span-3 px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                />
+                <input
+                  type="text"
                   value={contact.phone || ''}
                   onChange={(e) => {
                     const next = [...(draft.contacts || [])];
@@ -438,7 +449,7 @@ export default function BeaconApp({
                     setDraft({ ...draft, contacts: next });
                   }}
                   placeholder="Phone Number"
-                  className="sm:col-span-4 px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                  className="sm:col-span-3 px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
                 />
                 <input
                   type="text"
@@ -449,7 +460,7 @@ export default function BeaconApp({
                     setDraft({ ...draft, contacts: next });
                   }}
                   placeholder="Note (e.g., WhatsApp anytime)"
-                  className="sm:col-span-4 px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                  className="sm:col-span-2 px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
                 />
                 <button
                   type="button"
@@ -653,8 +664,15 @@ export default function BeaconApp({
                       }`}
                     >
                       <div className="min-w-0">
-                        <div className="font-bold text-sm truncate">
-                          {c.name?.trim() || 'Household Contact'}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-bold text-sm truncate">
+                            {c.name?.trim() || 'Household Contact'}
+                          </span>
+                          {c.role?.trim() && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/25 shrink-0">
+                              {c.role.trim()}
+                            </span>
+                          )}
                         </div>
                         {c.note?.trim() && (
                           <div className="text-[11px] text-slate-500">{c.note}</div>

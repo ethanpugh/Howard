@@ -57,7 +57,7 @@ Howard keeps four clean SQLite files inside `./data` (`/app/data` in Docker):
 * `./data/bloom.db` — Mantis specimen settings, daily misting/feeding/climate care logs, molt milestones, and feeder cultures.
 * `./data/floodgate.db` — Schema-compatible with standalone Floodgate backups.
 
-> **Backup & Restore Modes:** The in-app Backup & Restore modal performs a full **replace** restore from a JSON snapshot. Non-destructive **`mode: "merge"`** restores (preserving existing records) and partial section updates are available via `POST /api/backup/restore`.
+> **Backup & Restore Modes:** The in-app Backup & Restore modal performs a full **replace** restore from a JSON snapshot. Non-destructive **`mode: "merge"`** restores (preserving existing records) and partial section updates are available via `POST /api/howard/restore`.
 
 ### 📦 Automatic Daily Snapshots & Safe Folder Copies
 

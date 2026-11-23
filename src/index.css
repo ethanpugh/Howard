@@ -1,6 +1,13 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}
+
 /* ============================================================================
    1. SOFTENED SLATE DARK MODE (html.dark) — MORE LEGIBLE & LESS PITCH-BLACK
 ============================================================================ */
@@ -73,12 +80,15 @@ html.dark textarea::placeholder {
   color: #94a3b8 !important;
 }
 
-/* Boost Muted Secondary Text & Borders for Clear Readability */
-html.dark .text-slate-400:not(:hover),
-html.dark .text-stone-400:not(:hover),
+/* Boost Muted Secondary Text & Borders while preserving visual hierarchy */
 html.dark .text-slate-500:not(:hover),
 html.dark .text-stone-500:not(:hover) {
-  color: #cbd5e1 !important;
+  color: #94a3b8 !important;
+}
+
+html.dark .text-slate-400:not(:hover),
+html.dark .text-stone-400:not(:hover) {
+  color: #b6c4d8 !important;
 }
 
 html.dark .text-slate-300:not(:hover),

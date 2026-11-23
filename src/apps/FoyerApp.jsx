@@ -3,6 +3,7 @@ import {
   getLocalDateKey,
   parseLocalDateKey,
   formatTimeDisplay,
+  formatFriendlyDate,
   formatGBP,
   toMonthlyAmount,
   isAlmanacEventVisibleToProfile,
@@ -36,12 +37,14 @@ export default function FoyerApp({
   darkMode,
   cadenceSnapshot,
   bloomSnapshot,
+  bloomSummary: bloomSummaryProp,
   floodgateSnapshot,
   almanacEvents,
   ledgerData,
   beaconInfo,
   nowMs = Date.now(),
   onNavigateApp,
+  onOpenBloom,
   onQuickRecordDose,
   onQuickMistMantis,
   onClearMantisLivePrey,
@@ -58,8 +61,8 @@ export default function FoyerApp({
 
   const catName = cadenceSnapshot?.settings?.catName || 'Pet';
   const bloomSummary = useMemo(
-    () => computeBloomSummary(bloomSnapshot, now),
-    [bloomSnapshot, now]
+    () => bloomSummaryProp || computeBloomSummary(bloomSnapshot, now),
+    [bloomSummaryProp, bloomSnapshot, now]
   );
   const mantisName = bloomSummary.settings.mantisName || 'Mantis';
   const partner1Name = (profiles || []).find((p) => p.id === 'partner1')?.name || 'Partner 1';
@@ -326,7 +329,9 @@ export default function FoyerApp({
           </div>
           <button
             type="button"
-            onClick={() => onNavigateApp('bloom')}
+            onClick={() =>
+              onOpenBloom ? onOpenBloom({ tab: 'habitat' }) : onNavigateApp('bloom')
+            }
             className="px-3.5 py-2 rounded-xl bg-lime-600 hover:bg-lime-700 text-white font-bold text-xs shrink-0 cursor-pointer"
           >
             Check Feeders in Bloom &rarr;
@@ -879,7 +884,7 @@ export default function FoyerApp({
                                 : 'bg-slate-200/70 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
                             }`}
                           >
-                            {isToday ? 'Today' : evt.date} {evt.time ? `• ${evt.time}` : ''}
+                            {formatFriendlyDate(evt.date, todayKey)} {evt.time ? `• ${evt.time}` : ''}
                           </span>
                         </div>
                         {evt.notes && (
@@ -1031,7 +1036,7 @@ export default function FoyerApp({
             <section
               className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between space-y-4 ${
                 darkMode
-                  ? 'bg-stone-900 border-rose-950/60'
+                  ? 'bg-slate-900 border-rose-900/50'
                   : 'bg-rose-50/40 border-rose-200/80'
               }`}
             >
@@ -1057,8 +1062,8 @@ export default function FoyerApp({
                   <div
                     className={`p-3.5 rounded-2xl border space-y-1.5 text-xs ${
                       darkMode
-                        ? 'bg-stone-950/70 border-stone-800'
-                        : 'bg-white border-rose-100'
+                        ? 'bg-slate-800/50 border-slate-700'
+                        : 'bg-white border-slate-200/80'
                     }`}
                   >
                     <div className="font-bold text-rose-600 dark:text-rose-400">
@@ -1082,8 +1087,8 @@ export default function FoyerApp({
                   <div
                     className={`p-4 rounded-2xl border text-xs space-y-1 ${
                       darkMode
-                        ? 'bg-stone-950/50 border-stone-800 text-stone-300'
-                        : 'bg-white border-rose-100 text-stone-600'
+                        ? 'bg-slate-800/50 border-slate-700 text-slate-300'
+                        : 'bg-white border-slate-200/80 text-slate-600'
                     }`}
                   >
                     <div className="font-bold">No entry logged yet for today</div>
@@ -1107,7 +1112,7 @@ export default function FoyerApp({
                   onClick={() => onOpenFloodgate({ tab: 'insights', date: todayKey })}
                   className={`py-2.5 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1 cursor-pointer ${
                     darkMode
-                      ? 'border-stone-700 hover:bg-stone-800 text-stone-200'
+                      ? 'border-slate-700 hover:bg-slate-800 text-slate-200'
                       : 'bg-white border-rose-200 hover:bg-rose-50 text-rose-700'
                   }`}
                 >

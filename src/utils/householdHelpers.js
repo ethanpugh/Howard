@@ -21,11 +21,49 @@ export const formatFriendlyDate = (dateKey, todayKey = getLocalDateKey(new Date(
   if (!dateKey) return '';
   if (dateKey === todayKey) return 'Today';
   if (dateKey === shiftDateKey(todayKey, -1)) return 'Yesterday';
+  if (dateKey === shiftDateKey(todayKey, 1)) return 'Tomorrow';
   return parseLocalDateKey(dateKey).toLocaleDateString('en-GB', {
     weekday: 'short',
     day: 'numeric',
     month: 'short'
   });
+};
+
+export const getMondayOfWeek = (dateInput = new Date()) => {
+  const d =
+    typeof dateInput === 'string' ? parseLocalDateKey(dateInput) : new Date(dateInput);
+  const dayOfWeek = d.getDay();
+  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  d.setDate(d.getDate() + diffToMonday);
+  return getLocalDateKey(d);
+};
+
+export const getCalendarWeekDays = (mondayKey, todayKey) => {
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const dayKey = shiftDateKey(mondayKey, i);
+    if (!todayKey || dayKey <= todayKey) {
+      days.push(dayKey);
+    }
+  }
+  return days.reverse();
+};
+
+export const formatWeekRangeLabel = (mondayKey) => {
+  const monDate = parseLocalDateKey(mondayKey);
+  const sunDate = parseLocalDateKey(shiftDateKey(mondayKey, 6));
+  const sameYear = monDate.getFullYear() === sunDate.getFullYear();
+  const monStr = monDate.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    ...(sameYear ? {} : { year: 'numeric' })
+  });
+  const sunStr = sunDate.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  });
+  return `${monStr} – ${sunStr}`;
 };
 
 export const formatTimeDisplay = (isoString) => {

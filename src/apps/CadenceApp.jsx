@@ -29,68 +29,11 @@ import {
   shiftDateKey,
   formatFriendlyDate,
   formatTimeDisplay,
-  formatDurationAgo
+  formatDurationAgo,
+  getMondayOfWeek,
+  getCalendarWeekDays,
+  formatWeekRangeLabel
 } from '../utils/householdHelpers.js';
-
-// ==========================================
-// LOCAL DEVICE SESSION CONFIG
-// ==========================================
-const DEVICE_ID_STORAGE_KEY = 'cadence-device-id';
-
-const getOrCreateDeviceId = () => {
-  try {
-    const existing = localStorage.getItem(DEVICE_ID_STORAGE_KEY);
-    if (existing) return existing;
-    const generated =
-      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : `device-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
-    localStorage.setItem(DEVICE_ID_STORAGE_KEY, generated);
-    return generated;
-  } catch {
-    return 'local-household-device';
-  }
-};
-
-// ==========================================
-// DATE & TIME UTILITIES
-// ==========================================
-const getMondayOfWeek = (dateInput = new Date()) => {
-  const d =
-    typeof dateInput === 'string' ? parseLocalDateKey(dateInput) : new Date(dateInput);
-  const dayOfWeek = d.getDay();
-  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-  d.setDate(d.getDate() + diffToMonday);
-  return getLocalDateKey(d);
-};
-
-const getCalendarWeekDays = (mondayKey, todayKey) => {
-  const days = [];
-  for (let i = 0; i < 7; i++) {
-    const dayKey = shiftDateKey(mondayKey, i);
-    if (dayKey <= todayKey) {
-      days.push(dayKey);
-    }
-  }
-  return days.reverse();
-};
-
-const formatWeekRangeLabel = (mondayKey) => {
-  const monDate = parseLocalDateKey(mondayKey);
-  const sunDate = parseLocalDateKey(shiftDateKey(mondayKey, 6));
-  const sameYear = monDate.getFullYear() === sunDate.getFullYear();
-  const monStr = monDate.toLocaleDateString([], {
-    month: 'short',
-    day: 'numeric',
-    ...(sameYear ? {} : { year: 'numeric' })
-  });
-  const sunStr = sunDate.toLocaleDateString([], {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  });
-  return `${monStr} – ${sunStr}`;
-};
 
 const DEFAULT_SETTINGS = {
   catName: 'Pet',
@@ -108,17 +51,19 @@ const DEFAULT_SETTINGS = {
 export default function CadenceApp({
   activeProfile,
   darkMode,
+  nowMs = Date.now(),
   cadenceSnapshot,
-  onGlobalSync
+  onGlobalSync,
+  showToast
 }) {
   const canConfigure = activeProfile?.id !== 'caregiver';
 
   // ==========================================
   // STATE MANAGEMENT
   // ==========================================
-  const [deviceId] = useState(() => getOrCreateDeviceId());
+  const recordedByUid = `howard-${activeProfile?.id || 'caregiver'}`;
   const [syncError, setSyncError] = useState(null);
-  const [now, setNow] = useState(new Date());
+  const now = useMemo(() => new Date(nowMs), [nowMs]);
 
   // Local SQLite synced states (fed directly by Howard's unified incremental sync)
   const [settings, setSettings] = useState(() => ({
@@ -161,14 +106,6 @@ export default function CadenceApp({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [settingsModalOpen, confirmUndoModal, confirmNewBottleModal, manualLogModal]);
-
-  // Keep clock fresh every 30 seconds for automatic midnight rollover & "time since last dose"
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setNow(new Date());
-    }, 30000);
-    return () => clearInterval(timer);
-  }, []);
 
   // ==========================================
   // RECEIVE UNIFIED HOWARD SNAPSHOT UPDATES
@@ -262,12 +199,12 @@ export default function CadenceApp({
     const percentUsed = Math.min(100, Math.max(0, Math.round((diffDaysOpen / shelfLife) * 100)));
 
     return {
-      openedDateFormatted: openedDate.toLocaleDateString([], {
+      openedDateFormatted: openedDate.toLocaleDateString('en-GB', {
         month: 'short',
         day: 'numeric',
         year: 'numeric'
       }),
-      expiryDateFormatted: expiryDate.toLocaleDateString([], {
+      expiryDateFormatted: expiryDate.toLocaleDateString('en-GB', {
         month: 'short',
         day: 'numeric',
         year: 'numeric'
@@ -338,7 +275,7 @@ export default function CadenceApp({
       setLogsByDate((prev) => ({ ...prev, [dateKey]: data.record }));
     }
     setSyncError(null);
-    if (onGlobalSync) onGlobalSync({ force: true });
+    if (onGlobalSync) onGlobalSync();
   };
 
   const saveSettingsToApi = async (updatedSettings) => {
@@ -355,7 +292,7 @@ export default function CadenceApp({
       setSettings(data.settings);
     }
     setSyncError(null);
-    if (onGlobalSync) onGlobalSync({ force: true });
+    if (onGlobalSync) onGlobalSync();
   };
 
   const handleRecordDose = async (slot, customNote = '') => {
@@ -369,7 +306,7 @@ export default function CadenceApp({
       givenBy: caregiverName,
       dosage: settings.dosageLabel,
       note: customNote.trim(),
-      recordedByUid: deviceId
+      recordedByUid
     };
 
     const currentDayData = logsByDate[todayKey] || { dateKey: todayKey };
@@ -386,6 +323,9 @@ export default function CadenceApp({
 
     try {
       await saveDayLogToApi(todayKey, { [slot]: dosePayload, updatedAt: timestampIso });
+      showToast?.(
+        `Logged ${settings.catName}'s ${slot === 'morning' ? 'Morning' : 'Evening'} dose (${caregiverName})`
+      );
     } catch (err) {
       console.error('Error recording dose:', err);
       setLogsByDate(prevLogs);
@@ -413,6 +353,9 @@ export default function CadenceApp({
 
     try {
       await saveDayLogToApi(dateKey, { [slot]: null, updatedAt: timestampIso });
+      showToast?.(
+        `Unchecked ${slot === 'morning' ? 'Morning' : 'Evening'} dose for ${formatFriendlyDate(dateKey, todayKey)}`
+      );
     } catch (err) {
       console.error('Error undoing dose:', err);
       setLogsByDate(prevLogs);
@@ -452,7 +395,7 @@ export default function CadenceApp({
       givenBy: manualCaregiverInput.trim() || activeCaregiver,
       dosage: settings.dosageLabel,
       note: manualNoteInput.trim(),
-      recordedByUid: deviceId
+      recordedByUid
     };
 
     const currentDayData = logsByDate[dateKey] || { dateKey };
@@ -468,6 +411,9 @@ export default function CadenceApp({
 
     try {
       await saveDayLogToApi(dateKey, { [slot]: dosePayload, updatedAt: timestampIso });
+      showToast?.(
+        `Saved ${slot === 'morning' ? 'Morning' : 'Evening'} dose for ${formatFriendlyDate(dateKey, todayKey)}`
+      );
     } catch (err) {
       console.error('Error saving manual dose entry:', err);
       setLogsByDate(prevLogs);
@@ -500,6 +446,7 @@ export default function CadenceApp({
 
     try {
       await saveSettingsToApi(editablePayload);
+      showToast?.(`Saved ${editablePayload.catName}'s Cadence settings`);
     } catch (err) {
       console.error('Error saving settings:', err);
       setSettings(prevSettings);
@@ -520,6 +467,7 @@ export default function CadenceApp({
     setConfirmNewBottleModal(false);
     try {
       await saveSettingsToApi(updated);
+      showToast?.(`Reset ${settings.catName}'s bottle opened date to Today`);
     } catch (err) {
       console.error('Error resetting bottle date:', err);
       setSettings(prevSettings);
@@ -1354,7 +1302,7 @@ export default function CadenceApp({
       {confirmUndoModal && (
         <div
           onClick={() => setConfirmUndoModal(null)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -1408,7 +1356,7 @@ export default function CadenceApp({
       {manualLogModal && (
         <div
           onClick={() => setManualLogModal(null)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -1539,7 +1487,7 @@ export default function CadenceApp({
       {settingsModalOpen && canConfigure && (
         <div
           onClick={() => setSettingsModalOpen(false)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -1725,7 +1673,7 @@ export default function CadenceApp({
       {confirmNewBottleModal && canConfigure && (
         <div
           onClick={() => setConfirmNewBottleModal(false)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
         >
           <div
             onClick={(e) => e.stopPropagation()}

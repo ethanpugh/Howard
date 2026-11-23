@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Flower2,
   Droplets,
@@ -16,13 +16,21 @@ import {
   Check,
   Info,
   Activity,
-  History
+  History,
+  ChevronLeft,
+  ChevronRight,
+  Calendar,
+  Edit3
 } from 'lucide-react';
 import {
   getLocalDateKey,
+  parseLocalDateKey,
   shiftDateKey,
   formatTimeDisplay,
   formatFriendlyDate,
+  getMondayOfWeek,
+  getCalendarWeekDays,
+  formatWeekRangeLabel,
   DEFAULT_BLOOM_SETTINGS,
   computeBloomSummary
 } from '../utils/householdHelpers.js';
@@ -168,14 +176,17 @@ const BEHAVIOR_TAGS = [
 export default function BloomApp({
   activeProfile,
   darkMode,
+  nowMs = Date.now(),
   bloomSnapshot,
+  bloomSummary,
+  navigationIntent,
   onGlobalSync,
   showToast
 }) {
   const canConfigure = activeProfile?.id !== 'caregiver';
   const activeCaregiver = activeProfile?.caregiverName || activeProfile?.name || 'Partner 1';
 
-  const [now, setNow] = useState(() => new Date());
+  const now = useMemo(() => new Date(nowMs), [nowMs]);
   const [activeTab, setActiveTab] = useState('today'); // 'today' | 'growth' | 'habitat'
   const [localSnapshot, setLocalSnapshot] = useState(bloomSnapshot);
 
@@ -184,14 +195,21 @@ export default function BloomApp({
   }, [bloomSnapshot]);
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 30000);
-    return () => clearInterval(timer);
-  }, []);
+    if (
+      navigationIntent?.tab &&
+      ['today', 'growth', 'habitat'].includes(navigationIntent.tab)
+    ) {
+      setActiveTab(navigationIntent.tab);
+    }
+  }, [navigationIntent]);
 
   const todayKey = getLocalDateKey(now);
   const summary = useMemo(
-    () => computeBloomSummary(localSnapshot, now),
-    [localSnapshot, now]
+    () =>
+      localSnapshot === bloomSnapshot && bloomSummary
+        ? bloomSummary
+        : computeBloomSummary(localSnapshot, now),
+    [localSnapshot, bloomSnapshot, bloomSummary, now]
   );
   const { settings } = summary;
   const parsedHardeningHours = Number(settings.hardeningHours);
@@ -222,6 +240,12 @@ export default function BloomApp({
   useEffect(() => {
     setJournalDraft(summary.todayLog?.journalNote || '');
   }, [summary.todayLog?.journalNote, todayKey]);
+
+  useEffect(() => {
+    if (summary.latestAbdomen) {
+      setSelectedAbdomen(summary.latestAbdomen);
+    }
+  }, [summary.latestAbdomen]);
 
   // --------------------------------------------------------------------------
   // FORM STATES — MOLT MODAL & GROWTH TAB
@@ -273,24 +297,52 @@ export default function BloomApp({
   const [enclosureDraft, setEnclosureDraft] = useState(settings.enclosureInfo);
 
   // --------------------------------------------------------------------------
-  // FORM STATES — SETTINGS MODAL & DELETE CONFIRMATION
+  // FORM STATES — SETTINGS MODAL, BACKFILL MODAL & DELETE CONFIRMATION
   // --------------------------------------------------------------------------
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [settingsForm, setSettingsForm] = useState(settings);
   const [confirmDeleteModal, setConfirmDeleteModal] = useState(null); // { kind: 'molt'|'feeder', id, label }
 
+  const [backfillDate, setBackfillDate] = useState(null);
+  const [bfMistTime, setBfMistTime] = useState('09:00');
+  const [bfMistDrink, setBfMistDrink] = useState(false);
+  const [bfMistNote, setBfMistNote] = useState('');
+  const [bfPrey, setBfPrey] = useState('hydei');
+  const [bfPreyCount, setBfPreyCount] = useState(2);
+  const [bfAbdomen, setBfAbdomen] = useState('plump');
+  const [bfFeedNote, setBfFeedNote] = useState('');
+  const [bfTemp, setBfTemp] = useState('');
+  const [bfHumidity, setBfHumidity] = useState('');
+  const [bfJournal, setBfJournal] = useState('');
+
+  const openBackfillModal = (dateKey) => {
+    const rec = localSnapshot?.logsByDate?.[dateKey] || {};
+    setBfMistTime('09:00');
+    setBfMistDrink(false);
+    setBfMistNote('');
+    setBfPrey(selectedPrey || 'hydei');
+    setBfPreyCount(2);
+    setBfAbdomen(rec.abdomenStatus || summary.latestAbdomen || 'plump');
+    setBfFeedNote('');
+    setBfTemp('');
+    setBfHumidity('');
+    setBfJournal(rec.journalNote || '');
+    setBackfillDate(dateKey);
+  };
+
   useEffect(() => {
-    if (!moltModalOpen && !settingsModalOpen && !confirmDeleteModal) return;
+    if (!moltModalOpen && !settingsModalOpen && !confirmDeleteModal && !backfillDate) return;
     const onKeyDown = (e) => {
       if (e.key === 'Escape') {
         if (confirmDeleteModal) setConfirmDeleteModal(null);
+        else if (backfillDate) setBackfillDate(null);
         else if (moltModalOpen) setMoltModalOpen(false);
         else if (settingsModalOpen) setSettingsModalOpen(false);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [moltModalOpen, settingsModalOpen, confirmDeleteModal]);
+  }, [moltModalOpen, settingsModalOpen, confirmDeleteModal, backfillDate]);
 
   // --------------------------------------------------------------------------
   // API MUTATION HELPERS
@@ -322,7 +374,7 @@ export default function BloomApp({
       });
       if (!res.ok) throw new Error('Failed to save Bloom settings');
       if (toastMsg) notify(toastMsg);
-      if (onGlobalSync) onGlobalSync({ force: true });
+      if (onGlobalSync) onGlobalSync();
       return true;
     } catch {
       setLocalSnapshot(prevSnapshot);
@@ -332,7 +384,13 @@ export default function BloomApp({
     }
   };
 
-  const saveDayLog = async (dateKey, dayPatch, settingsPatch = null, toastMsg = '') => {
+  const saveDayLog = async (
+    dateKey,
+    apiPayload,
+    applyOptimisticDay,
+    settingsPatch = null,
+    toastMsg = ''
+  ) => {
     const prevSnapshot = localSnapshot;
     setLocalSnapshot((prev) => {
       const existingDay = prev?.logsByDate?.[dateKey] || {
@@ -342,6 +400,7 @@ export default function BloomApp({
         climateChecks: [],
         behaviors: []
       };
+      const nextDay = applyOptimisticDay ? applyOptimisticDay(existingDay) : existingDay;
       return {
         ...prev,
         ...(settingsPatch
@@ -359,8 +418,7 @@ export default function BloomApp({
         logsByDate: {
           ...prev?.logsByDate,
           [dateKey]: {
-            ...existingDay,
-            ...dayPatch,
+            ...nextDay,
             dateKey
           }
         }
@@ -372,12 +430,23 @@ export default function BloomApp({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
-          settingsPatch ? { ...dayPatch, settingsPatch } : dayPatch
+          settingsPatch ? { ...apiPayload, settingsPatch } : apiPayload
         )
       });
       if (!res.ok) throw new Error('Failed to save Bloom log');
+      const resData = await res.json().catch(() => null);
+      if (resData?.record) {
+        setLocalSnapshot((prev) => ({
+          ...prev,
+          ...(resData.settings ? { settings: resData.settings } : {}),
+          logsByDate: {
+            ...prev?.logsByDate,
+            [dateKey]: resData.record
+          }
+        }));
+      }
       if (toastMsg) notify(toastMsg);
-      if (onGlobalSync) onGlobalSync({ force: true });
+      if (onGlobalSync) onGlobalSync();
       return true;
     } catch {
       setLocalSnapshot(prevSnapshot);
@@ -387,93 +456,120 @@ export default function BloomApp({
     }
   };
 
+  const buildTimestampForDate = (dateKey, timeStr = '09:00') => {
+    if (dateKey === todayKey) return new Date().toISOString();
+    const dt = parseLocalDateKey(dateKey);
+    const [hh, mm] = String(timeStr || '09:00').split(':').map(Number);
+    dt.setHours(Number.isFinite(hh) ? hh : 9, Number.isFinite(mm) ? mm : 0, 0, 0);
+    return dt.toISOString();
+  };
+
   // --------------------------------------------------------------------------
   // HANDLERS — DAILY CARE (MIST, FEED, ABDOMEN, CLIMATE, NOTES)
   // --------------------------------------------------------------------------
-  const handleLogMist = async (e) => {
+  const handleLogMist = async (e, targetDate = todayKey, overrides = null) => {
     if (e) e.preventDefault();
     const nowIso = new Date().toISOString();
-    const currentDay = summary.todayLog;
+    const tsIso = overrides?.timestamp || nowIso;
+    const drank = overrides ? Boolean(overrides.drank) : mistDrinkObserved;
+    const noteText = overrides ? String(overrides.note || '').trim() : mistNoteInput.trim();
     const newMist = {
       id: `mist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      timestamp: nowIso,
+      timestamp: tsIso,
       by: activeCaregiver,
-      dropletDrinkObserved: mistDrinkObserved,
-      note: mistNoteInput.trim()
+      dropletDrinkObserved: drank,
+      note: noteText
     };
 
-    const dayPatch = {
-      mists: [...(currentDay.mists || []), newMist],
-      ...(mistDrinkObserved
-        ? {
-            behaviors: Array.from(
-              new Set([...(currentDay.behaviors || []), 'Drank Droplets'])
-            )
-          }
-        : {}),
-      updatedAt: nowIso
-    };
-
-    setMistDrinkObserved(false);
-    setMistNoteInput('');
+    if (!overrides) {
+      setMistDrinkObserved(false);
+      setMistNoteInput('');
+    }
     await saveDayLog(
-      todayKey,
-      dayPatch,
+      targetDate,
+      { appendMist: newMist, updatedAt: nowIso },
+      (day) => ({
+        ...day,
+        mists: [...(day.mists || []), newMist],
+        ...(drank
+          ? {
+              behaviors: Array.from(new Set([...(day.behaviors || []), 'Drank Droplets']))
+            }
+          : {}),
+        updatedAt: nowIso
+      }),
       null,
       `Logged ${settings.mantisName}'s enclosure mist (${activeCaregiver})`
     );
   };
 
-  const handleDeleteMist = async (mistId) => {
-    const currentDay = summary.todayLog;
-    const dayPatch = {
-      mists: (currentDay.mists || []).filter((m) => m.id !== mistId),
-      updatedAt: new Date().toISOString()
-    };
-    await saveDayLog(todayKey, dayPatch, null, 'Removed mist entry');
+  const handleDeleteMist = async (mistId, targetDate = todayKey) => {
+    const nowIso = new Date().toISOString();
+    await saveDayLog(
+      targetDate,
+      { removeMistId: mistId, updatedAt: nowIso },
+      (day) => ({
+        ...day,
+        mists: (day.mists || []).filter((m) => m.id !== mistId),
+        updatedAt: nowIso
+      }),
+      null,
+      'Removed mist entry'
+    );
   };
 
-  const handleLogFeeding = async (outcome = 'eaten') => {
+  const handleLogFeeding = async (outcome = 'eaten', targetDate = todayKey, overrides = null) => {
     const nowIso = new Date().toISOString();
-    const currentDay = summary.todayLog;
-    const preyMeta = PREY_OPTIONS.find((p) => p.id === selectedPrey) || PREY_OPTIONS[1];
+    const tsIso = overrides?.timestamp || nowIso;
+    const preyId = overrides?.preyId || selectedPrey;
+    const countVal = overrides?.count ?? preyCount;
+    const abdVal = overrides?.abdomenAfter || selectedAbdomen;
+    const noteText = overrides ? String(overrides.note || '').trim() : feedNoteInput.trim();
+    const preyMeta = PREY_OPTIONS.find((p) => p.id === preyId) || PREY_OPTIONS[1];
     const entry = {
       id: `feed-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      timestamp: nowIso,
+      timestamp: tsIso,
       by: activeCaregiver,
       outcome, // 'eaten' | 'refused'
-      preyId: selectedPrey,
+      preyId,
       preyLabel: preyMeta.label,
-      count: outcome === 'refused' ? 0 : Math.max(1, Number(preyCount) || 1),
-      abdomenAfter: selectedAbdomen,
-      note: feedNoteInput.trim()
+      count: outcome === 'refused' ? 0 : Math.max(1, Number(countVal) || 1),
+      abdomenAfter: abdVal,
+      note: noteText
     };
 
-    const dayPatch = {
-      feedings: [...(currentDay.feedings || []), entry],
-      abdomenStatus: selectedAbdomen,
-      abdomenUpdatedAt: nowIso,
-      updatedAt: nowIso
-    };
+    const settingsPatch =
+      !overrides && targetDate === todayKey && leavePreyWarning
+        ? {
+            livePreyInside: true,
+            livePreyNote: `${preyMeta.label} offered at ${formatTimeDisplay(tsIso)} by ${activeCaregiver}`
+          }
+        : null;
 
-    const settingsPatch = leavePreyWarning
-      ? {
-          livePreyInside: true,
-          livePreyNote: `${preyMeta.label} offered at ${formatTimeDisplay(nowIso)} by ${activeCaregiver}`
-        }
-      : null;
-
-    setFeedNoteInput('');
-    setLeavePreyWarning(false);
-    setOverrideFeedLockout(false);
-
-    if (outcome === 'refused' && summary.effectiveStatus === 'normal' && canConfigure) {
-      setRefusalPremoltPrompt(true);
+    if (!overrides) {
+      setFeedNoteInput('');
+      setLeavePreyWarning(false);
+      setOverrideFeedLockout(false);
+      if (outcome === 'refused' && summary.effectiveStatus === 'normal' && canConfigure) {
+        setRefusalPremoltPrompt(true);
+      }
     }
 
     await saveDayLog(
-      todayKey,
-      dayPatch,
+      targetDate,
+      {
+        appendFeeding: entry,
+        abdomenStatus: abdVal,
+        abdomenUpdatedAt: tsIso,
+        updatedAt: nowIso
+      },
+      (day) => ({
+        ...day,
+        feedings: [...(day.feedings || []), entry],
+        abdomenStatus: abdVal,
+        abdomenUpdatedAt: tsIso,
+        updatedAt: nowIso
+      }),
       settingsPatch,
       outcome === 'refused'
         ? `Logged refused meal for ${settings.mantisName}`
@@ -481,73 +577,121 @@ export default function BloomApp({
     );
   };
 
-  const handleUpdateAbdomenOnly = async (levelId) => {
-    setSelectedAbdomen(levelId);
+  const handleUpdateAbdomenOnly = async (levelId, targetDate = todayKey) => {
+    if (targetDate === todayKey) {
+      setSelectedAbdomen(levelId);
+    }
     const nowIso = new Date().toISOString();
-    const dayPatch = {
-      abdomenStatus: levelId,
-      abdomenUpdatedAt: nowIso,
-      updatedAt: nowIso
-    };
+    const tsIso = buildTimestampForDate(targetDate, '12:00');
     const meta = ABDOMEN_LEVELS.find((a) => a.id === levelId);
     await saveDayLog(
-      todayKey,
-      dayPatch,
+      targetDate,
+      { abdomenStatus: levelId, abdomenUpdatedAt: tsIso, updatedAt: nowIso },
+      (day) => ({
+        ...day,
+        abdomenStatus: levelId,
+        abdomenUpdatedAt: tsIso,
+        updatedAt: nowIso
+      }),
       null,
       `Updated ${settings.mantisName}'s abdomen check: ${meta?.label || levelId}`
     );
   };
 
-  const handleDeleteFeeding = async (feedId) => {
-    const currentDay = summary.todayLog;
-    const dayPatch = {
-      feedings: (currentDay.feedings || []).filter((f) => f.id !== feedId),
-      updatedAt: new Date().toISOString()
-    };
-    await saveDayLog(todayKey, dayPatch, null, 'Removed feeding entry');
+  const handleDeleteFeeding = async (feedId, targetDate = todayKey) => {
+    const nowIso = new Date().toISOString();
+    await saveDayLog(
+      targetDate,
+      { removeFeedingId: feedId, updatedAt: nowIso },
+      (day) => ({
+        ...day,
+        feedings: (day.feedings || []).filter((f) => f.id !== feedId),
+        updatedAt: nowIso
+      }),
+      null,
+      'Removed feeding entry'
+    );
   };
 
-  const handleLogClimate = async (e) => {
-    e.preventDefault();
-    if (tempInput === '' && humidityInput === '') return;
+  const handleLogClimate = async (e, targetDate = todayKey, overrides = null) => {
+    if (e) e.preventDefault();
+    const tVal = overrides ? overrides.temp : tempInput;
+    const hVal = overrides ? overrides.humidity : humidityInput;
+    if (tVal === '' && hVal === '') return;
     const nowIso = new Date().toISOString();
-    const currentDay = summary.todayLog;
+    const tsIso = buildTimestampForDate(targetDate, '12:00');
     const check = {
       id: `clim-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-      timestamp: nowIso,
+      timestamp: tsIso,
       by: activeCaregiver,
-      tempC: tempInput !== '' ? Number(tempInput) : null,
-      humidityPct: humidityInput !== '' ? Number(humidityInput) : null
+      tempC: tVal !== '' ? Number(tVal) : null,
+      humidityPct: hVal !== '' ? Number(hVal) : null
     };
-    const dayPatch = {
-      climateChecks: [...(currentDay.climateChecks || []), check],
-      updatedAt: nowIso
-    };
-    setTempInput('');
-    setHumidityInput('');
-    await saveDayLog(todayKey, dayPatch, null, 'Logged enclosure temperature & humidity');
+    if (!overrides) {
+      setTempInput('');
+      setHumidityInput('');
+    }
+    await saveDayLog(
+      targetDate,
+      { appendClimateCheck: check, updatedAt: nowIso },
+      (day) => ({
+        ...day,
+        climateChecks: [...(day.climateChecks || []), check],
+        updatedAt: nowIso
+      }),
+      null,
+      'Logged enclosure temperature & humidity'
+    );
   };
 
-  const handleToggleBehavior = async (tag) => {
-    const currentDay = summary.todayLog;
-    const existing = currentDay.behaviors || [];
-    const nextBehaviors = existing.includes(tag)
-      ? existing.filter((b) => b !== tag)
-      : [...existing, tag];
-    const dayPatch = {
-      behaviors: nextBehaviors,
-      updatedAt: new Date().toISOString()
-    };
-    await saveDayLog(todayKey, dayPatch);
+  const handleDeleteClimateCheck = async (checkId, targetDate = todayKey) => {
+    const nowIso = new Date().toISOString();
+    await saveDayLog(
+      targetDate,
+      { removeClimateCheckId: checkId, updatedAt: nowIso },
+      (day) => ({
+        ...day,
+        climateChecks: (day.climateChecks || []).filter((c) => c.id !== checkId),
+        updatedAt: nowIso
+      }),
+      null,
+      'Removed climate check'
+    );
   };
 
-  const handleSaveJournalNote = async (e) => {
-    e.preventDefault();
-    const dayPatch = {
-      journalNote: journalDraft.trim(),
-      updatedAt: new Date().toISOString()
-    };
-    await saveDayLog(todayKey, dayPatch, null, `Saved ${settings.mantisName}'s daily note`);
+  const handleToggleBehavior = async (tag, targetDate = todayKey) => {
+    const nowIso = new Date().toISOString();
+    await saveDayLog(
+      targetDate,
+      { toggleBehavior: tag, updatedAt: nowIso },
+      (day) => {
+        const existing = day.behaviors || [];
+        return {
+          ...day,
+          behaviors: existing.includes(tag)
+            ? existing.filter((b) => b !== tag)
+            : [...existing, tag],
+          updatedAt: nowIso
+        };
+      }
+    );
+  };
+
+  const handleSaveJournalNote = async (e, targetDate = todayKey, customNote = null) => {
+    if (e) e.preventDefault();
+    const nowIso = new Date().toISOString();
+    const text = (customNote !== null ? customNote : journalDraft).trim();
+    await saveDayLog(
+      targetDate,
+      { journalNote: text, updatedAt: nowIso },
+      (day) => ({
+        ...day,
+        journalNote: text,
+        updatedAt: nowIso
+      }),
+      null,
+      `Saved ${settings.mantisName}'s daily note`
+    );
   };
 
   // --------------------------------------------------------------------------
@@ -622,7 +766,7 @@ export default function BloomApp({
             }`
           : `Added historical molt (${moltFromInput} → ${moltToInput} on ${targetDate})`
       );
-      if (onGlobalSync) onGlobalSync({ force: true });
+      if (onGlobalSync) onGlobalSync();
     } catch (err) {
       notify(err?.message || 'Could not save molt milestone', 'error');
     }
@@ -641,7 +785,7 @@ export default function BloomApp({
         molts: data.molts || []
       }));
       notify('Removed molt record');
-      if (onGlobalSync) onGlobalSync({ force: true });
+      if (onGlobalSync) onGlobalSync();
     } catch {
       notify('Could not delete molt record', 'error');
     }
@@ -674,7 +818,7 @@ export default function BloomApp({
       setNewFeederOpen(false);
       setFeederNoteInput('');
       notify(`Added feeder culture "${feederNameInput.trim()}"`);
-      if (onGlobalSync) onGlobalSync({ force: true });
+      if (onGlobalSync) onGlobalSync();
     } catch {
       notify('Could not save feeder culture', 'error');
     }
@@ -692,7 +836,7 @@ export default function BloomApp({
       const data = await res.json();
       setLocalSnapshot((prev) => ({ ...prev, feeders: data.feeders || [] }));
       notify(`Updated "${feeder.name}" to ${nextStatus}`);
-      if (onGlobalSync) onGlobalSync({ force: true });
+      if (onGlobalSync) onGlobalSync();
     } catch {
       notify('Could not update feeder culture', 'error');
     }
@@ -708,7 +852,7 @@ export default function BloomApp({
       const data = await res.json();
       setLocalSnapshot((prev) => ({ ...prev, feeders: data.feeders || [] }));
       notify('Removed feeder culture');
-      if (onGlobalSync) onGlobalSync({ force: true });
+      if (onGlobalSync) onGlobalSync();
     } catch {
       notify('Could not remove feeder culture', 'error');
     }
@@ -782,25 +926,79 @@ export default function BloomApp({
     }
   };
 
-  // Recent 7 days with any activity
-  const recentLogDates = useMemo(() => {
-    const days = [];
-    for (let i = 0; i < 7; i++) {
-      const dKey = shiftDateKey(todayKey, -i);
-      const rec = localSnapshot?.logsByDate?.[dKey];
-      if (
-        rec &&
-        ((rec.mists && rec.mists.length > 0) ||
-          (rec.feedings && rec.feedings.length > 0) ||
-          (rec.climateChecks && rec.climateChecks.length > 0) ||
-          (rec.behaviors && rec.behaviors.length > 0) ||
-          rec.journalNote)
-      ) {
-        days.push({ dateKey: dKey, rec });
-      }
+  // Mon-Sun Weekly Care History navigation & gap calculations
+  const currentWeekMonday = useMemo(() => getMondayOfWeek(now), [now]);
+  const [selectedWeekMonday, setSelectedWeekMonday] = useState(() =>
+    getMondayOfWeek(new Date())
+  );
+  const prevWeekMondayRef = useRef(currentWeekMonday);
+
+  useEffect(() => {
+    if (prevWeekMondayRef.current !== currentWeekMonday) {
+      setSelectedWeekMonday((prev) =>
+        prev === prevWeekMondayRef.current ? currentWeekMonday : prev
+      );
+      prevWeekMondayRef.current = currentWeekMonday;
     }
-    return days;
-  }, [localSnapshot?.logsByDate, todayKey]);
+  }, [currentWeekMonday]);
+
+  const activeWeekMonday =
+    selectedWeekMonday > currentWeekMonday ? currentWeekMonday : selectedWeekMonday;
+  const isCurrentWeek = activeWeekMonday === currentWeekMonday;
+
+  const selectedWeekDays = useMemo(
+    () => getCalendarWeekDays(activeWeekMonday, todayKey),
+    [activeWeekMonday, todayKey]
+  );
+  const weekRangeLabel = useMemo(
+    () => formatWeekRangeLabel(activeWeekMonday),
+    [activeWeekMonday]
+  );
+
+  const moltsByDate = useMemo(() => {
+    const map = new Map();
+    for (const m of summary.molts || []) {
+      if (!m?.dateKey) continue;
+      const list = map.get(m.dateKey) || [];
+      list.push(m);
+      map.set(m.dateKey, list);
+    }
+    return map;
+  }, [summary.molts]);
+
+  const weekStats = useMemo(() => {
+    let mistedDays = 0;
+    let mealsCount = 0;
+    let gapDays = 0;
+    let partialDays = 0;
+
+    selectedWeekDays.forEach((dKey) => {
+      const rec = localSnapshot?.logsByDate?.[dKey] || {};
+      const dayMolts = moltsByDate.get(dKey) || [];
+      const mistCount = (rec.mists || []).length;
+      const feedings = rec.feedings || [];
+      const hasActivity =
+        mistCount > 0 ||
+        feedings.length > 0 ||
+        (rec.climateChecks || []).length > 0 ||
+        (rec.behaviors || []).length > 0 ||
+        Boolean(rec.abdomenStatus) ||
+        Boolean(rec.journalNote) ||
+        dayMolts.length > 0;
+
+      if (mistCount > 0) mistedDays += 1;
+      feedings.forEach((f) => {
+        if (f.outcome !== 'refused') mealsCount += 1;
+      });
+      if (!hasActivity && dKey < todayKey) {
+        gapDays += 1;
+      } else if (hasActivity && mistCount === 0 && dKey < todayKey) {
+        partialDays += 1;
+      }
+    });
+
+    return { mistedDays, mealsCount, gapDays, partialDays };
+  }, [selectedWeekDays, localSnapshot?.logsByDate, moltsByDate, todayKey]);
 
   // Recommended feeder stage guide based on currentInstar
   const instarFeederTip = useMemo(() => {
@@ -879,7 +1077,7 @@ export default function BloomApp({
                   id: 'habitat',
                   label: 'Feeders & Enclosure',
                   icon: Bug,
-                  alert: summary.feederAlerts.length > 0 || summary.clearance.isEnclosureTight
+                  alert: (canConfigure && summary.feederAlerts.length > 0) || summary.clearance.isEnclosureTight
                 }
               ].map((t) => {
                 const Icon = t.icon;
@@ -1376,7 +1574,22 @@ export default function BloomApp({
                             isSel ? lvl.activeClass : lvl.pillClass
                           }`}
                         >
-                          <div className="text-xs font-extrabold">{lvl.label}</div>
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-xs font-extrabold">{lvl.label}</span>
+                            {summary.latestAbdomen === lvl.id && (
+                              <span
+                                className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full shrink-0 ${
+                                  isSel
+                                    ? lvl.id === 'flat'
+                                      ? 'bg-slate-950/15'
+                                      : 'bg-white/25'
+                                    : 'bg-slate-900/10 dark:bg-white/15'
+                                }`}
+                              >
+                                Current
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[10px] opacity-85 truncate">{lvl.hint}</div>
                         </button>
                       );
@@ -1609,6 +1822,36 @@ export default function BloomApp({
                   Log Check
                 </button>
               </form>
+
+              {(summary.todayLog.climateChecks || []).length > 0 && (
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-1.5">
+                  <div className="text-[11px] font-bold uppercase opacity-60">
+                    Today&apos;s Climate Checks ({summary.todayLog.climateChecks.length})
+                  </div>
+                  {summary.todayLog.climateChecks.map((c) => (
+                    <div
+                      key={c.id}
+                      className="flex items-center justify-between text-xs py-1 px-2.5 rounded-xl bg-slate-100/70 dark:bg-slate-800/50"
+                    >
+                      <span>
+                        <strong>{formatTimeDisplay(c.timestamp)}</strong> •{' '}
+                        {c.tempC != null ? `${c.tempC}°C` : '—'}
+                        {c.humidityPct != null ? ` • ${c.humidityPct}% RH` : ''}
+                        {c.by ? ` • ${c.by}` : ''}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteClimateCheck(c.id)}
+                        className="text-slate-400 hover:text-rose-500 p-1 cursor-pointer"
+                        title="Undo climate check"
+                        aria-label="Undo climate check"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             {/* Behaviour Tags & Journal Note (7 cols) */}
@@ -1664,65 +1907,272 @@ export default function BloomApp({
             </section>
           </div>
 
-          {/* Recent 7-Day Care Activity Strip */}
-          {recentLogDates.length > 0 && (
-            <section
-              className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-3 ${
-                darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
+          {/* Mon-Sun Weekly Care History (Week Pager + Gap Highlighting + Backfill) */}
+          <section
+            aria-label="Weekly Care History"
+            className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${
+              darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
+            }`}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
+                  <History className="w-5 h-5 text-lime-600 dark:text-lime-400" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm sm:text-base">Weekly Care History</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Browse by week (Mon–Sun) to spot misting or feeding gaps
+                  </p>
+                </div>
+              </div>
+
+              <div
+                className={`inline-flex flex-wrap items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold w-fit ${
+                  weekStats.gapDays > 0
+                    ? 'bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-300'
+                    : 'bg-lime-500/15 border-lime-500/30 text-lime-700 dark:text-lime-300'
+                }`}
+              >
+                <span>
+                  Misted {weekStats.mistedDays}/{selectedWeekDays.length}d • {weekStats.mealsCount}{' '}
+                  meal{weekStats.mealsCount === 1 ? '' : 's'}
+                </span>
+                {weekStats.gapDays > 0 && (
+                  <span>
+                    • {weekStats.gapDays} gap day{weekStats.gapDays === 1 ? '' : 's'}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div
+              className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-2xl border ${
+                darkMode
+                  ? 'bg-slate-800/50 border-slate-700'
+                  : 'bg-slate-50 border-slate-200/80'
               }`}
             >
-              <div className="flex items-center gap-2 text-sm font-extrabold">
-                <History className="w-4 h-4 text-lime-600 dark:text-lime-400" />
-                <span>Recent 7-Day Care History</span>
+              <div className="flex items-center justify-between sm:justify-start gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedWeekMonday(shiftDateKey(activeWeekMonday, -7))}
+                  className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                  title="Previous Week"
+                  aria-label="Previous Week"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+
+                <div className="flex items-center gap-2 px-2">
+                  <Calendar className="w-4 h-4 text-lime-600 dark:text-lime-400 shrink-0" />
+                  <span className="text-xs sm:text-sm font-bold">{weekRangeLabel}</span>
+                  {isCurrentWeek && (
+                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-lime-500/20 text-lime-700 dark:text-lime-300">
+                      This Week
+                    </span>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isCurrentWeek}
+                  onClick={() => {
+                    const nextMonday = shiftDateKey(activeWeekMonday, 7);
+                    setSelectedWeekMonday(
+                      nextMonday > currentWeekMonday ? currentWeekMonday : nextMonday
+                    );
+                  }}
+                  className={`p-2 rounded-xl border transition ${
+                    isCurrentWeek
+                      ? 'opacity-40 cursor-not-allowed border-slate-200 dark:border-slate-800'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 cursor-pointer'
+                  }`}
+                  title="Next Week"
+                  aria-label="Next Week"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+
+                {!isCurrentWeek && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedWeekMonday(currentWeekMonday)}
+                    className="px-2.5 py-1.5 rounded-xl bg-lime-600 hover:bg-lime-700 text-white text-xs font-semibold transition cursor-pointer"
+                  >
+                    This Week
+                  </button>
+                )}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 text-xs">
-                {recentLogDates.map(({ dateKey, rec }) => (
+
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                  Jump to date:
+                </label>
+                <input
+                  type="date"
+                  max={todayKey}
+                  value={isCurrentWeek ? todayKey : activeWeekMonday}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      const targetMon = getMondayOfWeek(e.target.value);
+                      setSelectedWeekMonday(
+                        targetMon > currentWeekMonday ? currentWeekMonday : targetMon
+                      );
+                    }
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-semibold"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              {selectedWeekDays.map((dateKey) => {
+                const rec = localSnapshot?.logsByDate?.[dateKey] || {};
+                const dayMolts = moltsByDate.get(dateKey) || [];
+                const mists = rec.mists || [];
+                const feedings = rec.feedings || [];
+                const climateChecks = rec.climateChecks || [];
+                const behaviors = rec.behaviors || [];
+                const hasActivity =
+                  mists.length > 0 ||
+                  feedings.length > 0 ||
+                  climateChecks.length > 0 ||
+                  behaviors.length > 0 ||
+                  Boolean(rec.abdomenStatus) ||
+                  Boolean(rec.journalNote) ||
+                  dayMolts.length > 0;
+                const isGapDay = !hasActivity && dateKey < todayKey;
+                const isNoMistDay = hasActivity && mists.length === 0 && dateKey < todayKey;
+                const isToday = dateKey === todayKey;
+
+                return (
                   <div
                     key={dateKey}
-                    className={`p-3 rounded-2xl border space-y-1 ${
-                      darkMode
-                        ? 'bg-slate-800/40 border-slate-800'
-                        : 'bg-slate-50 border-slate-200/80'
+                    className={`p-3 rounded-2xl border space-y-1.5 ${
+                      isToday
+                        ? 'bg-lime-500/10 border-lime-500/30'
+                        : isGapDay
+                          ? 'border-dashed border-rose-300/80 dark:border-rose-900/60 bg-rose-500/5'
+                          : darkMode
+                            ? 'bg-slate-800/40 border-slate-800'
+                            : 'bg-slate-50 border-slate-200/80'
                     }`}
                   >
-                    <div className="flex items-center justify-between font-bold">
-                      <span>{formatFriendlyDate(dateKey, todayKey)}</span>
-                      <span className="text-[10px] font-mono opacity-60">{dateKey}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 pt-0.5">
-                      {(rec.mists || []).length > 0 && (
-                        <span className="px-2 py-0.5 rounded-md bg-sky-500/15 text-sky-700 dark:text-sky-300 font-semibold">
-                          💧 {rec.mists.length} mist{rec.mists.length > 1 ? 's' : ''}
-                        </span>
-                      )}
-                      {(rec.feedings || []).map((f) => (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 font-bold">
                         <span
-                          key={f.id}
-                          className={`px-2 py-0.5 rounded-md font-semibold ${
-                            f.outcome === 'refused'
-                              ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
-                              : 'bg-lime-500/15 text-lime-700 dark:text-lime-300'
+                          className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                            mists.length > 0
+                              ? 'bg-lime-500'
+                              : isNoMistDay
+                                ? 'bg-amber-400'
+                                : isGapDay
+                                  ? 'bg-rose-400'
+                                  : 'bg-slate-400'
+                          }`}
+                        />
+                        <span>{formatFriendlyDate(dateKey, todayKey)}</span>
+                        <span className="text-[10px] font-mono opacity-60">{dateKey}</span>
+                        {isToday && (
+                          <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-lime-500/20 text-lime-700 dark:text-lime-300">
+                            Active
+                          </span>
+                        )}
+                        {isGapDay && (
+                          <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-700 dark:text-rose-300">
+                            No care logged
+                          </span>
+                        )}
+                        {isNoMistDay && (
+                          <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300">
+                            No mist logged
+                          </span>
+                        )}
+                      </div>
+
+                      {dateKey !== todayKey && (
+                        <button
+                          type="button"
+                          onClick={() => openBackfillModal(dateKey)}
+                          className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border flex items-center gap-1 cursor-pointer transition ${
+                            !hasActivity
+                              ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-700'
+                              : darkMode
+                                ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
                           }`}
                         >
-                          {f.outcome === 'refused'
-                            ? '✗ Refused prey'
-                            : `🪰 ${f.count}× ${f.preyLabel?.split(' (')[0]}`}
-                        </span>
-                      ))}
-                      {rec.abdomenStatus && (
-                        <span className="px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-700 capitalize">
-                          Abdomen: {rec.abdomenStatus}
-                        </span>
+                          <Edit3 className="w-3 h-3" />
+                          <span>{!hasActivity ? '+ Backfill' : 'Edit'}</span>
+                        </button>
                       )}
                     </div>
+
+                    {hasActivity && (
+                      <div className="flex flex-wrap gap-1.5 pt-0.5">
+                        {mists.length > 0 && (
+                          <span className="px-2 py-0.5 rounded-md bg-sky-500/15 text-sky-700 dark:text-sky-300 font-semibold">
+                            💧 {mists.length} mist{mists.length > 1 ? 's' : ''}
+                          </span>
+                        )}
+                        {feedings.map((f) => (
+                          <span
+                            key={f.id}
+                            className={`px-2 py-0.5 rounded-md font-semibold ${
+                              f.outcome === 'refused'
+                                ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                                : 'bg-lime-500/15 text-lime-700 dark:text-lime-300'
+                            }`}
+                          >
+                            {f.outcome === 'refused'
+                              ? '✗ Refused prey'
+                              : `🪰 ${f.count}× ${f.preyLabel?.split(' (')[0]}`}
+                          </span>
+                        ))}
+                        {rec.abdomenStatus && (
+                          <span className="px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-700 capitalize">
+                            Abdomen: {rec.abdomenStatus}
+                          </span>
+                        )}
+                        {climateChecks.map((c) => (
+                          <span
+                            key={c.id}
+                            className="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold"
+                          >
+                            🌡️ {c.tempC != null ? `${c.tempC}°C` : '—'}
+                            {c.humidityPct != null ? ` / ${c.humidityPct}%` : ''}
+                          </span>
+                        ))}
+                        {dayMolts.map((m) => (
+                          <span
+                            key={m.id}
+                            className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold"
+                          >
+                            ✨ {m.fromInstar} → {m.toInstar}
+                          </span>
+                        ))}
+                        {behaviors.map((tag) => (
+                          <span
+                            key={tag}
+                            className="px-2 py-0.5 rounded-md bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
                     {rec.journalNote && (
-                      <p className="text-[11px] opacity-80 italic pt-0.5">&ldquo;{rec.journalNote}&rdquo;</p>
+                      <p className="text-[11px] opacity-80 italic pt-0.5">
+                        &ldquo;{rec.journalNote}&rdquo;
+                      </p>
                     )}
                   </div>
-                ))}
-              </div>
-            </section>
-          )}
+                );
+              })}
+            </div>
+          </section>
         </div>
       )}
 
@@ -1745,7 +2195,7 @@ export default function BloomApp({
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   Day {summary.daysInCurrentInstar} in {settings.currentInstar} • Avg inter-molt cadence: ~{summary.avgInterMoltDays} days
                   {summary.projectedNextMoltDateStr
-                    ? ` • Next molt window around ${summary.projectedNextMoltDateStr}`
+                    ? ` • Next molt window around ${formatFriendlyDate(summary.projectedNextMoltDateStr, todayKey)}`
                     : ' • Final winged adult stage reached!'}
                 </p>
               </div>
@@ -2298,7 +2748,11 @@ export default function BloomApp({
                   </div>
                   <div>
                     <span className="opacity-65">Last Substrate Tidy / Clean:</span>{' '}
-                    <strong>{settings.enclosureInfo.lastDeepCleanDate || 'Not recorded'}</strong>
+                    <strong>
+                      {settings.enclosureInfo.lastDeepCleanDate
+                        ? formatFriendlyDate(settings.enclosureInfo.lastDeepCleanDate, todayKey)
+                        : 'Not recorded'}
+                    </strong>
                   </div>
                 </div>
                 {canConfigure && (
@@ -2863,6 +3317,400 @@ export default function BloomApp({
                 Delete
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================================
+          MODAL D: PAST-DAY CARE BACKFILL / EDIT MODAL
+      ==================================================================== */}
+      {backfillDate && (
+        <div
+          onClick={() => setBackfillDate(null)}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Edit or Backfill Past Day Care Log"
+            className={`max-w-lg w-full max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${
+              darkMode
+                ? 'bg-slate-900 border-slate-800 text-slate-100'
+                : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            {(() => {
+              const bfRec = localSnapshot?.logsByDate?.[backfillDate] || {};
+              const bfMists = bfRec.mists || [];
+              const bfFeeds = bfRec.feedings || [];
+              const bfClimates = bfRec.climateChecks || [];
+              const bfBehaviors = bfRec.behaviors || [];
+
+              return (
+                <>
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-2xl bg-lime-500/15 text-lime-600 dark:text-lime-400 flex items-center justify-center shrink-0">
+                        <Calendar className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-base sm:text-lg font-extrabold">
+                          Care Log • {formatFriendlyDate(backfillDate, todayKey)}
+                        </h3>
+                        <p className="text-xs font-mono text-slate-500 dark:text-slate-400">
+                          {backfillDate} • Recorded as {activeCaregiver}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setBackfillDate(null)}
+                      aria-label="Close Care Backfill Modal"
+                      className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Existing recorded entries on this day */}
+                  <div className="space-y-2 text-xs">
+                    <div className="font-extrabold uppercase tracking-wide text-[11px] opacity-70">
+                      Logged Entries for {backfillDate}
+                    </div>
+                    {bfMists.length === 0 &&
+                    bfFeeds.length === 0 &&
+                    bfClimates.length === 0 ? (
+                      <div className="p-3 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 italic">
+                        No misting, feeding, or climate entries logged for this date yet.
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {bfMists.map((m) => (
+                          <div
+                            key={m.id}
+                            className="flex items-center justify-between py-1.5 px-2.5 rounded-xl bg-sky-500/10 border border-sky-500/20"
+                          >
+                            <span>
+                              💧 <strong>{formatTimeDisplay(m.timestamp)}</strong> • {m.by}
+                              {m.dropletDrinkObserved ? ' • Drank' : ''}
+                              {m.note ? ` — "${m.note}"` : ''}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteMist(m.id, backfillDate)}
+                              className="text-slate-400 hover:text-rose-500 p-1 cursor-pointer"
+                              title="Delete mist entry"
+                              aria-label="Delete mist entry"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                        {bfFeeds.map((f) => (
+                          <div
+                            key={f.id}
+                            className="flex items-center justify-between py-1.5 px-2.5 rounded-xl bg-lime-500/10 border border-lime-500/20"
+                          >
+                            <span>
+                              {f.outcome === 'refused'
+                                ? `✗ Refused prey • ${f.by}`
+                                : `🪰 ${f.count}× ${f.preyLabel?.split(' (')[0]} • ${f.by}`}
+                              {f.abdomenAfter ? ` • Abdomen: ${f.abdomenAfter}` : ''}
+                              {f.note ? ` — "${f.note}"` : ''}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteFeeding(f.id, backfillDate)}
+                              className="text-slate-400 hover:text-rose-500 p-1 cursor-pointer"
+                              title="Delete feeding entry"
+                              aria-label="Delete feeding entry"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                        {bfClimates.map((c) => (
+                          <div
+                            key={c.id}
+                            className="flex items-center justify-between py-1.5 px-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20"
+                          >
+                            <span>
+                              🌡️ <strong>{formatTimeDisplay(c.timestamp)}</strong> •{' '}
+                              {c.tempC != null ? `${c.tempC}°C` : '—'}
+                              {c.humidityPct != null ? ` • ${c.humidityPct}% RH` : ''}
+                              {c.by ? ` • ${c.by}` : ''}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteClimateCheck(c.id, backfillDate)}
+                              className="text-slate-400 hover:text-rose-500 p-1 cursor-pointer"
+                              title="Delete climate entry"
+                              aria-label="Delete climate entry"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Backfill Mist */}
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      await handleLogMist(null, backfillDate, {
+                        timestamp: buildTimestampForDate(backfillDate, bfMistTime),
+                        drank: bfMistDrink,
+                        note: bfMistNote
+                      });
+                      setBfMistDrink(false);
+                      setBfMistNote('');
+                    }}
+                    className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs"
+                  >
+                    <div className="font-extrabold flex items-center gap-1.5">
+                      <Droplets className="w-4 h-4 text-sky-500" />
+                      <span>Backfill Enclosure Mist</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="time"
+                        value={bfMistTime}
+                        onChange={(e) => setBfMistTime(e.target.value)}
+                        className="px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                      />
+                      <label className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={bfMistDrink}
+                          onChange={(e) => setBfMistDrink(e.target.checked)}
+                          className="accent-sky-600"
+                        />
+                        <span className="font-semibold">Drank droplets</span>
+                      </label>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={bfMistNote}
+                        onChange={(e) => setBfMistNote(e.target.value)}
+                        placeholder="Optional mist note..."
+                        className="flex-1 min-w-0 px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                      />
+                      <button
+                        type="submit"
+                        className="px-3.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold shrink-0 cursor-pointer"
+                      >
+                        Add Mist
+                      </button>
+                    </div>
+                  </form>
+
+                  {/* Backfill Feeding & Abdomen */}
+                  <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold flex items-center gap-1.5">
+                        <Bug className="w-4 h-4 text-lime-600 dark:text-lime-400" />
+                        <span>Backfill Feeding &amp; Abdomen</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateAbdomenOnly(bfAbdomen, backfillDate)}
+                        className="text-[11px] font-bold text-lime-600 dark:text-lime-400 hover:underline cursor-pointer"
+                      >
+                        Save Abdomen Only
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                      {ABDOMEN_LEVELS.map((lvl) => (
+                        <button
+                          key={lvl.id}
+                          type="button"
+                          onClick={() => setBfAbdomen(lvl.id)}
+                          className={`p-1.5 rounded-xl border text-left transition cursor-pointer ${
+                            bfAbdomen === lvl.id ? lvl.activeClass : lvl.pillClass
+                          }`}
+                        >
+                          <div className="text-[11px] font-extrabold">{lvl.label}</div>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <select
+                        value={bfPrey}
+                        onChange={(e) => setBfPrey(e.target.value)}
+                        className="col-span-2 px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                      >
+                        {PREY_OPTIONS.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.label}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        min="1"
+                        max="20"
+                        value={bfPreyCount}
+                        onChange={(e) => setBfPreyCount(Number(e.target.value) || 1)}
+                        className="px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={bfFeedNote}
+                      onChange={(e) => setBfFeedNote(e.target.value)}
+                      placeholder="Optional feeding note..."
+                      className="w-full px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await handleLogFeeding('eaten', backfillDate, {
+                            timestamp: buildTimestampForDate(backfillDate, '12:00'),
+                            preyId: bfPrey,
+                            count: bfPreyCount,
+                            abdomenAfter: bfAbdomen,
+                            note: bfFeedNote
+                          });
+                          setBfFeedNote('');
+                        }}
+                        className="py-1.5 px-3 rounded-xl bg-lime-600 hover:bg-lime-700 text-white font-bold cursor-pointer"
+                      >
+                        Log Eaten Meal
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await handleLogFeeding('refused', backfillDate, {
+                            timestamp: buildTimestampForDate(backfillDate, '12:00'),
+                            preyId: bfPrey,
+                            count: 0,
+                            abdomenAfter: bfAbdomen,
+                            note: bfFeedNote
+                          });
+                          setBfFeedNote('');
+                        }}
+                        className="py-1.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold cursor-pointer"
+                      >
+                        Log Refused Prey
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Backfill Climate Check */}
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (bfTemp === '' && bfHumidity === '') return;
+                      await handleLogClimate(null, backfillDate, {
+                        temp: bfTemp,
+                        humidity: bfHumidity
+                      });
+                      setBfTemp('');
+                      setBfHumidity('');
+                    }}
+                    className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2 text-xs"
+                  >
+                    <div className="font-extrabold flex items-center gap-1.5">
+                      <Thermometer className="w-4 h-4 text-amber-500" />
+                      <span>Backfill Climate Check</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="60"
+                        value={bfTemp}
+                        onChange={(e) => setBfTemp(e.target.value)}
+                        placeholder="Temp °C"
+                        className="px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                      />
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        max="100"
+                        value={bfHumidity}
+                        onChange={(e) => setBfHumidity(e.target.value)}
+                        placeholder="RH %"
+                        className="px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                      />
+                      <button
+                        type="submit"
+                        className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold cursor-pointer"
+                      >
+                        Add Check
+                      </button>
+                    </div>
+                  </form>
+
+                  {/* Backfill Behaviours & Daily Note */}
+                  <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
+                    <div className="font-extrabold flex items-center gap-1.5">
+                      <Activity className="w-4 h-4 text-lime-600 dark:text-lime-400" />
+                      <span>Behaviours &amp; Daily Note</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {BEHAVIOR_TAGS.map((tag) => {
+                        const active = bfBehaviors.includes(tag);
+                        return (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => handleToggleBehavior(tag, backfillDate)}
+                            className={`px-2 py-1 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                              active
+                                ? 'bg-lime-600 text-white border-lime-700'
+                                : darkMode
+                                  ? 'bg-slate-800 border-slate-700 text-slate-300'
+                                  : 'bg-slate-50 border-slate-200 text-slate-600'
+                            }`}
+                          >
+                            {tag}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleSaveJournalNote(null, backfillDate, bfJournal);
+                      }}
+                      className="flex gap-2"
+                    >
+                      <input
+                        type="text"
+                        value={bfJournal}
+                        onChange={(e) => setBfJournal(e.target.value)}
+                        placeholder={`Observation note for ${backfillDate}...`}
+                        className="flex-1 min-w-0 px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                      />
+                      <button
+                        type="submit"
+                        className="px-3.5 py-1.5 rounded-xl bg-lime-600 hover:bg-lime-700 text-white font-bold shrink-0 cursor-pointer"
+                      >
+                        Save Note
+                      </button>
+                    </form>
+                  </div>
+
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setBackfillDate(null)}
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 cursor-pointer"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
