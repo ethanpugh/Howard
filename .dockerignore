@@ -11,5 +11,6 @@ data
 .env*
 tests
 README.md
+docs
 Dockerfile
 docker-compose.yml
