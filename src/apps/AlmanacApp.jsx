@@ -963,8 +963,8 @@ export default function AlmanacApp({
             darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
           }`}
         >
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
+          <div className="space-y-3 sm:space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
                 <span className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
                   Selected Date

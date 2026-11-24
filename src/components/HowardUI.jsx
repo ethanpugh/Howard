@@ -155,7 +155,7 @@ export function ModuleHeader({
       </div>
 
       {footer && (
-        <div className="mt-3.5 pt-3 border-t border-slate-200/80 dark:border-slate-800">
+        <div className="mt-3">
           {footer}
         </div>
       )}

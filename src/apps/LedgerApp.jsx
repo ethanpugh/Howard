@@ -1746,8 +1746,8 @@ export default function LedgerApp({
           TAB 2: SUBSCRIPTIONS & DIRECT DEBITS MANAGER
       ==================================================================== */}
       {activeTab === 'recurring' && (
-        <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${cardSurface}`}>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
+        <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-3 sm:space-y-4 ${cardSurface}`}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-extrabold">
                 Subscriptions &amp; Direct Debits ({filteredRecurring.length})
@@ -1935,8 +1935,8 @@ export default function LedgerApp({
           TAB 3: DAY-TO-DAY EXPENSES LOG
       ==================================================================== */}
       {activeTab === 'expenses' && (
-        <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${cardSurface}`}>
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
+        <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-3 sm:space-y-4 ${cardSurface}`}>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-extrabold">
                 {selectedMonthLabel} Expenses Log ({filteredExpenses.length})
@@ -2098,8 +2098,8 @@ export default function LedgerApp({
       {activeTab === 'income' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
           {/* Income Streams List (7 cols) */}
-          <section className={`lg:col-span-7 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${cardSurface}`}>
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
+          <section className={`lg:col-span-7 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-3 sm:space-y-4 ${cardSurface}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-lg font-extrabold">
                   Household Income ({selectedMonthLabel})

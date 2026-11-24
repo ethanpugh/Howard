@@ -1972,11 +1972,11 @@ export default function BloomApp({
           {/* Mon-Sun Weekly Care History (Week Pager + Gap Highlighting + Backfill) */}
           <section
             aria-label="Weekly Care History"
-            className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${
+            className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-3 sm:space-y-4 ${
               darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
             }`}
           >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="flex items-center gap-2.5 min-w-0">
                 <div className="w-10 h-10 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
                   <History className="w-5 h-5 text-emerald-700 dark:text-emerald-400" />

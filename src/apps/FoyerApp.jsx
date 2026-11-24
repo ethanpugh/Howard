@@ -363,14 +363,14 @@ export default function FoyerApp({
           3. LIVE CADENCE FAST-ACTION WIDGET (PET'S MORNING & EVENING DOSES)
       ==================================================================== */}
       <section
-        className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${
+        className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-3 sm:space-y-4 ${
           darkMode
             ? 'bg-slate-900 border-slate-800'
             : 'bg-white border-slate-200/90'
         }`}
       >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200/70 dark:border-slate-800">
-          <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-start sm:items-center justify-between gap-2.5">
+          <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
             <div
               className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${MODULE_ACCENTS.purple.iconBg}`}
             >
@@ -398,10 +398,13 @@ export default function FoyerApp({
           <button
             type="button"
             onClick={() => onNavigateApp('cadence')}
-            className="min-h-[44px] px-2 py-1.5 inline-flex items-center gap-1.5 text-xs font-bold text-purple-700 dark:text-purple-400 hover:underline cursor-pointer self-start sm:self-auto shrink-0"
+            aria-label="Open Full Cadence Tracker & History"
+            title="Open Full Cadence Tracker & History"
+            className="min-h-[40px] px-2.5 sm:px-3 py-1.5 rounded-xl border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 inline-flex items-center gap-1 text-xs font-bold text-purple-800 dark:text-purple-300 cursor-pointer shrink-0 whitespace-nowrap active:scale-[0.98] transition"
           >
-            <span>Open Full Cadence Tracker &amp; History</span>
-            <ArrowRight className="w-4 h-4 shrink-0" />
+            <span className="sm:hidden">Open</span>
+            <span className="hidden sm:inline">Full Cadence Tracker</span>
+            <ArrowRight className="w-3.5 h-3.5 shrink-0" />
           </button>
         </div>
 
@@ -562,14 +565,14 @@ export default function FoyerApp({
           3B. LIVE BLOOM FAST-ACTION WIDGET (MANTIS MISTING, FEEDING & STAGE)
       ==================================================================== */}
       <section
-        className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${
+        className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-3 sm:space-y-4 ${
           darkMode
             ? 'bg-slate-900 border-slate-800'
             : 'bg-white border-slate-200/90'
         }`}
       >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200/70 dark:border-slate-800">
-          <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-start sm:items-center justify-between gap-2.5">
+          <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
             <div
               className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${MODULE_ACCENTS.emerald.iconBg}`}
             >
@@ -608,10 +611,13 @@ export default function FoyerApp({
           <button
             type="button"
             onClick={() => onNavigateApp('bloom')}
-            className="min-h-[44px] px-2 py-1.5 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer self-start sm:self-auto shrink-0"
+            aria-label="Open Full Bloom Habitat & Growth"
+            title="Open Full Bloom Habitat & Growth"
+            className="min-h-[40px] px-2.5 sm:px-3 py-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 inline-flex items-center gap-1 text-xs font-bold text-emerald-800 dark:text-emerald-300 cursor-pointer shrink-0 whitespace-nowrap active:scale-[0.98] transition"
           >
-            <span>Open Full Bloom Habitat &amp; Growth</span>
-            <ArrowRight className="w-4 h-4 shrink-0" />
+            <span className="sm:hidden">Open</span>
+            <span className="hidden sm:inline">Full Bloom Habitat</span>
+            <ArrowRight className="w-3.5 h-3.5 shrink-0" />
           </button>
         </div>
 

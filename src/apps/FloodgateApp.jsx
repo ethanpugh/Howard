@@ -1180,7 +1180,7 @@ export default function FloodgateApp({
             <div className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${
               darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
             }`}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-slate-200/60 dark:border-slate-800">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center justify-between sm:justify-start gap-2 w-full sm:w-auto">
                   <button
                     type="button"
@@ -1275,7 +1275,7 @@ export default function FloodgateApp({
               </div>
 
               {/* 7-Day Quick Selector Strip */}
-              <div className="grid grid-cols-7 gap-1 sm:gap-2 pt-4">
+              <div className="grid grid-cols-7 gap-1 sm:gap-2 pt-3">
                 {weekStripDates.map((dStr) => {
                   const [y, m, d] = dStr.split('-').map(Number);
                   const dateObj = new Date(y, m - 1, d);
@@ -2080,7 +2080,7 @@ export default function FloodgateApp({
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-4 text-xs mb-4 pb-3 border-b border-slate-200/60 dark:border-slate-800">
+              <div className="flex flex-wrap items-center gap-4 text-xs mb-3">
                 <span className="flex items-center gap-1.5">
                   <span className="w-3 h-3 rounded-full bg-rose-500 inline-block" /> Period / Bleeding
                 </span>
@@ -2185,8 +2185,8 @@ export default function FloodgateApp({
             <div className={`xl:col-span-4 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between ${
               darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
             }`}>
-              <div className="space-y-5">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-4 border-slate-200/60 dark:border-slate-800">
+              <div className="space-y-3.5 sm:space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <span className="text-xs font-semibold uppercase tracking-wider text-rose-600 dark:text-rose-400">
                       Selected Date
