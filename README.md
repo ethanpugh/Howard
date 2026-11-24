@@ -49,22 +49,19 @@ Howard is intentionally designed for **trusted home LAN / Tailscale networks** r
 
 ---
 
-## 💾 Drop-In Database Architecture & Daily Backups
+## 💾 Unified Database Architecture & Daily Backups
 
-Howard keeps four clean SQLite files inside `./data` (`/app/data` in Docker):
-* `./data/howard.db` — Profiles, PINs, Almanac calendar events, Ledger bookkeeping, and Beacon house guide.
-* `./data/cadence.db` — Schema-compatible with standalone Cadence backups (`Logs`, `Settings`).
-* `./data/bloom.db` — Mantis specimen settings, daily misting/feeding/climate care logs, molt milestones, and feeder cultures.
-* `./data/floodgate.db` — Schema-compatible with standalone Floodgate backups.
+Howard stores the entire household in a single atomic SQLite database inside `./data` (`/app/data` in Docker):
+* `./data/howard.db` — Unified SQLite database (`PRAGMA user_version = 4`) containing Profiles, Almanac calendar events, Ledger bookkeeping, Beacon house guide, Cadence pet medication logs, Bloom mantis habitat & growth logs, and Floodgate clinical symptom logs. Legacy 4-database setups (`cadence.db`, `bloom.db`, `floodgate.db`) automatically archive to `./data/backups/legacy-4db-*/` and consolidate on first boot.
 
-> **Backup & Restore Modes:** The in-app Backup & Restore modal performs a full **replace** restore from a JSON snapshot. Non-destructive **`mode: "merge"`** restores (preserving existing records) and partial section updates are available via `POST /api/howard/restore`.
+> **Backup & Restore Access:** Both **Partner 1** and **Partner 2** can inspect live sync status and export the full household database (including Floodgate in its entirety) from the top-right Database menu. Only **Partner 1** can restore or merge JSON backups, and every restore automatically saves a pre-restore `VACUUM INTO` snapshot to `./data/backups/pre-restore-*/` inside a single SQLite transaction (`mode: "replace"` in the UI or `mode: "merge"` for standalone Cadence/Floodgate JSONs).
 
 ### 📦 Automatic Daily Snapshots & Safe Folder Copies
 
-Howard automatically creates clean daily SQLite snapshots inside `./data/backups/YYYY-MM-DD/` (pruning older snapshots automatically):
+Howard automatically creates clean daily SQLite snapshots inside `./data/backups/YYYY-MM-DD/howard.db` (pruning older daily snapshots after 7 days):
 
-* **Quick Explorer / Finder Copy (No Downtime):** Copy any dated folder from `./data/backups/YYYY-MM-DD/` directly without stopping Docker—those snapshot files are already cleanly checkpointed.
-* **Cold Copy of Live `./data`:** If copying the live `./data/*.db` files directly, stop the container first so active `-wal`/`-shm` journals are flushed cleanly:
+* **Quick Explorer / Finder Copy (No Downtime):** Copy any dated `howard.db` from `./data/backups/YYYY-MM-DD/` directly without stopping Docker—those snapshot files are cleanly compacted via `VACUUM INTO`.
+* **Cold Copy of Live `./data`:** If copying the live `./data/howard.db*` files directly, stop the container first so active `-wal`/`-shm` journals are flushed cleanly:
   ```bash
   docker compose stop
   # Copy ./data to your backup drive

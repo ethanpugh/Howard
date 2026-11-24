@@ -12,7 +12,6 @@ import {
   Minus,
   Check,
   Download,
-  Upload,
   Printer,
   Heart,
   AlertCircle,
@@ -843,73 +842,6 @@ export default function FloodgateApp({
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     showToast('Exported CSV spreadsheet for Excel/GP');
-  };
-
-  const batchUpsertLogs = async (entriesArray, successToastText) => {
-    try {
-      const res = await fetch('/api/floodgate/logs/batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ logs: entriesArray })
-      });
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      if (data.logsByDate) {
-        setLogsMap(data.logsByDate);
-        if (!isDirtyRef.current) {
-          setFormData(normalizeEntry(selectedDateRef.current, data.logsByDate[selectedDateRef.current]));
-        }
-      }
-      if (onGlobalSync) onGlobalSync();
-      showToast(successToastText);
-    } catch (err) {
-      console.error('Batch upsert failed:', err);
-      showToast('Failed to save batch logs to server', 'error');
-    }
-  };
-
-  const handleImportJSON = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onerror = () => {
-      showToast('Could not read the selected file', 'error');
-      e.target.value = '';
-    };
-    reader.onload = async (event) => {
-      try {
-        const parsed = JSON.parse(event.target.result);
-        const importedLogs =
-          parsed.logs || parsed.floodgate?.logsByDate || parsed.floodgate?.logs || parsed;
-        if (typeof importedLogs !== 'object' || importedLogs === null) {
-          showToast('Invalid JSON backup format', 'error');
-          return;
-        }
-        const entries = Object.entries(importedLogs)
-          .map(([key, item]) => {
-            if (!item || typeof item !== 'object') return null;
-            const dateStr = item.date || item.dateKey || key;
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
-            return normalizeEntry(dateStr, item);
-          })
-          .filter(Boolean);
-
-        if (entries.length === 0) {
-          showToast('No valid dated entries found in file', 'error');
-          return;
-        }
-
-        await batchUpsertLogs(entries, `Imported ${entries.length} day logs successfully`);
-      } catch (err) {
-        console.error('Import error:', err);
-        showToast('Could not parse JSON file', 'error');
-      } finally {
-        e.target.value = '';
-      }
-    };
-    reader.readAsText(file);
   };
 
   // --------------------------------------------------------------------------
@@ -2454,14 +2386,6 @@ export default function FloodgateApp({
                     <span>Export CSV (Excel)</span>
                   </button>
                 </div>
-
-                <div className="pt-3 border-t border-slate-200/60 dark:border-slate-800">
-                  <label className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-xs font-semibold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
-                    <Upload className="w-4 h-4 text-rose-600" />
-                    <span>Restore / Merge from Floodgate JSON File</span>
-                    <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
-                  </label>
-                </div>
               </div>
 
               {/* Howard Unified Backstage Card (Replaces Legacy Webhook) */}
@@ -2474,7 +2398,7 @@ export default function FloodgateApp({
                     <h3 className="text-base font-bold">Howard Unified Household Storage</h3>
                   </div>
                   <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                    Floodgate runs natively inside Howard on your home server (<code className="font-mono">data/floodgate.db</code>). You can also snapshot the entire household in one click.
+                    Floodgate runs inside Howard&rsquo;s unified home server database (<code className="font-mono">data/howard.db</code>). You can also snapshot the entire household in one click.
                   </p>
                 </div>
 
@@ -2483,7 +2407,7 @@ export default function FloodgateApp({
                 }`}>
                   <div className="flex justify-between">
                     <span className="font-semibold">Database File:</span>
-                    <code className="font-mono">data/floodgate.db</code>
+                    <code className="font-mono">data/howard.db</code>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-semibold">Logged Days Stored:</span>
@@ -2496,7 +2420,7 @@ export default function FloodgateApp({
                   onClick={onOpenBackupModal}
                   className="w-full py-3 rounded-2xl text-xs font-bold bg-teal-600 text-white hover:bg-teal-700 cursor-pointer"
                 >
-                  Open Howard Full Household Backup &rarr;
+                  Open Howard Status &amp; Backup Menu &rarr;
                 </button>
               </div>
             </div>

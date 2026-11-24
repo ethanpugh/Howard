@@ -21,7 +21,9 @@ import {
   doesAlmanacEventOccurOnDate,
   getLedgerScheduleInfo,
   doesLedgerItemOccurOnDate,
-  computeLedgerSettlement
+  computeLedgerSettlement,
+  inferProfileIdFromName,
+  resolveProfileDisplayName
 } from '../src/utils/householdHelpers.js';
 
 describe('Date & Currency Utilities', () => {
@@ -662,5 +664,31 @@ describe('Ledger Schedules & Settlements', () => {
     const nanFallback = computeLedgerSettlement(matrixExpenses, Number.NaN);
     assert.equal(Math.round(nanFallback.netPartner1Balance * 100) / 100, 55);
     assert.equal(computeLedgerSettlement([], 0.5).netPartner1Balance, 0);
+  });
+});
+
+describe('Stable Profile ID Helpers (DB-ARCH-2)', () => {
+  const renamedProfiles = [
+    { id: 'partner1', name: 'Alex', caregiverName: 'Alex' },
+    { id: 'partner2', name: 'Sam', caregiverName: 'Sam' },
+    { id: 'caregiver', name: 'Caregiver', caregiverName: 'Caregiver' }
+  ];
+
+  it('infers stable profile IDs from renamed names and canonical aliases while skipping household strings', () => {
+    assert.equal(inferProfileIdFromName(renamedProfiles, 'Alex'), 'partner1');
+    assert.equal(inferProfileIdFromName(renamedProfiles, 'sam'), 'partner2');
+    assert.equal(inferProfileIdFromName(renamedProfiles, 'Partner 1'), 'partner1');
+    assert.equal(inferProfileIdFromName(renamedProfiles, 'Partner 2'), 'partner2');
+    assert.equal(inferProfileIdFromName(renamedProfiles, 'Caregiver'), 'caregiver');
+    assert.equal(inferProfileIdFromName(renamedProfiles, 'Both'), null);
+    assert.equal(inferProfileIdFromName(renamedProfiles, 'Pets'), null);
+    assert.equal(inferProfileIdFromName(renamedProfiles, 'Auntie'), null);
+  });
+
+  it('resolves live display names by profileId and falls back cleanly for unlinked names', () => {
+    assert.equal(resolveProfileDisplayName(renamedProfiles, 'partner1', 'Partner 1'), 'Alex');
+    assert.equal(resolveProfileDisplayName(renamedProfiles, 'partner2', 'Partner 2'), 'Sam');
+    assert.equal(resolveProfileDisplayName(renamedProfiles, null, 'Auntie'), 'Auntie');
+    assert.equal(resolveProfileDisplayName([], 'partner1', 'Legacy Name'), 'Legacy Name');
   });
 });

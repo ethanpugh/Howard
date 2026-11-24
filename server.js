@@ -13,9 +13,17 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DIST_DIR = path.join(__dirname, 'dist');
 
 const HOWARD_DB_PATH = path.join(DATA_DIR, 'howard.db');
-const CADENCE_DB_PATH = path.join(DATA_DIR, 'cadence.db');
-const FLOODGATE_DB_PATH = path.join(DATA_DIR, 'floodgate.db');
-const BLOOM_DB_PATH = path.join(DATA_DIR, 'bloom.db');
+const LEGACY_DB_FILES = ['cadence.db', 'bloom.db', 'floodgate.db'];
+const CURRENT_SCHEMA_VERSION = 4;
+const VALID_APP_IDS = new Set([
+  'foyer',
+  'cadence',
+  'bloom',
+  'almanac',
+  'floodgate',
+  'ledger',
+  'beacon'
+]);
 
 // Ensure persistent data directory exists
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -38,15 +46,12 @@ function runInTransaction(db, fn) {
   }
 }
 
-function ensureSchemaVersion(dbInstance, targetVersion) {
+function getSchemaVersion(dbInstance) {
   try {
     const row = dbInstance.prepare('PRAGMA user_version').get();
-    const current = Number(row?.user_version || 0);
-    if (current < targetVersion) {
-      dbInstance.exec(`PRAGMA user_version = ${targetVersion};`);
-    }
+    return Number(row?.user_version || 0);
   } catch {
-    // ignore pragma errors
+    return 0;
   }
 }
 
@@ -58,38 +63,54 @@ const getLocalDateKey = (dateObj = new Date()) => {
 };
 
 // ============================================================================
-// 1. INITIALIZE FOUR SEPARATE SQLITE DATABASES (DROP-IN COMPATIBLE)
+// 1. INITIALIZE SINGLE UNIFIED SQLITE DATABASE (OPTION B + HYBRID SCHEMA)
 // ============================================================================
 const howardDb = new DatabaseSync(HOWARD_DB_PATH);
-const cadenceDb = new DatabaseSync(CADENCE_DB_PATH);
-const floodgateDb = new DatabaseSync(FLOODGATE_DB_PATH);
-const bloomDb = new DatabaseSync(BLOOM_DB_PATH);
-
 const requestedJournal = String(process.env.SQLITE_JOURNAL_MODE || 'WAL').toUpperCase();
+let activeJournalMode = 'WAL';
 
-for (const dbInstance of [howardDb, cadenceDb, floodgateDb, bloomDb]) {
-  dbInstance.exec('PRAGMA busy_timeout = 5000;');
-  if (requestedJournal === 'TRUNCATE') {
-    dbInstance.exec('PRAGMA journal_mode = TRUNCATE;');
-    dbInstance.exec('PRAGMA synchronous = FULL;');
-  } else {
-    try {
-      dbInstance.exec('PRAGMA journal_mode = WAL;');
-      dbInstance.exec('PRAGMA synchronous = NORMAL;');
-    } catch {
-      dbInstance.exec('PRAGMA journal_mode = TRUNCATE;');
-      dbInstance.exec('PRAGMA synchronous = FULL;');
-    }
+howardDb.exec('PRAGMA busy_timeout = 5000;');
+howardDb.exec('PRAGMA foreign_keys = ON;');
+if (requestedJournal === 'TRUNCATE') {
+  howardDb.exec('PRAGMA journal_mode = TRUNCATE;');
+  howardDb.exec('PRAGMA synchronous = FULL;');
+  activeJournalMode = 'TRUNCATE';
+} else {
+  try {
+    howardDb.exec('PRAGMA journal_mode = WAL;');
+    howardDb.exec('PRAGMA synchronous = NORMAL;');
+    activeJournalMode = 'WAL';
+  } catch {
+    howardDb.exec('PRAGMA journal_mode = TRUNCATE;');
+    howardDb.exec('PRAGMA synchronous = FULL;');
+    activeJournalMode = 'TRUNCATE';
   }
 }
 
-function checkpointAllDatabases() {
-  for (const dbInstance of [howardDb, cadenceDb, floodgateDb, bloomDb]) {
+function checkpointDatabase() {
+  try {
+    howardDb.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+  } catch {
+    // ignore checkpoint errors
+  }
+}
+
+function vacuumSnapshotTo(dbInstance, destPath) {
+  const dir = path.dirname(destPath);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmpPath = `${destPath}.tmp`;
+  try {
+    if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    const escapedTmp = tmpPath.replace(/'/g, "''");
+    dbInstance.exec(`VACUUM INTO '${escapedTmp}'`);
+    fs.renameSync(tmpPath, destPath);
+  } catch (err) {
     try {
-      dbInstance.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
     } catch {
-      // ignore checkpoint errors
+      // ignore cleanup failure
     }
+    throw err;
   }
 }
 
@@ -99,29 +120,12 @@ function runDailyBackupSnapshots() {
     const todayDir = path.join(backupsRoot, getLocalDateKey(new Date()));
     fs.mkdirSync(todayDir, { recursive: true });
 
-    const targets = [
-      ['howard.db', howardDb],
-      ['cadence.db', cadenceDb],
-      ['bloom.db', bloomDb],
-      ['floodgate.db', floodgateDb]
-    ];
-
-    for (const [filename, dbInstance] of targets) {
-      const finalPath = path.join(todayDir, filename);
-      if (fs.existsSync(finalPath)) continue;
-      const tmpPath = `${finalPath}.tmp`;
+    const finalPath = path.join(todayDir, 'howard.db');
+    if (!fs.existsSync(finalPath)) {
       try {
-        if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
-        const escapedTmp = tmpPath.replace(/'/g, "''");
-        dbInstance.exec(`VACUUM INTO '${escapedTmp}'`);
-        fs.renameSync(tmpPath, finalPath);
+        vacuumSnapshotTo(howardDb, finalPath);
       } catch (snapErr) {
-        try {
-          if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
-        } catch {
-          // ignore cleanup failure
-        }
-        console.warn(`Daily snapshot warning (${filename}):`, snapErr.message || snapErr);
+        console.warn('Daily snapshot warning (howard.db):', snapErr.message || snapErr);
       }
     }
 
@@ -144,371 +148,36 @@ function runDailyBackupSnapshots() {
   }
 }
 
-// ----------------------------------------------------------------------------
-// A. CADENCE DATABASE SCHEMA & DEFAULTS (Pet Medication)
-// ----------------------------------------------------------------------------
-function createDefaultCadenceSettings(dateObj = new Date()) {
-  return {
-    catName: 'Pet',
-    medicationName: 'Oral Solution',
-    dosageLabel: '2.5 mg / 0.5 ml',
-    morningTargetTime: '08:00',
-    eveningTargetTime: '20:00',
-    bottleOpenedDate: getLocalDateKey(dateObj),
-    bottleShelfLifeDays: 180,
-    caregivers: ['Partner 1', 'Partner 2', 'Caregiver'],
-    administrationNote:
-      'Give directly by mouth or with a small portion of wet food. Wipe syringe tip clean after each use.'
-  };
-}
+function createPreRestoreSnapshot() {
+  const backupsRoot = path.join(DATA_DIR, 'backups');
+  const now = new Date();
+  const stamp = now.toISOString().replace(/[:.]/g, '-');
+  const dirName = `pre-restore-${stamp}`;
+  const dirPath = path.join(backupsRoot, dirName);
+  const filePath = path.join(dirPath, 'howard.db');
+  checkpointDatabase();
+  vacuumSnapshotTo(howardDb, filePath);
 
-cadenceDb.exec(`
-  CREATE TABLE IF NOT EXISTS household_settings (
-    id TEXT PRIMARY KEY,
-    data TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS medication_logs (
-    date_key TEXT PRIMARY KEY,
-    data TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-`);
-
-const cadenceGetSettingsStmt = cadenceDb.prepare('SELECT data, updated_at FROM household_settings WHERE id = ?');
-const cadenceUpsertSettingsStmt = cadenceDb.prepare(`
-  INSERT INTO household_settings (id, data, updated_at)
-  VALUES (?, ?, ?)
-  ON CONFLICT(id) DO UPDATE SET
-    data = excluded.data,
-    updated_at = excluded.updated_at
-`);
-const cadenceGetAllLogsStmt = cadenceDb.prepare('SELECT date_key, data, updated_at FROM medication_logs');
-const cadenceGetLogByDateStmt = cadenceDb.prepare('SELECT data FROM medication_logs WHERE date_key = ?');
-const cadenceUpsertLogStmt = cadenceDb.prepare(`
-  INSERT INTO medication_logs (date_key, data, updated_at)
-  VALUES (?, ?, ?)
-  ON CONFLICT(date_key) DO UPDATE SET
-    data = excluded.data,
-    updated_at = excluded.updated_at
-`);
-const cadenceClearLogsStmt = cadenceDb.prepare('DELETE FROM medication_logs');
-
-if (!cadenceGetSettingsStmt.get('config')) {
-  cadenceUpsertSettingsStmt.run('config', JSON.stringify(createDefaultCadenceSettings()), new Date().toISOString());
-}
-
-function readCadenceSettings() {
-  const defaults = createDefaultCadenceSettings();
-  const row = cadenceGetSettingsStmt.get('config');
-  if (!row) return { settings: defaults, updatedAt: new Date().toISOString() };
   try {
-    const parsed = JSON.parse(row.data);
-    return {
-      settings: { ...defaults, ...parsed },
-      updatedAt: row.updated_at
-    };
-  } catch {
-    return { settings: defaults, updatedAt: row.updated_at };
-  }
-}
-
-function readCadenceLogs() {
-  const rows = cadenceGetAllLogsStmt.all();
-  const logsByDate = {};
-  let latestLogUpdate = '';
-  for (const row of rows) {
-    try {
-      logsByDate[row.date_key] = JSON.parse(row.data);
-      if (row.updated_at > latestLogUpdate) latestLogUpdate = row.updated_at;
-    } catch {
-      // skip malformed row
+    const preRestoreDirs = fs
+      .readdirSync(backupsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith('pre-restore-'))
+      .map((entry) => entry.name)
+      .sort()
+      .reverse();
+    for (const oldDir of preRestoreDirs.slice(10)) {
+      fs.rmSync(path.join(backupsRoot, oldDir), { recursive: true, force: true });
     }
+  } catch (pruneErr) {
+    console.warn('Pre-restore snapshot prune warning:', pruneErr.message || pruneErr);
   }
-  return { logsByDate, latestLogUpdate };
+
+  return { dirName, filePath, createdAt: now.toISOString() };
 }
 
-// ----------------------------------------------------------------------------
-// B. FLOODGATE DATABASE SCHEMA & DEFAULTS (Cycle & Symptom Tracker)
-// ----------------------------------------------------------------------------
-const DEFAULT_FLOODGATE_SETTINGS = {
-  ownerName: 'Partner 2',
-  appName: 'Floodgate'
-};
-
-floodgateDb.exec(`
-  CREATE TABLE IF NOT EXISTS app_settings (
-    id TEXT PRIMARY KEY,
-    data TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS daily_logs (
-    date_key TEXT PRIMARY KEY,
-    data TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-`);
-
-const floodgateGetSettingsStmt = floodgateDb.prepare('SELECT data, updated_at FROM app_settings WHERE id = ?');
-const floodgateUpsertSettingsStmt = floodgateDb.prepare(`
-  INSERT INTO app_settings (id, data, updated_at)
-  VALUES (?, ?, ?)
-  ON CONFLICT(id) DO UPDATE SET
-    data = excluded.data,
-    updated_at = excluded.updated_at
-`);
-const floodgateGetAllLogsStmt = floodgateDb.prepare('SELECT date_key, data, updated_at FROM daily_logs');
-const floodgateGetLogByDateStmt = floodgateDb.prepare('SELECT data FROM daily_logs WHERE date_key = ?');
-const floodgateUpsertLogStmt = floodgateDb.prepare(`
-  INSERT INTO daily_logs (date_key, data, updated_at)
-  VALUES (?, ?, ?)
-  ON CONFLICT(date_key) DO UPDATE SET
-    data = excluded.data,
-    updated_at = excluded.updated_at
-`);
-const floodgateDeleteLogStmt = floodgateDb.prepare('DELETE FROM daily_logs WHERE date_key = ?');
-const floodgateClearLogsStmt = floodgateDb.prepare('DELETE FROM daily_logs');
-
-if (!floodgateGetSettingsStmt.get('config')) {
-  floodgateUpsertSettingsStmt.run('config', JSON.stringify(DEFAULT_FLOODGATE_SETTINGS), new Date().toISOString());
-}
-
-function readFloodgateSettings() {
-  const row = floodgateGetSettingsStmt.get('config');
-  if (!row) return { settings: { ...DEFAULT_FLOODGATE_SETTINGS }, updatedAt: new Date().toISOString() };
-  try {
-    const parsed = JSON.parse(row.data);
-    return {
-      settings: { ...DEFAULT_FLOODGATE_SETTINGS, ...parsed },
-      updatedAt: row.updated_at
-    };
-  } catch {
-    return { settings: { ...DEFAULT_FLOODGATE_SETTINGS }, updatedAt: row.updated_at };
-  }
-}
-
-function readFloodgateLogs() {
-  const rows = floodgateGetAllLogsStmt.all();
-  const logsByDate = {};
-  let latestLogUpdate = '';
-  for (const row of rows) {
-    try {
-      logsByDate[row.date_key] = JSON.parse(row.data);
-      if (row.updated_at > latestLogUpdate) latestLogUpdate = row.updated_at;
-    } catch {
-      // skip malformed row
-    }
-  }
-  return { logsByDate, latestLogUpdate };
-}
-
-// ----------------------------------------------------------------------------
-// C. BLOOM DATABASE SCHEMA & DEFAULTS (Flower Mantis Growth, Feeding & Habitat)
-// ----------------------------------------------------------------------------
-function createDefaultBloomSettings(dateObj = new Date()) {
-  const todayKey = getLocalDateKey(dateObj);
-  return {
-    mantisName: 'Mantis',
-    speciesPreset: 'spiny_flower',
-    commonName: 'Spiny Flower Mantis',
-    scientificName: 'Pseudocreobotra wahlbergii',
-    sex: 'Unsexed',
-    pronouns: 'they/them',
-    currentInstar: 'L2',
-    arrivalDate: todayKey,
-    hatchDate: '',
-    currentColorMorph: 'Spiky creamy-white & dark banded nymph',
-    lifecycleStatus: 'normal', // 'normal' | 'premolt' | 'hardening'
-    premoltStartedAt: null,
-    hardeningUntil: null,
-    hardeningHours: 36,
-    livePreyInside: false,
-    livePreyNote: '',
-    dayTempMinC: 25,
-    dayTempMaxC: 28,
-    nightTempMinC: 20,
-    humidityMinPct: 50,
-    humidityMaxPct: 65,
-    mistTargetHours: 24,
-    typicalInterMoltDays: 14,
-    enclosureInfo: {
-      currentSizeLabel: 'Ventilated Nymph Cup / Mini Tall Enclosure',
-      meshType: 'Soft nylon / fabric mesh (tarsal-safe)',
-      substrate: 'Paper towel / coco fibre + climbing twigs & blossoms',
-      lastDeepCleanDate: todayKey,
-      currentBodyLengthMm: 10,
-      enclosureHeightMm: 110,
-      enclosureWidthMm: 75
-    },
-    caregivers: ['Partner 1', 'Partner 2', 'Caregiver'],
-    careNote:
-      'Mist one enclosure wall lightly once daily for drinking droplets—never spray the mantis directly, and let the enclosure dry between mists (Spiny Flower Mantises need cross-ventilation!). Do NOT offer live prey during Premolt Watch or Post-Molt Hardening.'
-  };
-}
-
-bloomDb.exec(`
-  CREATE TABLE IF NOT EXISTS bloom_settings (
-    id TEXT PRIMARY KEY,
-    data TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS care_logs (
-    date_key TEXT PRIMARY KEY,
-    data TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS molt_logs (
-    id TEXT PRIMARY KEY,
-    date_key TEXT NOT NULL,
-    data TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS feeder_cultures (
-    id TEXT PRIMARY KEY,
-    data TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_molt_logs_date_updated ON molt_logs (date_key DESC, updated_at DESC);
-  CREATE INDEX IF NOT EXISTS idx_feeder_cultures_updated ON feeder_cultures (updated_at DESC);
-`);
-
-const bloomGetSettingsStmt = bloomDb.prepare('SELECT data, updated_at FROM bloom_settings WHERE id = ?');
-const bloomUpsertSettingsStmt = bloomDb.prepare(`
-  INSERT INTO bloom_settings (id, data, updated_at)
-  VALUES (?, ?, ?)
-  ON CONFLICT(id) DO UPDATE SET
-    data = excluded.data,
-    updated_at = excluded.updated_at
-`);
-const bloomGetAllLogsStmt = bloomDb.prepare('SELECT date_key, data, updated_at FROM care_logs');
-const bloomGetLogByDateStmt = bloomDb.prepare('SELECT data FROM care_logs WHERE date_key = ?');
-const bloomUpsertLogStmt = bloomDb.prepare(`
-  INSERT INTO care_logs (date_key, data, updated_at)
-  VALUES (?, ?, ?)
-  ON CONFLICT(date_key) DO UPDATE SET
-    data = excluded.data,
-    updated_at = excluded.updated_at
-`);
-const bloomClearLogsStmt = bloomDb.prepare('DELETE FROM care_logs');
-const bloomGetAllMoltsStmt = bloomDb.prepare(
-  'SELECT id, date_key, data, updated_at FROM molt_logs ORDER BY date_key DESC, updated_at DESC'
-);
-const bloomUpsertMoltStmt = bloomDb.prepare(`
-  INSERT INTO molt_logs (id, date_key, data, updated_at)
-  VALUES (?, ?, ?, ?)
-  ON CONFLICT(id) DO UPDATE SET
-    date_key = excluded.date_key,
-    data = excluded.data,
-    updated_at = excluded.updated_at
-`);
-const bloomDeleteMoltStmt = bloomDb.prepare('DELETE FROM molt_logs WHERE id = ?');
-const bloomClearMoltsStmt = bloomDb.prepare('DELETE FROM molt_logs');
-const bloomGetAllFeedersStmt = bloomDb.prepare(
-  'SELECT id, data, updated_at FROM feeder_cultures ORDER BY updated_at DESC'
-);
-const bloomUpsertFeederStmt = bloomDb.prepare(`
-  INSERT INTO feeder_cultures (id, data, updated_at)
-  VALUES (?, ?, ?)
-  ON CONFLICT(id) DO UPDATE SET
-    data = excluded.data,
-    updated_at = excluded.updated_at
-`);
-const bloomDeleteFeederStmt = bloomDb.prepare('DELETE FROM feeder_cultures WHERE id = ?');
-const bloomClearFeedersStmt = bloomDb.prepare('DELETE FROM feeder_cultures');
-
-if (!bloomGetSettingsStmt.get('config')) {
-  bloomUpsertSettingsStmt.run('config', JSON.stringify(createDefaultBloomSettings()), new Date().toISOString());
-}
-
-function normalizeBloomSettings(parsed = {}) {
-  const defaults = createDefaultBloomSettings();
-  return {
-    ...defaults,
-    ...parsed,
-    enclosureInfo: {
-      ...defaults.enclosureInfo,
-      ...(parsed.enclosureInfo && typeof parsed.enclosureInfo === 'object' ? parsed.enclosureInfo : {})
-    }
-  };
-}
-
-function readBloomSettings() {
-  const row = bloomGetSettingsStmt.get('config');
-  if (!row) return { settings: normalizeBloomSettings(), updatedAt: new Date().toISOString() };
-  try {
-    const parsed = JSON.parse(row.data);
-    return {
-      settings: normalizeBloomSettings(parsed),
-      updatedAt: row.updated_at
-    };
-  } catch {
-    return { settings: normalizeBloomSettings(), updatedAt: row.updated_at };
-  }
-}
-
-function readBloomLogs() {
-  const rows = bloomGetAllLogsStmt.all();
-  const logsByDate = {};
-  let latestLogUpdate = '';
-  for (const row of rows) {
-    try {
-      logsByDate[row.date_key] = JSON.parse(row.data);
-      if (row.updated_at > latestLogUpdate) latestLogUpdate = row.updated_at;
-    } catch {
-      // skip malformed row
-    }
-  }
-  return { logsByDate, latestLogUpdate };
-}
-
-function readBloomMolts() {
-  const rows = bloomGetAllMoltsStmt.all();
-  const molts = [];
-  let latestMoltUpdate = '';
-  for (const row of rows) {
-    try {
-      molts.push({ id: row.id, dateKey: row.date_key, ...JSON.parse(row.data) });
-      if (row.updated_at > latestMoltUpdate) latestMoltUpdate = row.updated_at;
-    } catch {
-      // skip malformed row
-    }
-  }
-  return { molts, latestMoltUpdate };
-}
-
-function readBloomFeeders() {
-  const rows = bloomGetAllFeedersStmt.all();
-  const feeders = [];
-  let latestFeederUpdate = '';
-  for (const row of rows) {
-    try {
-      feeders.push({ id: row.id, ...JSON.parse(row.data) });
-      if (row.updated_at > latestFeederUpdate) latestFeederUpdate = row.updated_at;
-    } catch {
-      // skip malformed row
-    }
-  }
-  return { feeders, latestFeederUpdate };
-}
-
-function readBloomState() {
-  const { settings, updatedAt: sUpd } = readBloomSettings();
-  const { logsByDate, latestLogUpdate: lUpd } = readBloomLogs();
-  const { molts, latestMoltUpdate: mUpd } = readBloomMolts();
-  const { feeders, latestFeederUpdate: fUpd } = readBloomFeeders();
-  const updatedAt = [sUpd, lUpd, mUpd, fUpd].filter(Boolean).sort().pop() || new Date().toISOString();
-  return { settings, logsByDate, molts, feeders, updatedAt };
-}
-
-// ----------------------------------------------------------------------------
-// D. HOWARD DATABASE SCHEMA & DEFAULTS (Profiles, Almanac, Ledger, Beacon)
-// ----------------------------------------------------------------------------
+// ============================================================================
+// 2. UNIFIED DATABASE SCHEMA & PREPARED STATEMENTS (DB-ARCH-3 HYBRID)
+// ============================================================================
 howardDb.exec(`
   CREATE TABLE IF NOT EXISTS howard_store (
     key TEXT PRIMARY KEY,
@@ -530,8 +199,44 @@ howardDb.exec(`
     updated_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS cadence_logs (
+    date_key TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS bloom_care_logs (
+    date_key TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS bloom_molt_logs (
+    id TEXT PRIMARY KEY,
+    date_key TEXT NOT NULL,
+    data TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS bloom_feeder_cultures (
+    id TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS floodgate_logs (
+    date_key TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_almanac_events_date_updated ON almanac_events (date_key ASC, updated_at ASC);
   CREATE INDEX IF NOT EXISTS idx_ledger_items_kind_updated ON ledger_items (kind, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_cadence_logs_updated ON cadence_logs (updated_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_bloom_care_logs_updated ON bloom_care_logs (updated_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_bloom_molt_logs_date_updated ON bloom_molt_logs (date_key DESC, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_bloom_feeder_cultures_updated ON bloom_feeder_cultures (updated_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_floodgate_logs_updated ON floodgate_logs (updated_at DESC);
 `);
 
 const howardGetStmt = howardDb.prepare('SELECT data, updated_at FROM howard_store WHERE key = ?');
@@ -541,6 +246,10 @@ const howardUpsertStmt = howardDb.prepare(`
   ON CONFLICT(key) DO UPDATE SET
     data = excluded.data,
     updated_at = excluded.updated_at
+`);
+const howardInsertIgnoreStmt = howardDb.prepare(`
+  INSERT OR IGNORE INTO howard_store (key, data, updated_at)
+  VALUES (?, ?, ?)
 `);
 
 const almanacCountStmt = howardDb.prepare('SELECT COUNT(*) AS cnt FROM almanac_events');
@@ -573,6 +282,90 @@ const ledgerUpsertStmt = howardDb.prepare(`
 const ledgerDeleteStmt = howardDb.prepare('DELETE FROM ledger_items WHERE id = ?');
 const ledgerClearAllStmt = howardDb.prepare('DELETE FROM ledger_items');
 
+const cadenceGetAllLogsStmt = howardDb.prepare('SELECT date_key, data, updated_at FROM cadence_logs');
+const cadenceGetLogByDateStmt = howardDb.prepare('SELECT data FROM cadence_logs WHERE date_key = ?');
+const cadenceUpsertLogStmt = howardDb.prepare(`
+  INSERT INTO cadence_logs (date_key, data, updated_at)
+  VALUES (?, ?, ?)
+  ON CONFLICT(date_key) DO UPDATE SET
+    data = excluded.data,
+    updated_at = excluded.updated_at
+`);
+const cadenceInsertIgnoreLogStmt = howardDb.prepare(`
+  INSERT OR IGNORE INTO cadence_logs (date_key, data, updated_at)
+  VALUES (?, ?, ?)
+`);
+const cadenceClearLogsStmt = howardDb.prepare('DELETE FROM cadence_logs');
+
+const bloomGetAllLogsStmt = howardDb.prepare('SELECT date_key, data, updated_at FROM bloom_care_logs');
+const bloomGetLogByDateStmt = howardDb.prepare('SELECT data FROM bloom_care_logs WHERE date_key = ?');
+const bloomUpsertLogStmt = howardDb.prepare(`
+  INSERT INTO bloom_care_logs (date_key, data, updated_at)
+  VALUES (?, ?, ?)
+  ON CONFLICT(date_key) DO UPDATE SET
+    data = excluded.data,
+    updated_at = excluded.updated_at
+`);
+const bloomInsertIgnoreLogStmt = howardDb.prepare(`
+  INSERT OR IGNORE INTO bloom_care_logs (date_key, data, updated_at)
+  VALUES (?, ?, ?)
+`);
+const bloomClearLogsStmt = howardDb.prepare('DELETE FROM bloom_care_logs');
+
+const bloomGetAllMoltsStmt = howardDb.prepare(
+  'SELECT id, date_key, data, updated_at FROM bloom_molt_logs ORDER BY date_key DESC, updated_at DESC'
+);
+const bloomUpsertMoltStmt = howardDb.prepare(`
+  INSERT INTO bloom_molt_logs (id, date_key, data, updated_at)
+  VALUES (?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    date_key = excluded.date_key,
+    data = excluded.data,
+    updated_at = excluded.updated_at
+`);
+const bloomInsertIgnoreMoltStmt = howardDb.prepare(`
+  INSERT OR IGNORE INTO bloom_molt_logs (id, date_key, data, updated_at)
+  VALUES (?, ?, ?, ?)
+`);
+const bloomDeleteMoltStmt = howardDb.prepare('DELETE FROM bloom_molt_logs WHERE id = ?');
+const bloomClearMoltsStmt = howardDb.prepare('DELETE FROM bloom_molt_logs');
+
+const bloomGetAllFeedersStmt = howardDb.prepare(
+  'SELECT id, data, updated_at FROM bloom_feeder_cultures ORDER BY updated_at DESC'
+);
+const bloomUpsertFeederStmt = howardDb.prepare(`
+  INSERT INTO bloom_feeder_cultures (id, data, updated_at)
+  VALUES (?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    data = excluded.data,
+    updated_at = excluded.updated_at
+`);
+const bloomInsertIgnoreFeederStmt = howardDb.prepare(`
+  INSERT OR IGNORE INTO bloom_feeder_cultures (id, data, updated_at)
+  VALUES (?, ?, ?)
+`);
+const bloomDeleteFeederStmt = howardDb.prepare('DELETE FROM bloom_feeder_cultures WHERE id = ?');
+const bloomClearFeedersStmt = howardDb.prepare('DELETE FROM bloom_feeder_cultures');
+
+const floodgateGetAllLogsStmt = howardDb.prepare('SELECT date_key, data, updated_at FROM floodgate_logs');
+const floodgateGetLogByDateStmt = howardDb.prepare('SELECT data FROM floodgate_logs WHERE date_key = ?');
+const floodgateUpsertLogStmt = howardDb.prepare(`
+  INSERT INTO floodgate_logs (date_key, data, updated_at)
+  VALUES (?, ?, ?)
+  ON CONFLICT(date_key) DO UPDATE SET
+    data = excluded.data,
+    updated_at = excluded.updated_at
+`);
+const floodgateInsertIgnoreLogStmt = howardDb.prepare(`
+  INSERT OR IGNORE INTO floodgate_logs (date_key, data, updated_at)
+  VALUES (?, ?, ?)
+`);
+const floodgateDeleteLogStmt = howardDb.prepare('DELETE FROM floodgate_logs WHERE date_key = ?');
+const floodgateClearLogsStmt = howardDb.prepare('DELETE FROM floodgate_logs');
+
+// ============================================================================
+// 3. DEFAULT FACTORIES & STABLE PROFILE-ID RESOLUTION HELPERS (DB-ARCH-2)
+// ============================================================================
 const DEFAULT_PROFILES = [
   {
     id: 'partner1',
@@ -610,6 +403,78 @@ const DEFAULT_PROFILES = [
   }
 ];
 
+function createDefaultCadenceSettings(dateObj = new Date()) {
+  return {
+    catName: 'Pet',
+    medicationName: 'Oral Solution',
+    dosageLabel: '2.5 mg / 0.5 ml',
+    morningTargetTime: '08:00',
+    eveningTargetTime: '20:00',
+    bottleOpenedDate: getLocalDateKey(dateObj),
+    bottleShelfLifeDays: 180,
+    caregivers: ['Partner 1', 'Partner 2', 'Caregiver'],
+    caregiverItems: [
+      { profileId: 'partner1', name: 'Partner 1' },
+      { profileId: 'partner2', name: 'Partner 2' },
+      { profileId: 'caregiver', name: 'Caregiver' }
+    ],
+    administrationNote:
+      'Give directly by mouth or with a small portion of wet food. Wipe syringe tip clean after each use.'
+  };
+}
+
+const DEFAULT_FLOODGATE_SETTINGS = {
+  ownerProfileId: 'partner2',
+  ownerName: 'Partner 2',
+  appName: 'Floodgate'
+};
+
+function createDefaultBloomSettings(dateObj = new Date()) {
+  const todayKey = getLocalDateKey(dateObj);
+  return {
+    mantisName: 'Mantis',
+    speciesPreset: 'spiny_flower',
+    commonName: 'Spiny Flower Mantis',
+    scientificName: 'Pseudocreobotra wahlbergii',
+    sex: 'Unsexed',
+    pronouns: 'they/them',
+    currentInstar: 'L2',
+    arrivalDate: todayKey,
+    hatchDate: '',
+    currentColorMorph: 'Spiky creamy-white & dark banded nymph',
+    lifecycleStatus: 'normal', // 'normal' | 'premolt' | 'hardening'
+    premoltStartedAt: null,
+    hardeningUntil: null,
+    hardeningHours: 36,
+    livePreyInside: false,
+    livePreyNote: '',
+    dayTempMinC: 25,
+    dayTempMaxC: 28,
+    nightTempMinC: 20,
+    humidityMinPct: 50,
+    humidityMaxPct: 65,
+    mistTargetHours: 24,
+    typicalInterMoltDays: 14,
+    enclosureInfo: {
+      currentSizeLabel: 'Ventilated Nymph Cup / Mini Tall Enclosure',
+      meshType: 'Soft nylon / fabric mesh (tarsal-safe)',
+      substrate: 'Paper towel / coco fibre + climbing twigs & blossoms',
+      lastDeepCleanDate: todayKey,
+      currentBodyLengthMm: 10,
+      enclosureHeightMm: 110,
+      enclosureWidthMm: 75
+    },
+    caregivers: ['Partner 1', 'Partner 2', 'Caregiver'],
+    caregiverItems: [
+      { profileId: 'partner1', name: 'Partner 1' },
+      { profileId: 'partner2', name: 'Partner 2' },
+      { profileId: 'caregiver', name: 'Caregiver' }
+    ],
+    careNote:
+      'Mist one enclosure wall lightly once daily for drinking droplets—never spray the mantis directly, and let the enclosure dry between mists (Spiny Flower Mantises need cross-ventilation!). Do NOT offer live prey during Premolt Watch or Post-Molt Hardening.'
+  };
+}
+
 const DEFAULT_LEDGER_DATA = {
   splitRule: '50-50', // '50-50' | 'proportional'
   incomes: [],
@@ -633,8 +498,8 @@ const DEFAULT_BEACON_INFO = {
     notes: ''
   },
   contacts: [
-    { id: 'c-partner1', name: 'Partner 1', role: 'Household Member', phone: '', note: '' },
-    { id: 'c-partner2', name: 'Partner 2', role: 'Household Member', phone: '', note: '' }
+    { id: 'c-partner1', profileId: 'partner1', name: 'Partner 1', role: 'Household Member', phone: '', note: '' },
+    { id: 'c-partner2', profileId: 'partner2', name: 'Partner 2', role: 'Household Member', phone: '', note: '' }
   ],
   houseGuide: {
     wifiName: '',
@@ -644,50 +509,6 @@ const DEFAULT_BEACON_INFO = {
     emergencyNotes: ''
   }
 };
-
-function ensureHowardSeed(key, defaultVal) {
-  const existing = howardGetStmt.get(key);
-  if (!existing) {
-    howardUpsertStmt.run(key, JSON.stringify(defaultVal), new Date().toISOString());
-  }
-}
-
-ensureHowardSeed('profiles', DEFAULT_PROFILES);
-ensureHowardSeed('ledger_settings', { splitRule: '50-50' });
-ensureHowardSeed('beacon_info', DEFAULT_BEACON_INFO);
-
-// Non-destructively grant newly introduced household modules to existing saved profiles
-function ensureProfileAppAccess(appId, targetProfileIds) {
-  const row = howardGetStmt.get('profiles');
-  if (!row) return;
-  try {
-    const parsed = JSON.parse(row.data);
-    if (!Array.isArray(parsed)) return;
-    let changed = false;
-    const migrated = parsed.map((prof) => {
-      if (!targetProfileIds.includes(prof.id)) return prof;
-      const currentApps = Array.isArray(prof.allowedApps)
-        ? [...prof.allowedApps]
-        : ['foyer', 'cadence', 'beacon'];
-      if (currentApps.includes(appId)) return prof;
-      changed = true;
-      const cadenceIdx = currentApps.indexOf('cadence');
-      if (cadenceIdx !== -1) {
-        currentApps.splice(cadenceIdx + 1, 0, appId);
-      } else {
-        currentApps.push(appId);
-      }
-      return { ...prof, allowedApps: currentApps };
-    });
-    if (changed) {
-      howardUpsertStmt.run('profiles', JSON.stringify(migrated), new Date().toISOString());
-    }
-  } catch {
-    // ignore malformed profile JSON
-  }
-}
-
-ensureProfileAppAccess('bloom', ['partner1', 'partner2', 'caregiver']);
 
 function readHowardKey(key, fallback) {
   const row = howardGetStmt.get(key);
@@ -703,6 +524,232 @@ function writeHowardKey(key, value) {
   const nowIso = new Date().toISOString();
   howardUpsertStmt.run(key, JSON.stringify(value), nowIso);
   return nowIso;
+}
+
+function getProfilesList() {
+  const row = howardGetStmt.get('profiles');
+  if (!row) return DEFAULT_PROFILES;
+  try {
+    const parsed = JSON.parse(row.data);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_PROFILES;
+  } catch {
+    return DEFAULT_PROFILES;
+  }
+}
+
+function getProfilesByIdMap(profilesList = getProfilesList()) {
+  const map = {};
+  for (const prof of profilesList || []) {
+    if (prof && typeof prof.id === 'string') {
+      map[prof.id] = prof;
+    }
+  }
+  return map;
+}
+
+function inferProfileIdFromName(rawName, profilesList = getProfilesList()) {
+  const lower = String(rawName || '').trim().toLowerCase();
+  if (!lower || lower === 'both' || lower === 'pets' || lower === 'household') {
+    return null;
+  }
+  for (const prof of profilesList || []) {
+    if (!prof || typeof prof.id !== 'string') continue;
+    const pName = String(prof.name || '').trim().toLowerCase();
+    const pCaregiver = String(prof.caregiverName || '').trim().toLowerCase();
+    if (lower === prof.id.toLowerCase() || (pName && lower === pName) || (pCaregiver && lower === pCaregiver)) {
+      return prof.id;
+    }
+  }
+  if (lower === 'partner 1' || lower === 'partner1') return 'partner1';
+  if (lower === 'partner 2' || lower === 'partner2') return 'partner2';
+  if (lower === 'caregiver') return 'caregiver';
+  return null;
+}
+
+function resolveProfileDisplayName(profileId, fallbackName, profilesById = getProfilesByIdMap()) {
+  if (profileId && profilesById[profileId]?.name) {
+    return profilesById[profileId].name;
+  }
+  return fallbackName;
+}
+
+function buildCaregiverItems(rawCaregivers, profilesList = getProfilesList()) {
+  const list = Array.isArray(rawCaregivers) ? rawCaregivers : ['Partner 1', 'Partner 2', 'Caregiver'];
+  const items = [];
+  const seenProfileIds = new Set();
+  const seenCustom = new Set();
+  for (const entry of list) {
+    if (typeof entry !== 'string') continue;
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const pid = inferProfileIdFromName(trimmed, profilesList);
+    if (pid) {
+      if (seenProfileIds.has(pid)) continue;
+      seenProfileIds.add(pid);
+      items.push({ profileId: pid, name: trimmed });
+    } else {
+      const key = trimmed.toLowerCase();
+      if (seenCustom.has(key)) continue;
+      seenCustom.add(key);
+      items.push({ profileId: null, name: trimmed });
+    }
+  }
+  return items.length > 0
+    ? items
+    : [
+        { profileId: 'partner1', name: 'Partner 1' },
+        { profileId: 'partner2', name: 'Partner 2' },
+        { profileId: 'caregiver', name: 'Caregiver' }
+      ];
+}
+
+function resolveCaregiverList(caregiverItems, rawCaregivers, profilesById = getProfilesByIdMap(), profilesList = getProfilesList()) {
+  const items =
+    Array.isArray(caregiverItems) && caregiverItems.length > 0
+      ? caregiverItems
+      : buildCaregiverItems(rawCaregivers, profilesList);
+  const out = [];
+  const seen = new Set();
+  for (const item of items) {
+    if (!isPlainObject(item)) continue;
+    const resolved = resolveProfileDisplayName(item.profileId, item.name, profilesById);
+    const cleaned = String(resolved || '').trim();
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(cleaned);
+  }
+  return out;
+}
+
+function enrichAlmanacEvent(evt, profilesList = getProfilesList()) {
+  if (!isPlainObject(evt)) return evt;
+  const profilesById = getProfilesByIdMap(profilesList);
+  const explicitId =
+    typeof evt.assignedToProfileId === 'string' && profilesById[evt.assignedToProfileId]
+      ? evt.assignedToProfileId
+      : null;
+  const inferredId = explicitId || inferProfileIdFromName(evt.assignedTo, profilesList);
+  return {
+    ...evt,
+    assignedToProfileId: inferredId
+  };
+}
+
+function resolveAlmanacEvent(parsed, profilesById = getProfilesByIdMap()) {
+  if (!isPlainObject(parsed)) return parsed;
+  if (!parsed.assignedToProfileId) return parsed;
+  const resolvedName = resolveProfileDisplayName(
+    parsed.assignedToProfileId,
+    parsed.assignedTo,
+    profilesById
+  );
+  return resolvedName === parsed.assignedTo ? parsed : { ...parsed, assignedTo: resolvedName };
+}
+
+function enrichDoseSlot(slot, profilesList = getProfilesList()) {
+  if (!isPlainObject(slot)) return slot;
+  const profilesById = getProfilesByIdMap(profilesList);
+  const explicitId =
+    typeof slot.givenByProfileId === 'string' && profilesById[slot.givenByProfileId]
+      ? slot.givenByProfileId
+      : null;
+  const uidProfileId =
+    typeof slot.recordedByUid === 'string' && slot.recordedByUid.startsWith('howard-')
+      ? slot.recordedByUid.slice('howard-'.length)
+      : null;
+  const validUidProfile = uidProfileId && profilesById[uidProfileId] ? uidProfileId : null;
+  const resolvedId = explicitId || inferProfileIdFromName(slot.givenBy, profilesList) || validUidProfile;
+  return resolvedId ? { ...slot, givenByProfileId: resolvedId } : { ...slot };
+}
+
+function enrichCadenceRecord(rec, profilesList = getProfilesList()) {
+  if (!isPlainObject(rec)) return rec;
+  const next = { ...rec };
+  if (isPlainObject(next.morning)) next.morning = enrichDoseSlot(next.morning, profilesList);
+  if (isPlainObject(next.evening)) next.evening = enrichDoseSlot(next.evening, profilesList);
+  return next;
+}
+
+function resolveCadenceRecord(rec, profilesById = getProfilesByIdMap()) {
+  if (!isPlainObject(rec)) return rec;
+  const resolveSlot = (slot) => {
+    if (!isPlainObject(slot) || !slot.givenByProfileId) return slot;
+    const resolvedName = resolveProfileDisplayName(slot.givenByProfileId, slot.givenBy, profilesById);
+    return resolvedName === slot.givenBy ? slot : { ...slot, givenBy: resolvedName };
+  };
+  return {
+    ...rec,
+    ...(rec.morning !== undefined ? { morning: resolveSlot(rec.morning) } : {}),
+    ...(rec.evening !== undefined ? { evening: resolveSlot(rec.evening) } : {})
+  };
+}
+
+function enrichBloomEntryList(arr, profilesList = getProfilesList()) {
+  if (!Array.isArray(arr)) return [];
+  const profilesById = getProfilesByIdMap(profilesList);
+  return arr.map((item) => {
+    if (!isPlainObject(item)) return item;
+    const explicitId =
+      typeof item.byProfileId === 'string' && profilesById[item.byProfileId] ? item.byProfileId : null;
+    const inferredId = explicitId || inferProfileIdFromName(item.by, profilesList);
+    return inferredId ? { ...item, byProfileId: inferredId } : { ...item };
+  });
+}
+
+function enrichBloomCareRecord(rec, profilesList = getProfilesList()) {
+  if (!isPlainObject(rec)) return rec;
+  return {
+    ...rec,
+    ...(Array.isArray(rec.mists) ? { mists: enrichBloomEntryList(rec.mists, profilesList) } : {}),
+    ...(Array.isArray(rec.feedings)
+      ? { feedings: enrichBloomEntryList(rec.feedings, profilesList) }
+      : {}),
+    ...(Array.isArray(rec.climateChecks)
+      ? { climateChecks: enrichBloomEntryList(rec.climateChecks, profilesList) }
+      : {})
+  };
+}
+
+function resolveBloomEntryList(arr, profilesById = getProfilesByIdMap()) {
+  if (!Array.isArray(arr)) return [];
+  return arr.map((item) => {
+    if (!isPlainObject(item) || !item.byProfileId) return item;
+    const resolvedName = resolveProfileDisplayName(item.byProfileId, item.by, profilesById);
+    return resolvedName === item.by ? item : { ...item, by: resolvedName };
+  });
+}
+
+function resolveBloomCareRecord(rec, profilesById = getProfilesByIdMap()) {
+  if (!isPlainObject(rec)) return rec;
+  return {
+    ...rec,
+    ...(Array.isArray(rec.mists) ? { mists: resolveBloomEntryList(rec.mists, profilesById) } : {}),
+    ...(Array.isArray(rec.feedings)
+      ? { feedings: resolveBloomEntryList(rec.feedings, profilesById) }
+      : {}),
+    ...(Array.isArray(rec.climateChecks)
+      ? { climateChecks: resolveBloomEntryList(rec.climateChecks, profilesById) }
+      : {})
+  };
+}
+
+function enrichBloomMoltRecord(rec, profilesList = getProfilesList()) {
+  if (!isPlainObject(rec)) return rec;
+  const profilesById = getProfilesByIdMap(profilesList);
+  const explicitId =
+    typeof rec.loggedByProfileId === 'string' && profilesById[rec.loggedByProfileId]
+      ? rec.loggedByProfileId
+      : null;
+  const inferredId = explicitId || inferProfileIdFromName(rec.loggedBy, profilesList);
+  return inferredId ? { ...rec, loggedByProfileId: inferredId } : { ...rec };
+}
+
+function resolveBloomMoltRecord(rec, profilesById = getProfilesByIdMap()) {
+  if (!isPlainObject(rec) || !rec.loggedByProfileId) return rec;
+  const resolvedName = resolveProfileDisplayName(rec.loggedByProfileId, rec.loggedBy, profilesById);
+  return resolvedName === rec.loggedBy ? rec : { ...rec, loggedBy: resolvedName };
 }
 
 function sanitizeProfilesForClient(profiles) {
@@ -731,30 +778,66 @@ function normalizeLedgerData(raw) {
   };
 }
 
-function normalizeBeaconInfo(raw = {}) {
-  const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+function normalizeBeaconContacts(contacts, baseContacts = [], profilesList = getProfilesList()) {
+  const profilesById = getProfilesByIdMap(profilesList);
+  const baseById = new Map(
+    (Array.isArray(baseContacts) ? baseContacts : [])
+      .filter((b) => isPlainObject(b) && b.id)
+      .map((b) => [b.id, b])
+  );
+  return (Array.isArray(contacts) ? contacts : []).map((c) => {
+    if (!isPlainObject(c)) return c;
+    const prev = c.id ? baseById.get(c.id) : null;
+    const prevProfileId = prev?.profileId || null;
+    let nextProfileId =
+      typeof c.profileId === 'string' && profilesById[c.profileId] ? c.profileId : prevProfileId;
+    if (!nextProfileId && (c.id === 'c-partner1' || c.id === 'c-partner2')) {
+      const targetId = c.id.slice(2);
+      const inferred = inferProfileIdFromName(c.name, profilesList);
+      if (!c.name || inferred === targetId) {
+        nextProfileId = targetId;
+      }
+    } else if (prevProfileId && c.name) {
+      const liveProfName = profilesById[prevProfileId]?.name;
+      if (liveProfName && String(c.name).trim() !== String(liveProfName).trim()) {
+        nextProfileId = inferProfileIdFromName(c.name, profilesList);
+      }
+    }
+    return {
+      ...c,
+      ...(nextProfileId ? { profileId: nextProfileId } : { profileId: null })
+    };
+  });
+}
+
+function normalizeBeaconInfo(raw = {}, { baseContacts = [], profilesList = getProfilesList() } = {}) {
+  const src = isPlainObject(raw) ? raw : {};
+  const contacts = Array.isArray(src.contacts)
+    ? normalizeBeaconContacts(src.contacts, baseContacts, profilesList)
+    : DEFAULT_BEACON_INFO.contacts.map((c) => ({ ...c }));
   return {
     petCare: {
       ...DEFAULT_BEACON_INFO.petCare,
-      ...(src.petCare && typeof src.petCare === 'object' ? src.petCare : {})
+      ...(isPlainObject(src.petCare) ? src.petCare : {})
     },
     vetInfo: {
       ...DEFAULT_BEACON_INFO.vetInfo,
-      ...(src.vetInfo && typeof src.vetInfo === 'object' ? src.vetInfo : {})
+      ...(isPlainObject(src.vetInfo) ? src.vetInfo : {})
     },
-    contacts: Array.isArray(src.contacts)
-      ? src.contacts
-      : DEFAULT_BEACON_INFO.contacts.map((c) => ({ ...c })),
+    contacts,
     houseGuide: {
       ...DEFAULT_BEACON_INFO.houseGuide,
-      ...(src.houseGuide && typeof src.houseGuide === 'object' ? src.houseGuide : {})
+      ...(isPlainObject(src.houseGuide) ? src.houseGuide : {})
     }
   };
 }
 
-function mergeBeaconInfo(current, incoming) {
-  const base = normalizeBeaconInfo(current);
+function mergeBeaconInfo(current, incoming, profilesList = getProfilesList()) {
+  const base = normalizeBeaconInfo(current, { profilesList });
   if (!isPlainObject(incoming)) return base;
+  const nextContacts = Array.isArray(incoming.contacts)
+    ? normalizeBeaconContacts(incoming.contacts, base.contacts, profilesList)
+    : base.contacts;
   return {
     petCare: {
       ...base.petCare,
@@ -764,7 +847,7 @@ function mergeBeaconInfo(current, incoming) {
       ...base.vetInfo,
       ...(isPlainObject(incoming.vetInfo) ? incoming.vetInfo : {})
     },
-    contacts: Array.isArray(incoming.contacts) ? incoming.contacts : base.contacts,
+    contacts: nextContacts,
     houseGuide: {
       ...base.houseGuide,
       ...(isPlainObject(incoming.houseGuide) ? incoming.houseGuide : {})
@@ -772,119 +855,532 @@ function mergeBeaconInfo(current, incoming) {
   };
 }
 
-// Non-destructively migrate any existing legacy JSON blobs in howard_store into row-level tables on boot
-function migrateLegacyHowardBlobsIfNeeded() {
-  if (howardGetStmt.get('migration_v2_row_tables')) return;
+function resolveBeaconInfo(raw, profilesById = getProfilesByIdMap()) {
+  const normalized = normalizeBeaconInfo(raw);
+  return {
+    ...normalized,
+    contacts: normalized.contacts.map((c) => {
+      if (!isPlainObject(c) || !c.profileId) return c;
+      const resolvedName = resolveProfileDisplayName(c.profileId, c.name, profilesById);
+      return resolvedName === c.name ? c : { ...c, name: resolvedName };
+    })
+  };
+}
+
+function normalizeBloomSettings(parsed = {}) {
+  const defaults = createDefaultBloomSettings();
+  const baseCaregivers = Array.isArray(parsed.caregivers) ? parsed.caregivers : defaults.caregivers;
+  const items = Array.isArray(parsed.caregiverItems)
+    ? parsed.caregiverItems
+    : buildCaregiverItems(baseCaregivers);
+  return {
+    ...defaults,
+    ...parsed,
+    caregivers: baseCaregivers,
+    caregiverItems: items,
+    enclosureInfo: {
+      ...defaults.enclosureInfo,
+      ...(parsed.enclosureInfo && typeof parsed.enclosureInfo === 'object' ? parsed.enclosureInfo : {})
+    }
+  };
+}
+
+function normalizeCadenceSettings(parsed = {}, baseSettings = null) {
+  const defaults = createDefaultCadenceSettings();
+  const src = isPlainObject(parsed) ? parsed : {};
+  const base = isPlainObject(baseSettings) ? baseSettings : defaults;
+  const rawCaregivers = Array.isArray(src.caregivers)
+    ? src.caregivers
+    : Array.isArray(base.caregivers)
+      ? base.caregivers
+      : defaults.caregivers;
+  const items = Array.isArray(src.caregivers)
+    ? buildCaregiverItems(src.caregivers)
+    : Array.isArray(src.caregiverItems)
+      ? src.caregiverItems
+      : Array.isArray(base.caregiverItems)
+        ? base.caregiverItems
+        : buildCaregiverItems(rawCaregivers);
+  return {
+    ...defaults,
+    ...base,
+    ...src,
+    caregivers: rawCaregivers,
+    caregiverItems: items
+  };
+}
+
+// ============================================================================
+// 4. VERSIONED PRAGMA user_version MIGRATIONS (DB-ARCH-1 & OPTION B MERGE)
+// ============================================================================
+function readLegacyTableSafely(dbInstance, sql) {
+  try {
+    return dbInstance.prepare(sql).all();
+  } catch {
+    return [];
+  }
+}
+
+function readLegacySingleKeySafely(dbInstance, table, key) {
+  try {
+    return dbInstance.prepare(`SELECT data, updated_at FROM ${table} WHERE id = ?`).get(key) || null;
+  } catch {
+    return null;
+  }
+}
+
+function migrateV1LegacyHowardBlobs() {
   const nowIso = new Date().toISOString();
   const fallbackDate = getLocalDateKey(new Date());
-  let migrationOk = true;
 
-  // 1. Migrate legacy almanac_events JSON array if table is currently empty
   const existingEvtCount = Number(almanacCountStmt.get()?.cnt || 0);
   if (existingEvtCount === 0) {
     const legacyEventsObj = readHowardKey('almanac_events', []);
     if (Array.isArray(legacyEventsObj.data) && legacyEventsObj.data.length > 0) {
-      try {
-        runInTransaction(howardDb, () => {
-          legacyEventsObj.data.forEach((evt, idx) => {
-            if (!isPlainObject(evt)) return;
-            const id = String(evt.id || `evt-mig-${Date.now()}-${idx}`);
-            const dateKey =
-              typeof evt.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(evt.date)
-                ? evt.date
-                : fallbackDate;
-            almanacUpsertStmt.run(
-              id,
-              dateKey,
-              JSON.stringify({ ...evt, id, date: dateKey }),
-              typeof evt.updatedAt === 'string' ? evt.updatedAt : legacyEventsObj.updatedAt || nowIso
-            );
-          });
-        });
-      } catch (err) {
-        migrationOk = false;
-        console.error('Almanac table migration error:', err);
-      }
+      legacyEventsObj.data.forEach((evt, idx) => {
+        if (!isPlainObject(evt)) return;
+        const id = String(evt.id || `evt-mig-${Date.now()}-${idx}`);
+        const dateKey =
+          typeof evt.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(evt.date)
+            ? evt.date
+            : fallbackDate;
+        almanacUpsertStmt.run(
+          id,
+          dateKey,
+          JSON.stringify({ ...evt, id, date: dateKey }),
+          typeof evt.updatedAt === 'string' ? evt.updatedAt : legacyEventsObj.updatedAt || nowIso
+        );
+      });
     }
   }
 
-  // 2. Migrate legacy ledger_data JSON object if ledger_items table is currently empty
   const legacyLedgerRow = howardGetStmt.get('ledger_data');
   if (legacyLedgerRow) {
     const legacyLedgerObj = readHowardKey('ledger_data', DEFAULT_LEDGER_DATA);
     const normalized = normalizeLedgerData(legacyLedgerObj.data);
-
     const existingLedgerCount = Number(ledgerCountStmt.get()?.cnt || 0);
     if (existingLedgerCount === 0) {
+      howardUpsertStmt.run(
+        'ledger_settings',
+        JSON.stringify({ splitRule: normalized.splitRule }),
+        legacyLedgerObj.updatedAt || nowIso
+      );
+      normalized.expenses.forEach((exp, idx) => {
+        if (!isPlainObject(exp)) return;
+        const id = String(exp.id || `exp-mig-${Date.now()}-${idx}`);
+        ledgerUpsertStmt.run(
+          id,
+          'expense',
+          JSON.stringify({ ...exp, id }),
+          typeof exp.updatedAt === 'string' ? exp.updatedAt : legacyLedgerObj.updatedAt || nowIso
+        );
+      });
+      normalized.recurring.forEach((rec, idx) => {
+        if (!isPlainObject(rec)) return;
+        const id = String(rec.id || `rec-mig-${Date.now()}-${idx}`);
+        ledgerUpsertStmt.run(
+          id,
+          'recurring',
+          JSON.stringify({ ...rec, id }),
+          typeof rec.updatedAt === 'string' ? rec.updatedAt : legacyLedgerObj.updatedAt || nowIso
+        );
+      });
+      normalized.incomes.forEach((inc, idx) => {
+        if (!isPlainObject(inc)) return;
+        const id = String(inc.id || `inc-mig-${Date.now()}-${idx}`);
+        ledgerUpsertStmt.run(
+          id,
+          'income',
+          JSON.stringify({ ...inc, id }),
+          typeof inc.updatedAt === 'string' ? inc.updatedAt : legacyLedgerObj.updatedAt || nowIso
+        );
+      });
+    }
+  }
+}
+
+function normalizeProfilesAppsList(profiles, { ensureBloom = true, stripUnknown = false } = {}) {
+  const nowIso = new Date().toISOString();
+  if (!Array.isArray(profiles)) return false;
+  let changed = false;
+  const targetProfiles = new Set(['partner1', 'partner2', 'caregiver']);
+  const next = profiles.map((prof) => {
+    if (!isPlainObject(prof)) return prof;
+    let apps = Array.isArray(prof.allowedApps)
+      ? [...prof.allowedApps]
+      : ['foyer', 'cadence', 'beacon'];
+    if (stripUnknown) {
+      const filtered = apps.filter((id) => VALID_APP_IDS.has(id));
+      if (filtered.length !== apps.length) {
+        apps = filtered;
+        changed = true;
+      }
+    }
+    if (ensureBloom && targetProfiles.has(prof.id) && !apps.includes('bloom')) {
+      changed = true;
+      const cadenceIdx = apps.indexOf('cadence');
+      if (cadenceIdx !== -1) {
+        apps.splice(cadenceIdx + 1, 0, 'bloom');
+      } else {
+        apps.push('bloom');
+      }
+    }
+    return { ...prof, allowedApps: apps };
+  });
+  if (changed) {
+    howardUpsertStmt.run('profiles', JSON.stringify(next), nowIso);
+  }
+  return changed;
+}
+
+function migrateV3ConsolidateLegacyDatabases() {
+  const nowIso = new Date().toISOString();
+  const archiveStamp = nowIso.replace(/[:.]/g, '-');
+  const archiveDir = path.join(DATA_DIR, 'backups', `legacy-4db-${archiveStamp}`);
+  const existingLegacyPaths = LEGACY_DB_FILES.map((name) => path.join(DATA_DIR, name)).filter((p) =>
+    fs.existsSync(p)
+  );
+
+  // Archive checkpointed legacy files before touching anything
+  if (existingLegacyPaths.length > 0) {
+    try {
+      checkpointDatabase();
+      vacuumSnapshotTo(howardDb, path.join(archiveDir, 'howard.db'));
+    } catch (archErr) {
+      console.warn('Legacy archive warning (howard.db):', archErr.message || archErr);
+    }
+  }
+
+  let legacyCadenceSettings = null;
+  let legacyCadenceLogs = [];
+  let legacyBloomSettings = null;
+  let legacyBloomCareLogs = [];
+  let legacyBloomMolts = [];
+  let legacyBloomFeeders = [];
+  let legacyFloodgateSettings = null;
+  let legacyFloodgateLogs = [];
+
+  for (const legacyFile of LEGACY_DB_FILES) {
+    const legacyPath = path.join(DATA_DIR, legacyFile);
+    if (!fs.existsSync(legacyPath)) continue;
+    let legacyDb = null;
+    try {
+      legacyDb = new DatabaseSync(legacyPath);
       try {
-        runInTransaction(howardDb, () => {
-          howardUpsertStmt.run(
-            'ledger_settings',
-            JSON.stringify({ splitRule: normalized.splitRule }),
-            legacyLedgerObj.updatedAt || nowIso
-          );
-          normalized.expenses.forEach((exp, idx) => {
-            if (!isPlainObject(exp)) return;
-            const id = String(exp.id || `exp-mig-${Date.now()}-${idx}`);
-            ledgerUpsertStmt.run(
-              id,
-              'expense',
-              JSON.stringify({ ...exp, id }),
-              typeof exp.updatedAt === 'string' ? exp.updatedAt : legacyLedgerObj.updatedAt || nowIso
-            );
-          });
-          normalized.recurring.forEach((rec, idx) => {
-            if (!isPlainObject(rec)) return;
-            const id = String(rec.id || `rec-mig-${Date.now()}-${idx}`);
-            ledgerUpsertStmt.run(
-              id,
-              'recurring',
-              JSON.stringify({ ...rec, id }),
-              typeof rec.updatedAt === 'string' ? rec.updatedAt : legacyLedgerObj.updatedAt || nowIso
-            );
-          });
-          normalized.incomes.forEach((inc, idx) => {
-            if (!isPlainObject(inc)) return;
-            const id = String(inc.id || `inc-mig-${Date.now()}-${idx}`);
-            ledgerUpsertStmt.run(
-              id,
-              'income',
-              JSON.stringify({ ...inc, id }),
-              typeof inc.updatedAt === 'string' ? inc.updatedAt : legacyLedgerObj.updatedAt || nowIso
-            );
-          });
-        });
-      } catch (err) {
-        migrationOk = false;
-        console.error('Ledger table migration error:', err);
+        legacyDb.exec('PRAGMA busy_timeout = 5000;');
+        legacyDb.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+      } catch {
+        // ignore checkpoint error on read
+      }
+      try {
+        vacuumSnapshotTo(legacyDb, path.join(archiveDir, legacyFile));
+      } catch {
+        fs.mkdirSync(archiveDir, { recursive: true });
+        fs.copyFileSync(legacyPath, path.join(archiveDir, legacyFile));
+      }
+
+      if (legacyFile === 'cadence.db') {
+        legacyCadenceSettings = readLegacySingleKeySafely(legacyDb, 'household_settings', 'config');
+        legacyCadenceLogs = readLegacyTableSafely(
+          legacyDb,
+          'SELECT date_key, data, updated_at FROM medication_logs'
+        );
+      } else if (legacyFile === 'bloom.db') {
+        legacyBloomSettings = readLegacySingleKeySafely(legacyDb, 'bloom_settings', 'config');
+        legacyBloomCareLogs = readLegacyTableSafely(
+          legacyDb,
+          'SELECT date_key, data, updated_at FROM care_logs'
+        );
+        legacyBloomMolts = readLegacyTableSafely(
+          legacyDb,
+          'SELECT id, date_key, data, updated_at FROM molt_logs'
+        );
+        legacyBloomFeeders = readLegacyTableSafely(
+          legacyDb,
+          'SELECT id, data, updated_at FROM feeder_cultures'
+        );
+      } else if (legacyFile === 'floodgate.db') {
+        legacyFloodgateSettings = readLegacySingleKeySafely(legacyDb, 'app_settings', 'config');
+        legacyFloodgateLogs = readLegacyTableSafely(
+          legacyDb,
+          'SELECT date_key, data, updated_at FROM daily_logs'
+        );
+      }
+    } catch (err) {
+      console.error(`Legacy DB read error (${legacyFile}):`, err);
+      throw err;
+    } finally {
+      try {
+        legacyDb?.close();
+      } catch {
+        // ignore close error
       }
     }
   }
 
-  if (migrationOk) {
-    howardUpsertStmt.run(
-      'migration_v2_row_tables',
-      JSON.stringify({ migratedAt: nowIso }),
-      nowIso
-    );
+  runInTransaction(howardDb, () => {
+    if (legacyCadenceSettings) {
+      howardInsertIgnoreStmt.run(
+        'cadence_settings',
+        legacyCadenceSettings.data,
+        legacyCadenceSettings.updated_at || nowIso
+      );
+    }
+    for (const row of legacyCadenceLogs) {
+      cadenceInsertIgnoreLogStmt.run(row.date_key, row.data, row.updated_at || nowIso);
+    }
+
+    if (legacyBloomSettings) {
+      howardInsertIgnoreStmt.run(
+        'bloom_settings',
+        legacyBloomSettings.data,
+        legacyBloomSettings.updated_at || nowIso
+      );
+    }
+    for (const row of legacyBloomCareLogs) {
+      bloomInsertIgnoreLogStmt.run(row.date_key, row.data, row.updated_at || nowIso);
+    }
+    for (const row of legacyBloomMolts) {
+      bloomInsertIgnoreMoltStmt.run(row.id, row.date_key, row.data, row.updated_at || nowIso);
+    }
+    for (const row of legacyBloomFeeders) {
+      bloomInsertIgnoreFeederStmt.run(row.id, row.data, row.updated_at || nowIso);
+    }
+
+    if (legacyFloodgateSettings) {
+      howardInsertIgnoreStmt.run(
+        'floodgate_settings',
+        legacyFloodgateSettings.data,
+        legacyFloodgateSettings.updated_at || nowIso
+      );
+    }
+    for (const row of legacyFloodgateLogs) {
+      floodgateInsertIgnoreLogStmt.run(row.date_key, row.data, row.updated_at || nowIso);
+    }
+
+    // Remove orphaned experimental Jot notes table and strip 'jot' from saved profiles
+    howardDb.exec('DROP TABLE IF EXISTS notes;');
+    const profilesRow = howardGetStmt.get('profiles');
+    if (profilesRow) {
+      try {
+        const parsedProfiles = JSON.parse(profilesRow.data);
+        normalizeProfilesAppsList(parsedProfiles, { ensureBloom: true, stripUnknown: true });
+      } catch {
+        // ignore malformed profile JSON
+      }
+    }
+    howardDb.exec('PRAGMA user_version = 3;');
+  });
+
+  // Delete migrated standalone legacy .db + sidecar files from DATA_DIR
+  for (const legacyFile of LEGACY_DB_FILES) {
+    for (const suffix of ['', '-wal', '-shm']) {
+      const target = path.join(DATA_DIR, `${legacyFile}${suffix}`);
+      try {
+        if (fs.existsSync(target)) {
+          fs.unlinkSync(target);
+        }
+      } catch (rmErr) {
+        console.warn(`Legacy file cleanup warning (${legacyFile}${suffix}):`, rmErr.message || rmErr);
+      }
+    }
   }
 }
 
-migrateLegacyHowardBlobsIfNeeded();
-ensureSchemaVersion(cadenceDb, 1);
-ensureSchemaVersion(floodgateDb, 1);
-ensureSchemaVersion(bloomDb, 1);
-ensureSchemaVersion(howardDb, 2);
+function ensureDefaultSeeds() {
+  const nowIso = new Date().toISOString();
+  howardInsertIgnoreStmt.run('profiles', JSON.stringify(DEFAULT_PROFILES), nowIso);
+  howardInsertIgnoreStmt.run('ledger_settings', JSON.stringify({ splitRule: '50-50' }), nowIso);
+  howardInsertIgnoreStmt.run('beacon_info', JSON.stringify(DEFAULT_BEACON_INFO), nowIso);
+  howardInsertIgnoreStmt.run(
+    'cadence_settings',
+    JSON.stringify(createDefaultCadenceSettings()),
+    nowIso
+  );
+  howardInsertIgnoreStmt.run('bloom_settings', JSON.stringify(createDefaultBloomSettings()), nowIso);
+  howardInsertIgnoreStmt.run(
+    'floodgate_settings',
+    JSON.stringify(DEFAULT_FLOODGATE_SETTINGS),
+    nowIso
+  );
+}
+
+function migrateV4BackfillStableProfileIds() {
+  const nowIso = new Date().toISOString();
+  runInTransaction(howardDb, () => {
+    const profiles = getProfilesList();
+
+    // 1. Almanac events
+    for (const row of almanacGetAllStmt.all()) {
+      try {
+        const parsed = JSON.parse(row.data);
+        if (!isPlainObject(parsed)) continue;
+        const enriched = enrichAlmanacEvent({ ...parsed, id: row.id, date: parsed.date || row.date_key }, profiles);
+        if (enriched.assignedToProfileId !== parsed.assignedToProfileId) {
+          almanacUpsertStmt.run(
+            row.id,
+            enriched.date || row.date_key,
+            JSON.stringify(enriched),
+            row.updated_at || nowIso
+          );
+        }
+      } catch {
+        // skip malformed row
+      }
+    }
+
+    // 2. Beacon partner contacts
+    const beaconRow = howardGetStmt.get('beacon_info');
+    if (beaconRow) {
+      try {
+        const parsedBeacon = JSON.parse(beaconRow.data);
+        const normalizedBeacon = normalizeBeaconInfo(parsedBeacon, { profilesList: profiles });
+        howardUpsertStmt.run(
+          'beacon_info',
+          JSON.stringify(normalizedBeacon),
+          beaconRow.updated_at || nowIso
+        );
+      } catch {
+        // skip malformed JSON
+      }
+    }
+
+    // 3. Cadence settings & logs
+    const cadSettingsRow = howardGetStmt.get('cadence_settings');
+    if (cadSettingsRow) {
+      try {
+        const parsed = JSON.parse(cadSettingsRow.data);
+        const normalized = normalizeCadenceSettings(parsed);
+        howardUpsertStmt.run(
+          'cadence_settings',
+          JSON.stringify({ ...normalized, caregiverItems: buildCaregiverItems(normalized.caregivers, profiles) }),
+          cadSettingsRow.updated_at || nowIso
+        );
+      } catch {
+        // skip malformed JSON
+      }
+    }
+    for (const row of cadenceGetAllLogsStmt.all()) {
+      try {
+        const parsed = JSON.parse(row.data);
+        if (!isPlainObject(parsed)) continue;
+        const enriched = enrichCadenceRecord(parsed, profiles);
+        cadenceUpsertLogStmt.run(row.date_key, JSON.stringify(enriched), row.updated_at || nowIso);
+      } catch {
+        // skip malformed row
+      }
+    }
+
+    // 4. Bloom settings, care logs & molt logs
+    const blSettingsRow = howardGetStmt.get('bloom_settings');
+    if (blSettingsRow) {
+      try {
+        const parsed = JSON.parse(blSettingsRow.data);
+        const normalized = normalizeBloomSettings(parsed);
+        howardUpsertStmt.run(
+          'bloom_settings',
+          JSON.stringify({ ...normalized, caregiverItems: buildCaregiverItems(normalized.caregivers, profiles) }),
+          blSettingsRow.updated_at || nowIso
+        );
+      } catch {
+        // skip malformed JSON
+      }
+    }
+    for (const row of bloomGetAllLogsStmt.all()) {
+      try {
+        const parsed = JSON.parse(row.data);
+        if (!isPlainObject(parsed)) continue;
+        const enriched = enrichBloomCareRecord(parsed, profiles);
+        bloomUpsertLogStmt.run(row.date_key, JSON.stringify(enriched), row.updated_at || nowIso);
+      } catch {
+        // skip malformed row
+      }
+    }
+    for (const row of bloomGetAllMoltsStmt.all()) {
+      try {
+        const parsed = JSON.parse(row.data);
+        if (!isPlainObject(parsed)) continue;
+        const enriched = enrichBloomMoltRecord(parsed, profiles);
+        bloomUpsertMoltStmt.run(
+          row.id,
+          row.date_key,
+          JSON.stringify(enriched),
+          row.updated_at || nowIso
+        );
+      } catch {
+        // skip malformed row
+      }
+    }
+
+    // 5. Floodgate settings
+    const fgSettingsRow = howardGetStmt.get('floodgate_settings');
+    if (fgSettingsRow) {
+      try {
+        const parsed = JSON.parse(fgSettingsRow.data);
+        if (isPlainObject(parsed)) {
+          howardUpsertStmt.run(
+            'floodgate_settings',
+            JSON.stringify({ ...DEFAULT_FLOODGATE_SETTINGS, ...parsed, ownerProfileId: 'partner2' }),
+            fgSettingsRow.updated_at || nowIso
+          );
+        }
+      } catch {
+        // skip malformed JSON
+      }
+    }
+
+    howardDb.exec('PRAGMA user_version = 4;');
+  });
+}
+
+function runVersionedMigrations() {
+  if (getSchemaVersion(howardDb) < 1) {
+    runInTransaction(howardDb, () => {
+      migrateV1LegacyHowardBlobs();
+      howardDb.exec('PRAGMA user_version = 1;');
+    });
+  }
+  if (getSchemaVersion(howardDb) < 2) {
+    runInTransaction(howardDb, () => {
+      const profilesRow = howardGetStmt.get('profiles');
+      if (profilesRow) {
+        try {
+          normalizeProfilesAppsList(JSON.parse(profilesRow.data), {
+            ensureBloom: true,
+            stripUnknown: false
+          });
+        } catch {
+          // ignore malformed JSON
+        }
+      }
+      howardDb.exec('PRAGMA user_version = 2;');
+    });
+  }
+  if (getSchemaVersion(howardDb) < 3) {
+    migrateV3ConsolidateLegacyDatabases();
+  }
+  ensureDefaultSeeds();
+  if (getSchemaVersion(howardDb) < 4) {
+    migrateV4BackfillStableProfileIds();
+  }
+}
+
+runVersionedMigrations();
 setInterval(runDailyBackupSnapshots, 6 * 3600 * 1000).unref?.();
 
+// ============================================================================
+// 5. UNIFIED DOMAIN READERS & PROJECTION HELPERS
+// ============================================================================
 function readAlmanacEventsFromTable() {
+  const profilesById = getProfilesByIdMap();
   const rows = almanacGetAllStmt.all();
   const events = [];
   let updatedAt = '';
   for (const row of rows) {
     try {
       const parsed = JSON.parse(row.data);
-      events.push({ ...parsed, id: row.id, date: parsed.date || row.date_key });
+      const base = { ...parsed, id: row.id, date: parsed.date || row.date_key };
+      events.push(resolveAlmanacEvent(base, profilesById));
       if (row.updated_at > updatedAt) updatedAt = row.updated_at;
     } catch {
       // skip malformed row
@@ -893,26 +1389,30 @@ function readAlmanacEventsFromTable() {
   return { events, updatedAt };
 }
 
+function writeAlmanacEventsInTx(events, { nowIso, clearExisting = true, profilesList } = {}) {
+  const fallbackDate = getLocalDateKey(new Date());
+  if (clearExisting) {
+    almanacClearAllStmt.run();
+  }
+  (Array.isArray(events) ? events : []).forEach((evt, idx) => {
+    if (!isPlainObject(evt)) return;
+    const id = String(evt.id || `evt-${Date.now()}-${idx}`);
+    const dateKey =
+      typeof evt.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(evt.date) ? evt.date : fallbackDate;
+    const updatedAt = typeof evt.updatedAt === 'string' ? evt.updatedAt : nowIso;
+    const record = enrichAlmanacEvent({ ...evt, id, date: dateKey }, profilesList);
+    almanacUpsertStmt.run(id, dateKey, JSON.stringify(record), updatedAt);
+  });
+}
+
 function replaceAllAlmanacEventsInTable(
   events,
   nowIso = new Date().toISOString(),
   { clearExisting = true } = {}
 ) {
-  const fallbackDate = getLocalDateKey(new Date());
+  const profilesList = getProfilesList();
   runInTransaction(howardDb, () => {
-    if (clearExisting) {
-      almanacClearAllStmt.run();
-    }
-    (Array.isArray(events) ? events : []).forEach((evt, idx) => {
-      if (!isPlainObject(evt)) return;
-      const id = String(evt.id || `evt-${Date.now()}-${idx}`);
-      const dateKey =
-        typeof evt.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(evt.date)
-          ? evt.date
-          : fallbackDate;
-      const updatedAt = typeof evt.updatedAt === 'string' ? evt.updatedAt : nowIso;
-      almanacUpsertStmt.run(id, dateKey, JSON.stringify({ ...evt, id, date: dateKey }), updatedAt);
-    });
+    writeAlmanacEventsInTx(events, { nowIso, clearExisting, profilesList });
   });
   return nowIso;
 }
@@ -955,50 +1455,240 @@ function readLedgerDataFromTable() {
   };
 }
 
+function writeLedgerDataInTx(rawLedger, { nowIso, clearExisting = true } = {}) {
+  const normalized = normalizeLedgerData(rawLedger);
+  const hasExplicitSplitRule =
+    isPlainObject(rawLedger) &&
+    (rawLedger.splitRule === '50-50' || rawLedger.splitRule === 'proportional');
+  if (clearExisting || hasExplicitSplitRule) {
+    howardUpsertStmt.run(
+      'ledger_settings',
+      JSON.stringify({ splitRule: normalized.splitRule }),
+      nowIso
+    );
+  }
+  if (clearExisting) {
+    ledgerClearAllStmt.run();
+  }
+  normalized.expenses.forEach((exp, idx) => {
+    if (!isPlainObject(exp)) return;
+    const id = String(exp.id || `exp-${Date.now()}-${idx}`);
+    const updatedAt = typeof exp.updatedAt === 'string' ? exp.updatedAt : nowIso;
+    ledgerUpsertStmt.run(id, 'expense', JSON.stringify({ ...exp, id }), updatedAt);
+  });
+  normalized.recurring.forEach((rec, idx) => {
+    if (!isPlainObject(rec)) return;
+    const id = String(rec.id || `rec-${Date.now()}-${idx}`);
+    const updatedAt = typeof rec.updatedAt === 'string' ? rec.updatedAt : nowIso;
+    ledgerUpsertStmt.run(id, 'recurring', JSON.stringify({ ...rec, id }), updatedAt);
+  });
+  normalized.incomes.forEach((inc, idx) => {
+    if (!isPlainObject(inc)) return;
+    const id = String(inc.id || `inc-${Date.now()}-${idx}`);
+    const updatedAt = typeof inc.updatedAt === 'string' ? inc.updatedAt : nowIso;
+    ledgerUpsertStmt.run(id, 'income', JSON.stringify({ ...inc, id }), updatedAt);
+  });
+  return normalized;
+}
+
 function replaceAllLedgerDataInTable(
   rawLedger,
   nowIso = new Date().toISOString(),
   { clearExisting = true } = {}
 ) {
-  const normalized = normalizeLedgerData(rawLedger);
-  const hasExplicitSplitRule =
-    isPlainObject(rawLedger) &&
-    (rawLedger.splitRule === '50-50' || rawLedger.splitRule === 'proportional');
+  let normalized;
   runInTransaction(howardDb, () => {
-    if (clearExisting || hasExplicitSplitRule) {
-      howardUpsertStmt.run(
-        'ledger_settings',
-        JSON.stringify({ splitRule: normalized.splitRule }),
-        nowIso
-      );
-    }
-    if (clearExisting) {
-      ledgerClearAllStmt.run();
-    }
-    normalized.expenses.forEach((exp, idx) => {
-      if (!isPlainObject(exp)) return;
-      const id = String(exp.id || `exp-${Date.now()}-${idx}`);
-      const updatedAt = typeof exp.updatedAt === 'string' ? exp.updatedAt : nowIso;
-      ledgerUpsertStmt.run(id, 'expense', JSON.stringify({ ...exp, id }), updatedAt);
-    });
-    normalized.recurring.forEach((rec, idx) => {
-      if (!isPlainObject(rec)) return;
-      const id = String(rec.id || `rec-${Date.now()}-${idx}`);
-      const updatedAt = typeof rec.updatedAt === 'string' ? rec.updatedAt : nowIso;
-      ledgerUpsertStmt.run(id, 'recurring', JSON.stringify({ ...rec, id }), updatedAt);
-    });
-    normalized.incomes.forEach((inc, idx) => {
-      if (!isPlainObject(inc)) return;
-      const id = String(inc.id || `inc-${Date.now()}-${idx}`);
-      const updatedAt = typeof inc.updatedAt === 'string' ? inc.updatedAt : nowIso;
-      ledgerUpsertStmt.run(id, 'income', JSON.stringify({ ...inc, id }), updatedAt);
-    });
+    normalized = writeLedgerDataInTx(rawLedger, { nowIso, clearExisting });
   });
   return { ledgerData: normalized, updatedAt: nowIso };
 }
 
+function readCadenceSettings({ includeInternal = false } = {}) {
+  const profilesList = getProfilesList();
+  const profilesById = getProfilesByIdMap(profilesList);
+  const defaults = createDefaultCadenceSettings();
+  const row = howardGetStmt.get('cadence_settings');
+  if (!row) {
+    const resolved = {
+      ...defaults,
+      caregivers: resolveCaregiverList(defaults.caregiverItems, defaults.caregivers, profilesById, profilesList)
+    };
+    if (!includeInternal) delete resolved.caregiverItems;
+    return { settings: resolved, updatedAt: new Date().toISOString() };
+  }
+  try {
+    const parsed = normalizeCadenceSettings(JSON.parse(row.data));
+    const resolved = {
+      ...parsed,
+      caregivers: resolveCaregiverList(parsed.caregiverItems, parsed.caregivers, profilesById, profilesList)
+    };
+    if (!includeInternal) delete resolved.caregiverItems;
+    return { settings: resolved, updatedAt: row.updated_at };
+  } catch {
+    const resolved = {
+      ...defaults,
+      caregivers: resolveCaregiverList(defaults.caregiverItems, defaults.caregivers, profilesById, profilesList)
+    };
+    if (!includeInternal) delete resolved.caregiverItems;
+    return { settings: resolved, updatedAt: row.updated_at };
+  }
+}
+
+function readCadenceLogs() {
+  const profilesById = getProfilesByIdMap();
+  const rows = cadenceGetAllLogsStmt.all();
+  const logsByDate = {};
+  let latestLogUpdate = '';
+  for (const row of rows) {
+    try {
+      logsByDate[row.date_key] = resolveCadenceRecord(JSON.parse(row.data), profilesById);
+      if (row.updated_at > latestLogUpdate) latestLogUpdate = row.updated_at;
+    } catch {
+      // skip malformed row
+    }
+  }
+  return { logsByDate, latestLogUpdate };
+}
+
+function readBloomSettings({ includeInternal = false } = {}) {
+  const profilesList = getProfilesList();
+  const profilesById = getProfilesByIdMap(profilesList);
+  const row = howardGetStmt.get('bloom_settings');
+  if (!row) {
+    const defaults = normalizeBloomSettings();
+    const resolved = {
+      ...defaults,
+      caregivers: resolveCaregiverList(defaults.caregiverItems, defaults.caregivers, profilesById, profilesList)
+    };
+    if (!includeInternal) delete resolved.caregiverItems;
+    return { settings: resolved, updatedAt: new Date().toISOString() };
+  }
+  try {
+    const parsed = normalizeBloomSettings(JSON.parse(row.data));
+    const resolved = {
+      ...parsed,
+      caregivers: resolveCaregiverList(parsed.caregiverItems, parsed.caregivers, profilesById, profilesList)
+    };
+    if (!includeInternal) delete resolved.caregiverItems;
+    return { settings: resolved, updatedAt: row.updated_at };
+  } catch {
+    const defaults = normalizeBloomSettings();
+    const resolved = {
+      ...defaults,
+      caregivers: resolveCaregiverList(defaults.caregiverItems, defaults.caregivers, profilesById, profilesList)
+    };
+    if (!includeInternal) delete resolved.caregiverItems;
+    return { settings: resolved, updatedAt: row.updated_at };
+  }
+}
+
+function readBloomLogs() {
+  const profilesById = getProfilesByIdMap();
+  const rows = bloomGetAllLogsStmt.all();
+  const logsByDate = {};
+  let latestLogUpdate = '';
+  for (const row of rows) {
+    try {
+      logsByDate[row.date_key] = resolveBloomCareRecord(JSON.parse(row.data), profilesById);
+      if (row.updated_at > latestLogUpdate) latestLogUpdate = row.updated_at;
+    } catch {
+      // skip malformed row
+    }
+  }
+  return { logsByDate, latestLogUpdate };
+}
+
+function readBloomMolts() {
+  const profilesById = getProfilesByIdMap();
+  const rows = bloomGetAllMoltsStmt.all();
+  const molts = [];
+  let latestMoltUpdate = '';
+  for (const row of rows) {
+    try {
+      const parsed = { id: row.id, dateKey: row.date_key, ...JSON.parse(row.data) };
+      molts.push(resolveBloomMoltRecord(parsed, profilesById));
+      if (row.updated_at > latestMoltUpdate) latestMoltUpdate = row.updated_at;
+    } catch {
+      // skip malformed row
+    }
+  }
+  return { molts, latestMoltUpdate };
+}
+
+function readBloomFeeders() {
+  const rows = bloomGetAllFeedersStmt.all();
+  const feeders = [];
+  let latestFeederUpdate = '';
+  for (const row of rows) {
+    try {
+      feeders.push({ id: row.id, ...JSON.parse(row.data) });
+      if (row.updated_at > latestFeederUpdate) latestFeederUpdate = row.updated_at;
+    } catch {
+      // skip malformed row
+    }
+  }
+  return { feeders, latestFeederUpdate };
+}
+
+function readBloomState() {
+  const { settings, updatedAt: sUpd } = readBloomSettings();
+  const { logsByDate, latestLogUpdate: lUpd } = readBloomLogs();
+  const { molts, latestMoltUpdate: mUpd } = readBloomMolts();
+  const { feeders, latestFeederUpdate: fUpd } = readBloomFeeders();
+  const updatedAt = [sUpd, lUpd, mUpd, fUpd].filter(Boolean).sort().pop() || new Date().toISOString();
+  return { settings, logsByDate, molts, feeders, updatedAt };
+}
+
+function readFloodgateSettings() {
+  const profilesById = getProfilesByIdMap();
+  const row = howardGetStmt.get('floodgate_settings');
+  if (!row) {
+    const resolved = {
+      ...DEFAULT_FLOODGATE_SETTINGS,
+      ownerName: resolveProfileDisplayName('partner2', DEFAULT_FLOODGATE_SETTINGS.ownerName, profilesById)
+    };
+    return { settings: resolved, updatedAt: new Date().toISOString() };
+  }
+  try {
+    const parsed = JSON.parse(row.data);
+    const merged = { ...DEFAULT_FLOODGATE_SETTINGS, ...parsed };
+    const ownerProfileId = merged.ownerProfileId || 'partner2';
+    return {
+      settings: {
+        ...merged,
+        ownerProfileId,
+        ownerName: resolveProfileDisplayName(ownerProfileId, merged.ownerName, profilesById)
+      },
+      updatedAt: row.updated_at
+    };
+  } catch {
+    return {
+      settings: {
+        ...DEFAULT_FLOODGATE_SETTINGS,
+        ownerName: resolveProfileDisplayName('partner2', DEFAULT_FLOODGATE_SETTINGS.ownerName, profilesById)
+      },
+      updatedAt: row.updated_at
+    };
+  }
+}
+
+function readFloodgateLogs() {
+  const rows = floodgateGetAllLogsStmt.all();
+  const logsByDate = {};
+  let latestLogUpdate = '';
+  for (const row of rows) {
+    try {
+      logsByDate[row.date_key] = JSON.parse(row.data);
+      if (row.updated_at > latestLogUpdate) latestLogUpdate = row.updated_at;
+    } catch {
+      // skip malformed row
+    }
+  }
+  return { logsByDate, latestLogUpdate };
+}
+
 // ============================================================================
-// IN-MEMORY DOMAIN CACHE, PER-DOMAIN REVISION TOKENS & SSE PUSH HUB
+// 6. IN-MEMORY DOMAIN CACHE, PER-DOMAIN REVISION TOKENS & SSE PUSH HUB
 // ============================================================================
 const SERVER_BOOT_ID = Date.now().toString(36);
 const domainRevisions = {
@@ -1051,7 +1741,7 @@ function getCachedHowardBeacon() {
   if (!cacheHowardBeacon) {
     const beaconObj = readHowardKey('beacon_info', DEFAULT_BEACON_INFO);
     cacheHowardBeacon = {
-      beaconInfo: normalizeBeaconInfo(beaconObj.data),
+      beaconInfo: resolveBeaconInfo(beaconObj.data),
       updatedAt: beaconObj.updatedAt
     };
   }
@@ -1391,6 +2081,9 @@ const server = http.createServer(async (req, res) => {
         status: 'ok',
         app: 'Howard Household Suite',
         dbFolder: DATA_DIR,
+        dbFile: 'howard.db',
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        journalMode: activeJournalMode,
         serverTime: new Date().toISOString()
       };
       if (req.method === 'HEAD') {
@@ -1456,6 +2149,12 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
+      const dbInfo = {
+        file: 'data/howard.db',
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        journalMode: activeJournalMode
+      };
+
       if (prev) {
         const changedDomains = [];
         const payload = {
@@ -1467,6 +2166,7 @@ const server = http.createServer(async (req, res) => {
         };
         if (prev.howard !== curH) {
           payload.howard = getCachedHowardState();
+          payload.dbInfo = dbInfo;
           changedDomains.push('howard');
         }
         if (prev.cadence !== curC) {
@@ -1496,6 +2196,7 @@ const server = http.createServer(async (req, res) => {
         partial: false,
         syncToken,
         changedDomains,
+        dbInfo,
         howard: howardState,
         cadence,
         bloom,
@@ -1557,7 +2258,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { profiles: sanitizeProfilesForClient(profiles) });
     }
 
-    // Update a profile's display name (and sync to Almanac, Cadence/Bloom caregivers, Beacon contacts + Floodgate ownerName)
+    // Update a profile's display name (O(1) update via DB-ARCH-2 stable profileId resolution)
     if (pathname === '/api/howard/profiles/name' && req.method === 'PUT') {
       const { profileId, name } = await parseJsonBody(req);
       const cleanedName = String(name || '').trim();
@@ -1580,7 +2281,6 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: 'Another profile already uses that name' });
       }
 
-      const oldName = profiles[idx].name;
       const nowIso = new Date().toISOString();
       profiles[idx] = {
         ...profiles[idx],
@@ -1588,93 +2288,10 @@ const server = http.createServer(async (req, res) => {
         caregiverName: cleanedName
       };
 
-      let anyDbTouched = false;
-      try {
-        runInTransaction(howardDb, () => {
-          howardUpsertStmt.run('profiles', JSON.stringify(profiles), nowIso);
-
-          if (profileId === 'partner1' || profileId === 'partner2') {
-            const { data: rawBeacon } = readHowardKey('beacon_info', DEFAULT_BEACON_INFO);
-            const beaconData = normalizeBeaconInfo(rawBeacon);
-            let beaconChanged = false;
-            const targetContactId = `c-${profileId}`;
-            const nextContacts = beaconData.contacts.map((c) => {
-              if (c && c.id === targetContactId && c.name !== cleanedName) {
-                beaconChanged = true;
-                return { ...c, name: cleanedName };
-              }
-              return c;
-            });
-            if (beaconChanged) {
-              howardUpsertStmt.run(
-                'beacon_info',
-                JSON.stringify({ ...beaconData, contacts: nextContacts }),
-                nowIso
-              );
-            }
-          }
-
-          const allEventRows = almanacGetAllStmt.all();
-          for (const row of allEventRows) {
-            let evt;
-            try {
-              evt = JSON.parse(row.data);
-            } catch {
-              continue;
-            }
-            if (!isPlainObject(evt)) continue;
-            if (evt.assignedTo === oldName || evt.assignedToProfileId === profileId) {
-              const updatedEvt = {
-                ...evt,
-                id: row.id,
-                date: evt.date || row.date_key,
-                assignedTo: cleanedName,
-                assignedToProfileId: profileId,
-                updatedAt: nowIso
-              };
-              almanacUpsertStmt.run(row.id, updatedEvt.date, JSON.stringify(updatedEvt), nowIso);
-            }
-          }
-        });
-        anyDbTouched = true;
-
-        // Sync updated caregiver names into Cadence settings
-        const { settings: cadSettings } = readCadenceSettings();
-        const nextCaregivers = Array.isArray(cadSettings.caregivers)
-          ? cadSettings.caregivers.map((c) => (c === oldName ? cleanedName : c))
-          : profiles.map((p) => p.name);
-        cadenceUpsertSettingsStmt.run(
-          'config',
-          JSON.stringify({ ...cadSettings, caregivers: nextCaregivers }),
-          nowIso
-        );
-        anyDbTouched = true;
-
-        // Sync updated caregiver names into Bloom settings
-        const { settings: blSettings } = readBloomSettings();
-        const nextBloomCaregivers = Array.isArray(blSettings.caregivers)
-          ? blSettings.caregivers.map((c) => (c === oldName ? cleanedName : c))
-          : profiles.map((p) => p.name);
-        bloomUpsertSettingsStmt.run(
-          'config',
-          JSON.stringify({ ...blSettings, caregivers: nextBloomCaregivers }),
-          nowIso
-        );
-        anyDbTouched = true;
-
-        // If renaming Partner 2, also update Floodgate ownerName
-        if (profileId === 'partner2') {
-          const { settings: fgSettings } = readFloodgateSettings();
-          floodgateUpsertSettingsStmt.run(
-            'config',
-            JSON.stringify({ ...fgSettings, ownerName: cleanedName }),
-            nowIso
-          );
-          anyDbTouched = true;
-        }
-      } finally {
-        if (anyDbTouched) bumpRevision('all');
-      }
+      runInTransaction(howardDb, () => {
+        howardUpsertStmt.run('profiles', JSON.stringify(profiles), nowIso);
+      });
+      bumpRevision('all');
 
       return sendJson(res, 200, { profiles: sanitizeProfilesForClient(profiles) });
     }
@@ -1689,6 +2306,7 @@ const server = http.createServer(async (req, res) => {
       const deleteIds = Array.isArray(incoming.deleteIds) ? incoming.deleteIds : [];
       const nowIso = new Date().toISOString();
       const fallbackDate = getLocalDateKey(new Date());
+      const profilesList = getProfilesList();
 
       runInTransaction(howardDb, () => {
         for (const id of deleteIds) {
@@ -1701,12 +2319,8 @@ const server = http.createServer(async (req, res) => {
             typeof evt.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(evt.date)
               ? evt.date
               : fallbackDate;
-          almanacUpsertStmt.run(
-            id,
-            dateKey,
-            JSON.stringify({ ...evt, id, date: dateKey, updatedAt: nowIso }),
-            nowIso
-          );
+          const record = enrichAlmanacEvent({ ...evt, id, date: dateKey, updatedAt: nowIso }, profilesList);
+          almanacUpsertStmt.run(id, dateKey, JSON.stringify(record), nowIso);
         }
       });
 
@@ -1728,10 +2342,14 @@ const server = http.createServer(async (req, res) => {
           typeof evt.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(evt.date)
             ? evt.date
             : getLocalDateKey(new Date());
-        const record = { ...evt, id: eventId, date: dateKey, updatedAt: nowIso };
+        const profilesList = getProfilesList();
+        const record = enrichAlmanacEvent({ ...evt, id: eventId, date: dateKey, updatedAt: nowIso }, profilesList);
         almanacUpsertStmt.run(eventId, dateKey, JSON.stringify(record), nowIso);
         bumpRevision('almanac');
-        return sendJson(res, 200, { event: record, updatedAt: nowIso });
+        return sendJson(res, 200, {
+          event: resolveAlmanacEvent(record, getProfilesByIdMap(profilesList)),
+          updatedAt: nowIso
+        });
       }
 
       if (req.method === 'DELETE') {
@@ -1809,23 +2427,32 @@ const server = http.createServer(async (req, res) => {
       const incoming = await parseJsonBody(req);
       const patch = isPlainObject(incoming.beaconInfo) ? incoming.beaconInfo : incoming;
       const { data: current } = readHowardKey('beacon_info', DEFAULT_BEACON_INFO);
-      const updated = mergeBeaconInfo(current, patch);
+      const profilesList = getProfilesList();
+      const updated = mergeBeaconInfo(current, patch, profilesList);
       const updatedAt = writeHowardKey('beacon_info', updated);
       bumpRevision('beacon');
-      return sendJson(res, 200, { beaconInfo: updated, updatedAt });
+      return sendJson(res, 200, {
+        beaconInfo: resolveBeaconInfo(updated, getProfilesByIdMap(profilesList)),
+        updatedAt
+      });
     }
 
-    // Full Household Backup Export (Checkpoints WAL files first for clean .db state)
+    // Full Household Backup Export (Available to Partner 1 & Partner 2; includes Floodgate in its entirety)
     if (pathname === '/api/howard/backup' && req.method === 'GET') {
-      checkpointAllDatabases();
-      const includeFloodgate = parsedUrl.searchParams.get('includeFloodgate') === '1';
+      const reqProfile = parsedUrl.searchParams.get('profile') || '';
+      if (reqProfile === 'caregiver') {
+        return sendJson(res, 403, { error: 'Caregiver profile cannot export database backups' });
+      }
+      checkpointDatabase();
+      const includeFloodgate = parsedUrl.searchParams.get('includeFloodgate') !== '0';
       const howardState = getCachedHowardState();
       const cadenceState = getCachedCadenceState();
       const bloomState = getCachedBloomState();
 
       const payload = {
         app: 'Howard',
-        version: '1.1.0',
+        version: '2.0.0',
+        schemaVersion: CURRENT_SCHEMA_VERSION,
         exportedAt: new Date().toISOString(),
         howard: {
           profiles: howardState.profiles,
@@ -1856,9 +2483,16 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, payload);
     }
 
-    // Full Household Backup Restore (100% Compatible with v1.0 & v1.1 Backup Bundles)
+    // Full Household Backup Restore (Partner 1 only; single-transaction ACID + DB-ARCH-4 safety snapshot)
     if (pathname === '/api/howard/restore' && req.method === 'POST') {
       const incoming = await parseJsonBody(req);
+      const actorProfileId = String(
+        parsedUrl.searchParams.get('profile') || incoming.profileId || ''
+      );
+      if (actorProfileId !== 'partner1') {
+        return sendJson(res, 403, { error: 'Only the primary household profile can restore backups' });
+      }
+
       const hasHoward = isPlainObject(incoming.howard);
       const hasCadence = isPlainObject(incoming.cadence);
       const hasBloom = isPlainObject(incoming.bloom);
@@ -1873,7 +2507,7 @@ const server = http.createServer(async (req, res) => {
       const nowIso = new Date().toISOString();
       const fallbackDate = getLocalDateKey(new Date());
 
-      // Pre-validate & normalize all payloads before touching any DB
+      // Pre-validate & normalize all payloads before taking snapshot or opening transaction
       const howardPlan = hasHoward
         ? {
             profiles: Array.isArray(incoming.howard.profiles)
@@ -1996,198 +2630,176 @@ const server = http.createServer(async (req, res) => {
           }
         : null;
 
-      let anyDbTouched = false;
+      // DB-ARCH-4: Always write an atomic pre-restore VACUUM INTO safety snapshot first
+      const snapshot = createPreRestoreSnapshot();
+
       try {
-        if (
-          howardPlan &&
-          (howardPlan.profiles || howardPlan.events || howardPlan.ledger || howardPlan.beacon)
-        ) {
-          runInTransaction(howardDb, () => {
-            if (howardPlan.profiles) {
-              const incomingById = new Map(howardPlan.profiles.map((p) => [p.id, p]));
-              const { data: currentProfiles } = readHowardKey('profiles', DEFAULT_PROFILES);
-              const candidateProfiles = (
-                Array.isArray(currentProfiles) ? currentProfiles : DEFAULT_PROFILES
-              ).map((prof) => {
-                if (prof.id !== 'partner1' && prof.id !== 'partner2') return prof;
-                const inc = incomingById.get(prof.id);
-                if (!inc) return prof;
-                const cleanedName = typeof inc.name === 'string' ? inc.name.trim() : '';
-                const lowerName = cleanedName.toLowerCase();
-                const validName =
-                  cleanedName && lowerName !== 'both' && lowerName !== 'pets'
-                    ? cleanedName
-                    : prof.name;
-                const nextEmoji =
-                  typeof inc.badgeEmoji === 'string' && inc.badgeEmoji.trim()
-                    ? inc.badgeEmoji.trim()
-                    : prof.badgeEmoji;
-                return {
-                  ...prof,
-                  name: validName,
-                  caregiverName: validName,
-                  badgeEmoji: nextEmoji
-                };
-              });
-              const seenNames = new Set();
-              const hasDuplicateNames = candidateProfiles.some((p) => {
-                const key = String(p.name || '').trim().toLowerCase();
-                if (seenNames.has(key)) return true;
-                seenNames.add(key);
-                return false;
-              });
-              if (!hasDuplicateNames) {
-                howardUpsertStmt.run('profiles', JSON.stringify(candidateProfiles), nowIso);
-              }
-            }
-            if (howardPlan.events) {
-              if (!isMerge) almanacClearAllStmt.run();
-              for (const item of howardPlan.events) {
-                almanacUpsertStmt.run(
-                  item.id,
-                  item.dateKey,
-                  JSON.stringify(item.record),
-                  item.updatedAt
-                );
-              }
-            }
-            if (howardPlan.ledger) {
-              const { normalized, hasExplicitSplitRule } = howardPlan.ledger;
-              if (!isMerge || hasExplicitSplitRule) {
-                howardUpsertStmt.run(
-                  'ledger_settings',
-                  JSON.stringify({ splitRule: normalized.splitRule }),
-                  nowIso
-                );
-              }
-              if (!isMerge) ledgerClearAllStmt.run();
-              normalized.expenses.forEach((exp, idx) => {
-                if (!isPlainObject(exp)) return;
-                const id = String(exp.id || `exp-${Date.now()}-${idx}`);
-                const updatedAt = typeof exp.updatedAt === 'string' ? exp.updatedAt : nowIso;
-                ledgerUpsertStmt.run(id, 'expense', JSON.stringify({ ...exp, id }), updatedAt);
-              });
-              normalized.recurring.forEach((rec, idx) => {
-                if (!isPlainObject(rec)) return;
-                const id = String(rec.id || `rec-${Date.now()}-${idx}`);
-                const updatedAt = typeof rec.updatedAt === 'string' ? rec.updatedAt : nowIso;
-                ledgerUpsertStmt.run(id, 'recurring', JSON.stringify({ ...rec, id }), updatedAt);
-              });
-              normalized.incomes.forEach((inc, idx) => {
-                if (!isPlainObject(inc)) return;
-                const id = String(inc.id || `inc-${Date.now()}-${idx}`);
-                const updatedAt = typeof inc.updatedAt === 'string' ? inc.updatedAt : nowIso;
-                ledgerUpsertStmt.run(id, 'income', JSON.stringify({ ...inc, id }), updatedAt);
-              });
-            }
-            if (howardPlan.beacon) {
-              const nextBeacon = isMerge
-                ? mergeBeaconInfo(
-                    readHowardKey('beacon_info', DEFAULT_BEACON_INFO).data,
-                    howardPlan.beacon
-                  )
-                : normalizeBeaconInfo(howardPlan.beacon);
-              howardUpsertStmt.run('beacon_info', JSON.stringify(nextBeacon), nowIso);
-            }
-          });
-          anyDbTouched = true;
-        }
+        runInTransaction(howardDb, () => {
+          let effectiveProfiles = getProfilesList();
 
-        if (cadencePlan && (cadencePlan.settings || cadencePlan.logs)) {
-          runInTransaction(cadenceDb, () => {
-            if (cadencePlan.settings) {
-              const base = isMerge
-                ? readCadenceSettings().settings
-                : createDefaultCadenceSettings();
-              const merged = { ...createDefaultCadenceSettings(), ...base, ...cadencePlan.settings };
-              cadenceUpsertSettingsStmt.run('config', JSON.stringify(merged), nowIso);
+          if (howardPlan?.profiles) {
+            const incomingById = new Map(howardPlan.profiles.map((p) => [p.id, p]));
+            const candidateProfiles = (
+              Array.isArray(effectiveProfiles) ? effectiveProfiles : DEFAULT_PROFILES
+            ).map((prof) => {
+              if (prof.id !== 'partner1' && prof.id !== 'partner2') return prof;
+              const inc = incomingById.get(prof.id);
+              if (!inc) return prof;
+              const cleanedName = typeof inc.name === 'string' ? inc.name.trim() : '';
+              const lowerName = cleanedName.toLowerCase();
+              const validName =
+                cleanedName && lowerName !== 'both' && lowerName !== 'pets' ? cleanedName : prof.name;
+              const nextEmoji =
+                typeof inc.badgeEmoji === 'string' && inc.badgeEmoji.trim()
+                  ? inc.badgeEmoji.trim()
+                  : prof.badgeEmoji;
+              return {
+                ...prof,
+                name: validName,
+                caregiverName: validName,
+                badgeEmoji: nextEmoji
+              };
+            });
+            const seenNames = new Set();
+            const hasDuplicateNames = candidateProfiles.some((p) => {
+              const key = String(p.name || '').trim().toLowerCase();
+              if (seenNames.has(key)) return true;
+              seenNames.add(key);
+              return false;
+            });
+            if (!hasDuplicateNames) {
+              effectiveProfiles = candidateProfiles;
+              howardUpsertStmt.run('profiles', JSON.stringify(candidateProfiles), nowIso);
             }
-            if (cadencePlan.logs) {
-              if (!isMerge) cadenceClearLogsStmt.run();
-              for (const item of cadencePlan.logs) {
-                cadenceUpsertLogStmt.run(
-                  item.dateKey,
-                  JSON.stringify(item.record),
-                  item.updatedAt
-                );
-              }
-            }
-          });
-          anyDbTouched = true;
-        }
+          }
 
-        if (
-          bloomPlan &&
-          (bloomPlan.settings || bloomPlan.logs || bloomPlan.molts || bloomPlan.feeders)
-        ) {
-          runInTransaction(bloomDb, () => {
-            if (bloomPlan.settings) {
-              const merged = isMerge
-                ? (() => {
-                    const current = readBloomSettings().settings;
-                    return normalizeBloomSettings({
-                      ...current,
-                      ...bloomPlan.settings,
-                      enclosureInfo: {
-                        ...current.enclosureInfo,
-                        ...(isPlainObject(bloomPlan.settings.enclosureInfo)
-                          ? bloomPlan.settings.enclosureInfo
-                          : {})
-                      }
-                    });
-                  })()
-                : normalizeBloomSettings(bloomPlan.settings);
-              bloomUpsertSettingsStmt.run('config', JSON.stringify(merged), nowIso);
+          if (howardPlan?.events) {
+            if (!isMerge) almanacClearAllStmt.run();
+            for (const item of howardPlan.events) {
+              const enriched = enrichAlmanacEvent(item.record, effectiveProfiles);
+              almanacUpsertStmt.run(
+                item.id,
+                item.dateKey,
+                JSON.stringify(enriched),
+                item.updatedAt
+              );
             }
-            if (bloomPlan.logs) {
-              if (!isMerge) bloomClearLogsStmt.run();
-              for (const item of bloomPlan.logs) {
-                bloomUpsertLogStmt.run(item.dateKey, JSON.stringify(item.record), item.updatedAt);
-              }
-            }
-            if (bloomPlan.molts) {
-              if (!isMerge) bloomClearMoltsStmt.run();
-              for (const m of bloomPlan.molts) {
-                bloomUpsertMoltStmt.run(m.id, m.dateKey, JSON.stringify(m.record), m.updatedAt);
-              }
-            }
-            if (bloomPlan.feeders) {
-              if (!isMerge) bloomClearFeedersStmt.run();
-              for (const f of bloomPlan.feeders) {
-                bloomUpsertFeederStmt.run(f.id, JSON.stringify(f.record), f.updatedAt);
-              }
-            }
-          });
-          anyDbTouched = true;
-        }
+          }
 
-        if (floodgatePlan && (floodgatePlan.settings || floodgatePlan.logs)) {
-          runInTransaction(floodgateDb, () => {
-            if (floodgatePlan.settings) {
-              const base = isMerge
-                ? readFloodgateSettings().settings
-                : DEFAULT_FLOODGATE_SETTINGS;
-              const merged = { ...DEFAULT_FLOODGATE_SETTINGS, ...base, ...floodgatePlan.settings };
-              floodgateUpsertSettingsStmt.run('config', JSON.stringify(merged), nowIso);
+          if (howardPlan?.ledger) {
+            writeLedgerDataInTx(howardPlan.ledger.normalized, {
+              nowIso,
+              clearExisting: !isMerge
+            });
+            if (isMerge && howardPlan.ledger.hasExplicitSplitRule) {
+              howardUpsertStmt.run(
+                'ledger_settings',
+                JSON.stringify({ splitRule: howardPlan.ledger.normalized.splitRule }),
+                nowIso
+              );
             }
-            if (floodgatePlan.logs) {
-              if (!isMerge) floodgateClearLogsStmt.run();
-              for (const item of floodgatePlan.logs) {
-                floodgateUpsertLogStmt.run(
-                  item.dateKey,
-                  JSON.stringify(item.record),
-                  item.updatedAt
-                );
-              }
+          }
+
+          if (howardPlan?.beacon) {
+            const nextBeacon = isMerge
+              ? mergeBeaconInfo(
+                  readHowardKey('beacon_info', DEFAULT_BEACON_INFO).data,
+                  howardPlan.beacon,
+                  effectiveProfiles
+                )
+              : normalizeBeaconInfo(howardPlan.beacon, { profilesList: effectiveProfiles });
+            howardUpsertStmt.run('beacon_info', JSON.stringify(nextBeacon), nowIso);
+          }
+
+          if (cadencePlan?.settings) {
+            const base = isMerge
+              ? readHowardKey('cadence_settings', createDefaultCadenceSettings()).data
+              : createDefaultCadenceSettings();
+            const merged = normalizeCadenceSettings(cadencePlan.settings, base);
+            const persisted = {
+              ...merged,
+              caregiverItems: buildCaregiverItems(merged.caregivers, effectiveProfiles)
+            };
+            howardUpsertStmt.run('cadence_settings', JSON.stringify(persisted), nowIso);
+          }
+          if (cadencePlan?.logs) {
+            if (!isMerge) cadenceClearLogsStmt.run();
+            for (const item of cadencePlan.logs) {
+              const enriched = enrichCadenceRecord(item.record, effectiveProfiles);
+              cadenceUpsertLogStmt.run(item.dateKey, JSON.stringify(enriched), item.updatedAt);
             }
-          });
-          anyDbTouched = true;
-        }
+          }
+
+          if (bloomPlan?.settings) {
+            const current = readHowardKey('bloom_settings', createDefaultBloomSettings()).data;
+            const merged = isMerge
+              ? normalizeBloomSettings({
+                  ...current,
+                  ...bloomPlan.settings,
+                  enclosureInfo: {
+                    ...current?.enclosureInfo,
+                    ...(isPlainObject(bloomPlan.settings.enclosureInfo)
+                      ? bloomPlan.settings.enclosureInfo
+                      : {})
+                  }
+                })
+              : normalizeBloomSettings(bloomPlan.settings);
+            const persisted = {
+              ...merged,
+              caregiverItems: buildCaregiverItems(merged.caregivers, effectiveProfiles)
+            };
+            howardUpsertStmt.run('bloom_settings', JSON.stringify(persisted), nowIso);
+          }
+          if (bloomPlan?.logs) {
+            if (!isMerge) bloomClearLogsStmt.run();
+            for (const item of bloomPlan.logs) {
+              const enriched = enrichBloomCareRecord(item.record, effectiveProfiles);
+              bloomUpsertLogStmt.run(item.dateKey, JSON.stringify(enriched), item.updatedAt);
+            }
+          }
+          if (bloomPlan?.molts) {
+            if (!isMerge) bloomClearMoltsStmt.run();
+            for (const m of bloomPlan.molts) {
+              const enriched = enrichBloomMoltRecord(m.record, effectiveProfiles);
+              bloomUpsertMoltStmt.run(m.id, m.dateKey, JSON.stringify(enriched), m.updatedAt);
+            }
+          }
+          if (bloomPlan?.feeders) {
+            if (!isMerge) bloomClearFeedersStmt.run();
+            for (const f of bloomPlan.feeders) {
+              bloomUpsertFeederStmt.run(f.id, JSON.stringify(f.record), f.updatedAt);
+            }
+          }
+
+          if (floodgatePlan?.settings) {
+            const base = isMerge
+              ? readHowardKey('floodgate_settings', DEFAULT_FLOODGATE_SETTINGS).data
+              : DEFAULT_FLOODGATE_SETTINGS;
+            const merged = {
+              ...DEFAULT_FLOODGATE_SETTINGS,
+              ...base,
+              ...floodgatePlan.settings,
+              ownerProfileId: 'partner2'
+            };
+            howardUpsertStmt.run('floodgate_settings', JSON.stringify(merged), nowIso);
+          }
+          if (floodgatePlan?.logs) {
+            if (!isMerge) floodgateClearLogsStmt.run();
+            for (const item of floodgatePlan.logs) {
+              floodgateUpsertLogStmt.run(item.dateKey, JSON.stringify(item.record), item.updatedAt);
+            }
+          }
+        });
       } finally {
-        if (anyDbTouched) bumpRevision('all');
+        bumpRevision('all');
       }
 
-      return sendJson(res, 200, { restored: true, mode: isMerge ? 'merge' : 'replace', updatedAt: nowIso });
+      return sendJson(res, 200, {
+        restored: true,
+        mode: isMerge ? 'merge' : 'replace',
+        preRestoreSnapshot: snapshot.dirName,
+        updatedAt: nowIso
+      });
     }
 
     // ------------------------------------------------------------------------
@@ -2199,16 +2811,12 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/cadence/settings' && req.method === 'PUT') {
       const incoming = await parseJsonBody(req);
-      const { settings: currentSettings } = readCadenceSettings();
+      const { data: rawCurrent } = readHowardKey('cadence_settings', createDefaultCadenceSettings());
       const nowIso = new Date().toISOString();
-      const updatedSettings = {
-        ...createDefaultCadenceSettings(),
-        ...currentSettings,
-        ...incoming
-      };
-      cadenceUpsertSettingsStmt.run('config', JSON.stringify(updatedSettings), nowIso);
+      const updatedRaw = normalizeCadenceSettings(incoming, rawCurrent);
+      howardUpsertStmt.run('cadence_settings', JSON.stringify(updatedRaw), nowIso);
       bumpRevision('cadence');
-      return sendJson(res, 200, { settings: updatedSettings, updatedAt: nowIso });
+      return sendJson(res, 200, { settings: readCadenceSettings().settings, updatedAt: nowIso });
     }
 
     if (pathname.startsWith('/api/cadence/logs/') && req.method === 'PUT') {
@@ -2218,8 +2826,9 @@ const server = http.createServer(async (req, res) => {
       }
       const incoming = await parseJsonBody(req);
       const nowIso = new Date().toISOString();
+      const profilesList = getProfilesList();
 
-      const updatedRecord = runInTransaction(cadenceDb, () => {
+      const updatedRecord = runInTransaction(howardDb, () => {
         const existingRow = cadenceGetLogByDateStmt.get(dateKey);
         let currentRecord = { dateKey };
         if (existingRow) {
@@ -2229,18 +2838,24 @@ const server = http.createServer(async (req, res) => {
             currentRecord = { dateKey };
           }
         }
-        const nextRecord = {
-          ...currentRecord,
-          ...incoming,
-          dateKey,
-          updatedAt: typeof incoming.updatedAt === 'string' ? incoming.updatedAt : nowIso
-        };
+        const nextRecord = enrichCadenceRecord(
+          {
+            ...currentRecord,
+            ...incoming,
+            dateKey,
+            updatedAt: typeof incoming.updatedAt === 'string' ? incoming.updatedAt : nowIso
+          },
+          profilesList
+        );
         cadenceUpsertLogStmt.run(dateKey, JSON.stringify(nextRecord), nextRecord.updatedAt);
         return nextRecord;
       });
 
       bumpRevision('cadence');
-      return sendJson(res, 200, { dateKey, record: updatedRecord });
+      return sendJson(res, 200, {
+        dateKey,
+        record: resolveCadenceRecord(updatedRecord, getProfilesByIdMap(profilesList))
+      });
     }
 
     // ------------------------------------------------------------------------
@@ -2252,16 +2867,17 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/floodgate/settings' && req.method === 'PUT') {
       const incoming = await parseJsonBody(req);
-      const { settings: currentSettings } = readFloodgateSettings();
+      const { data: rawCurrent } = readHowardKey('floodgate_settings', DEFAULT_FLOODGATE_SETTINGS);
       const nowIso = new Date().toISOString();
-      const updatedSettings = {
+      const updatedRaw = {
         ...DEFAULT_FLOODGATE_SETTINGS,
-        ...currentSettings,
-        ...incoming
+        ...(isPlainObject(rawCurrent) ? rawCurrent : {}),
+        ...incoming,
+        ownerProfileId: 'partner2'
       };
-      floodgateUpsertSettingsStmt.run('config', JSON.stringify(updatedSettings), nowIso);
+      howardUpsertStmt.run('floodgate_settings', JSON.stringify(updatedRaw), nowIso);
       bumpRevision('floodgate');
-      return sendJson(res, 200, { settings: updatedSettings, updatedAt: nowIso });
+      return sendJson(res, 200, { settings: readFloodgateSettings().settings, updatedAt: nowIso });
     }
 
     if (pathname === '/api/floodgate/logs/batch' && req.method === 'POST') {
@@ -2279,7 +2895,7 @@ const server = http.createServer(async (req, res) => {
         : Object.entries(rawLogs);
       const nowIso = new Date().toISOString();
 
-      const upsertedCount = runInTransaction(floodgateDb, () => {
+      const upsertedCount = runInTransaction(howardDb, () => {
         let count = 0;
         for (const [key, item] of entries) {
           if (!isPlainObject(item)) continue;
@@ -2320,7 +2936,7 @@ const server = http.createServer(async (req, res) => {
       const incoming = await parseJsonBody(req);
       const nowIso = new Date().toISOString();
 
-      const updatedRecord = runInTransaction(floodgateDb, () => {
+      const updatedRecord = runInTransaction(howardDb, () => {
         const existingRow = floodgateGetLogByDateStmt.get(dateKey);
         let currentRecord = { date: dateKey };
         if (existingRow) {
@@ -2363,21 +2979,28 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/bloom/settings' && req.method === 'PUT') {
       const incoming = await parseJsonBody(req);
-      const { settings: currentSettings } = readBloomSettings();
+      const { data: rawCurrent } = readHowardKey('bloom_settings', createDefaultBloomSettings());
+      const base = isPlainObject(rawCurrent) ? rawCurrent : createDefaultBloomSettings();
       const nowIso = new Date().toISOString();
-      const updatedSettings = normalizeBloomSettings({
-        ...currentSettings,
+      const merged = {
+        ...base,
         ...incoming,
         enclosureInfo: {
-          ...currentSettings.enclosureInfo,
+          ...base.enclosureInfo,
           ...(incoming.enclosureInfo && typeof incoming.enclosureInfo === 'object'
             ? incoming.enclosureInfo
             : {})
         }
-      });
-      bloomUpsertSettingsStmt.run('config', JSON.stringify(updatedSettings), nowIso);
+      };
+      if (Array.isArray(incoming.caregivers)) {
+        merged.caregiverItems = buildCaregiverItems(incoming.caregivers, getProfilesList());
+      } else if (Array.isArray(base.caregiverItems)) {
+        merged.caregiverItems = base.caregiverItems;
+      }
+      const updatedRaw = normalizeBloomSettings(merged);
+      howardUpsertStmt.run('bloom_settings', JSON.stringify(updatedRaw), nowIso);
       bumpRevision('bloom');
-      return sendJson(res, 200, { settings: updatedSettings, updatedAt: nowIso });
+      return sendJson(res, 200, { settings: readBloomSettings().settings, updatedAt: nowIso });
     }
 
     if (pathname.startsWith('/api/bloom/logs/') && req.method === 'PUT') {
@@ -2398,8 +3021,9 @@ const server = http.createServer(async (req, res) => {
         ...logPayload
       } = incoming || {};
       const nowIso = new Date().toISOString();
+      const profilesList = getProfilesList();
 
-      const { updatedRecord, updatedSettings } = runInTransaction(bloomDb, () => {
+      const { updatedRecord, updatedSettings } = runInTransaction(howardDb, () => {
         const existingRow = bloomGetLogByDateStmt.get(dateKey);
         let currentRecord = { dateKey, mists: [], feedings: [], climateChecks: [], behaviors: [] };
         if (existingRow) {
@@ -2499,30 +3123,38 @@ const server = http.createServer(async (req, res) => {
           }
         }
 
-        bloomUpsertLogStmt.run(dateKey, JSON.stringify(nextRecord), nextRecord.updatedAt);
+        const enrichedRecord = enrichBloomCareRecord(nextRecord, profilesList);
+        bloomUpsertLogStmt.run(dateKey, JSON.stringify(enrichedRecord), enrichedRecord.updatedAt);
 
         let nextSettings = null;
         if (isPlainObject(settingsPatch)) {
-          const { settings: currentSettings } = readBloomSettings();
-          nextSettings = normalizeBloomSettings({
-            ...currentSettings,
+          const { data: rawCurrent } = readHowardKey('bloom_settings', createDefaultBloomSettings());
+          const base = isPlainObject(rawCurrent) ? rawCurrent : createDefaultBloomSettings();
+          const merged = {
+            ...base,
             ...settingsPatch,
             enclosureInfo: {
-              ...currentSettings.enclosureInfo,
+              ...base.enclosureInfo,
               ...(isPlainObject(settingsPatch.enclosureInfo) ? settingsPatch.enclosureInfo : {})
             }
-          });
-          bloomUpsertSettingsStmt.run('config', JSON.stringify(nextSettings), nowIso);
+          };
+          if (Array.isArray(settingsPatch.caregivers)) {
+            merged.caregiverItems = buildCaregiverItems(settingsPatch.caregivers, profilesList);
+          } else if (Array.isArray(base.caregiverItems)) {
+            merged.caregiverItems = base.caregiverItems;
+          }
+          nextSettings = normalizeBloomSettings(merged);
+          howardUpsertStmt.run('bloom_settings', JSON.stringify(nextSettings), nowIso);
         }
 
-        return { updatedRecord: nextRecord, updatedSettings: nextSettings };
+        return { updatedRecord: enrichedRecord, updatedSettings: nextSettings };
       });
 
       bumpRevision('bloom');
       return sendJson(res, 200, {
         dateKey,
-        record: updatedRecord,
-        ...(updatedSettings ? { settings: updatedSettings } : {})
+        record: resolveBloomCareRecord(updatedRecord, getProfilesByIdMap(profilesList)),
+        ...(updatedSettings ? { settings: readBloomSettings().settings } : {})
       });
     }
 
@@ -2547,52 +3179,63 @@ const server = http.createServer(async (req, res) => {
         validLengthMm = parsedLen;
       }
 
-      const moltRecord = {
-        id: moltId,
-        dateKey,
-        timestamp: incoming.timestamp || nowIso,
-        fromInstar: incoming.fromInstar || 'L2',
-        toInstar: incoming.toInstar || 'L3',
-        lengthMm: validLengthMm,
-        colorShift: String(incoming.colorShift || '').trim(),
-        quality: incoming.quality || 'clean',
-        loggedBy: incoming.loggedBy || 'Household',
-        note: String(incoming.note || '').trim(),
-        updatedAt: nowIso
-      };
+      const profilesList = getProfilesList();
+      const moltRecord = enrichBloomMoltRecord(
+        {
+          id: moltId,
+          dateKey,
+          timestamp: incoming.timestamp || nowIso,
+          fromInstar: incoming.fromInstar || 'L2',
+          toInstar: incoming.toInstar || 'L3',
+          lengthMm: validLengthMm,
+          colorShift: String(incoming.colorShift || '').trim(),
+          quality: incoming.quality || 'clean',
+          loggedBy: incoming.loggedBy || 'Household',
+          ...(incoming.loggedByProfileId ? { loggedByProfileId: incoming.loggedByProfileId } : {}),
+          note: String(incoming.note || '').trim(),
+          updatedAt: nowIso
+        },
+        profilesList
+      );
 
-      const currentSettings = runInTransaction(bloomDb, () => {
+      runInTransaction(howardDb, () => {
         bloomUpsertMoltStmt.run(moltId, dateKey, JSON.stringify(moltRecord), nowIso);
 
-        let { settings: nextSettings } = readBloomSettings();
         if (incoming.advanceInstar !== false) {
-          const parsedHard = Number(nextSettings.hardeningHours);
+          const { data: rawCurrent } = readHowardKey('bloom_settings', createDefaultBloomSettings());
+          const base = isPlainObject(rawCurrent) ? rawCurrent : createDefaultBloomSettings();
+          const parsedHard = Number(base.hardeningHours);
           const hardHours = Number.isFinite(parsedHard) && parsedHard >= 0 ? parsedHard : 36;
           const startHardening = incoming.startHardening !== false && hardHours > 0;
           const hardeningUntilIso = startHardening
             ? new Date(Date.now() + hardHours * 3600000).toISOString()
             : null;
 
-          nextSettings = normalizeBloomSettings({
-            ...nextSettings,
-            currentInstar: moltRecord.toInstar || nextSettings.currentInstar,
+          const nextSettings = normalizeBloomSettings({
+            ...base,
+            currentInstar: moltRecord.toInstar || base.currentInstar,
             ...(moltRecord.colorShift ? { currentColorMorph: moltRecord.colorShift } : {}),
             lifecycleStatus: startHardening ? 'hardening' : 'normal',
             premoltStartedAt: null,
             hardeningUntil: hardeningUntilIso,
             enclosureInfo: {
-              ...nextSettings.enclosureInfo,
+              ...base.enclosureInfo,
               ...(moltRecord.lengthMm ? { currentBodyLengthMm: moltRecord.lengthMm } : {})
-            }
+            },
+            ...(Array.isArray(base.caregiverItems) ? { caregiverItems: base.caregiverItems } : {})
           });
-          bloomUpsertSettingsStmt.run('config', JSON.stringify(nextSettings), nowIso);
+          howardUpsertStmt.run('bloom_settings', JSON.stringify(nextSettings), nowIso);
         }
-        return nextSettings;
       });
 
       bumpRevision('bloom');
-      const { molts } = getCachedBloomState();
-      return sendJson(res, 200, { molt: moltRecord, molts, settings: currentSettings, updatedAt: nowIso });
+      const { molts, settings } = getCachedBloomState();
+      return sendJson(res, 200, {
+        molt: resolveBloomMoltRecord(moltRecord, getProfilesByIdMap(profilesList)),
+        molts,
+        settings,
+        updatedAt: nowIso
+      });
     }
 
     if (pathname.startsWith('/api/bloom/molts/') && req.method === 'DELETE') {
@@ -2708,11 +3351,9 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🎩 Howard Household Hub listening on http://0.0.0.0:${PORT}`);
-  console.log(`💾 Databases:`);
-  console.log(`   • Howard:    ${HOWARD_DB_PATH}`);
-  console.log(`   • Cadence:   ${CADENCE_DB_PATH}`);
-  console.log(`   • Bloom:     ${BLOOM_DB_PATH}`);
-  console.log(`   • Floodgate: ${FLOODGATE_DB_PATH}`);
+  console.log(
+    `💾 Unified SQLite Database: ${HOWARD_DB_PATH} (schema v${CURRENT_SCHEMA_VERSION}, ${activeJournalMode})`
+  );
   setTimeout(runDailyBackupSnapshots, 2000).unref?.();
 });
 
@@ -2735,20 +3376,16 @@ const shutdown = () => {
   forceTimer.unref?.();
   server.close(() => {
     clearTimeout(forceTimer);
-    for (const dbInstance of [howardDb, cadenceDb, floodgateDb, bloomDb]) {
-      try {
-        dbInstance.exec('PRAGMA optimize;');
-      } catch {
-        // ignore optimize errors
-      }
+    try {
+      howardDb.exec('PRAGMA optimize;');
+    } catch {
+      // ignore optimize errors
     }
-    checkpointAllDatabases();
-    for (const dbInstance of [howardDb, cadenceDb, floodgateDb, bloomDb]) {
-      try {
-        dbInstance.close();
-      } catch {
-        // ignore close errors
-      }
+    checkpointDatabase();
+    try {
+      howardDb.close();
+    } catch {
+      // ignore close errors
     }
     process.exit(0);
   });

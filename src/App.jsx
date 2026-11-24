@@ -377,6 +377,11 @@ export default function App() {
   const [backupModalOpen, setBackupModalOpen] = useState(false);
   const [pendingRestore, setPendingRestore] = useState(null); // { bodyToSend, confirmPrompt, fileName }
   const [isRestoringBackup, setIsRestoringBackup] = useState(false);
+  const [dbInfo, setDbInfo] = useState({
+    file: 'data/howard.db',
+    schemaVersion: 4,
+    journalMode: 'WAL'
+  });
 
   // Navigation Shell State: Bento App Launcher (Sheet / Ctrl+K) & Desktop Collapsible Sidebar
   const [appLauncherOpen, setAppLauncherOpen] = useState(false);
@@ -450,6 +455,15 @@ export default function App() {
   const activeProfile = useMemo(() => {
     return profiles.find((p) => p.id === activeProfileId) || profiles[0] || FALLBACK_PROFILES[0];
   }, [profiles, activeProfileId]);
+
+  useEffect(() => {
+    if (activeProfile.id === 'caregiver') {
+      setBackupModalOpen(false);
+    }
+    if (activeProfile.id !== 'partner1') {
+      setPendingRestore(null);
+    }
+  }, [activeProfile.id]);
 
   // Visible apps for the active profile
   const allowedApps = useMemo(() => {
@@ -716,6 +730,10 @@ export default function App() {
 
         if (data.syncToken) {
           syncTokenRef.current = data.syncToken;
+        }
+
+        if (data.dbInfo) {
+          setDbInfo(data.dbInfo);
         }
 
         if (data.howard) {
@@ -1045,6 +1063,7 @@ export default function App() {
       given: true,
       timestamp: nowIso,
       givenBy: caregiverName,
+      givenByProfileId: activeProfile.id,
       dosage: cadenceSnapshot.settings?.dosageLabel || '2.5 mg / 0.5 ml',
       note: note.trim(),
       recordedByUid: `howard-${activeProfile.id}`
@@ -1096,6 +1115,7 @@ export default function App() {
       id: `mist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       timestamp: nowIso,
       by: caregiverName,
+      byProfileId: activeProfile.id,
       dropletDrinkObserved: false,
       note: ''
     };
@@ -1361,9 +1381,11 @@ export default function App() {
   // UNIFIED HOUSEHOLD BACKUP & RESTORE
   // --------------------------------------------------------------------------
   const handleDownloadFullBackup = async () => {
+    if (activeProfile.id === 'caregiver') return;
     try {
-      const includeFg = activeProfile.id === 'partner2' ? '1' : '0';
-      const res = await fetch(`/api/howard/backup?includeFloodgate=${includeFg}`);
+      const res = await fetch(
+        `/api/howard/backup?profile=${encodeURIComponent(activeProfile.id)}`
+      );
       if (!res.ok) throw new Error('Backup failed');
       const payload = await res.json();
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -1374,13 +1396,17 @@ export default function App() {
       a.download = `Howard_Household_Backup_${todayKey}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      showToast('Downloaded full Howard household backup');
+      showToast('Downloaded full Howard database backup (incl. Floodgate)');
     } catch {
       showToast('Could not export household backup', 'error');
     }
   };
 
   const handleRestoreFullBackup = (e) => {
+    if (activeProfile.id !== 'partner1') {
+      e.target.value = '';
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -1431,7 +1457,7 @@ export default function App() {
           ) {
             bodyToSend = { ...parsed, mode: 'replace' };
             confirmPrompt =
-              'Restore this full Howard backup? Existing records in included modules will be replaced by the snapshot.';
+              'Restore this full Howard backup? Existing records in included modules will be replaced atomically (a pre-restore safety snapshot is saved automatically).';
           }
         }
 
@@ -1456,15 +1482,18 @@ export default function App() {
   };
 
   const handleConfirmRestore = async () => {
-    if (!pendingRestore || isRestoringBackup) return;
+    if (!pendingRestore || isRestoringBackup || activeProfile.id !== 'partner1') return;
     const { bodyToSend } = pendingRestore;
     setIsRestoringBackup(true);
     try {
-      const res = await fetch('/api/howard/restore', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bodyToSend)
-      });
+      const res = await fetch(
+        `/api/howard/restore?profile=${encodeURIComponent(activeProfile.id)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(bodyToSend)
+        }
+      );
       const resultData = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(resultData.error || `Server rejected restore (HTTP ${res.status})`);
@@ -1474,8 +1503,8 @@ export default function App() {
       setBackupModalOpen(false);
       showToast(
         bodyToSend.mode === 'merge'
-          ? 'Merged standalone backup successfully!'
-          : 'Restored household backup successfully!'
+          ? 'Merged standalone backup successfully (pre-restore snapshot saved)!'
+          : 'Restored household backup successfully (pre-restore snapshot saved)!'
       );
     } catch (err) {
       showToast(err?.message || 'Restore failed on server', 'error');
@@ -2482,7 +2511,7 @@ export default function App() {
                 <div>
                   <h3 className="text-lg font-extrabold">Howard Household Backstage</h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Local SQLite databases &amp; one-click household backup
+                    Unified SQLite database &amp; household backup tools
                   </p>
                 </div>
               </div>
@@ -2517,33 +2546,44 @@ export default function App() {
                 </span>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-1.5">
-                <span className="font-semibold">Howard Hub DB:</span>
+                <span className="font-semibold">Unified SQLite DB:</span>
                 <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono">
-                  data/howard.db ({almanacEvents.length} events, {(ledgerData?.recurring || []).length} bills, {(ledgerData?.expenses || []).length} expenses)
+                  {dbInfo.file} ({dbInfo.journalMode} &bull; Schema v{dbInfo.schemaVersion})
                 </code>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-1.5">
-                <span className="font-semibold">Cadence DB ({cadenceSnapshot.settings?.catName || 'Pet'}):</span>
+                <span className="font-semibold">Almanac &amp; Ledger:</span>
                 <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono">
-                  data/cadence.db ({Object.keys(cadenceSnapshot.logsByDate || {}).length} days)
+                  {almanacEvents.length} events, {(ledgerData?.recurring || []).length} bills,{' '}
+                  {(ledgerData?.expenses || []).length} expenses
                 </code>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-1.5">
                 <span className="font-semibold">
-                  Bloom DB ({bloomSnapshot.settings?.mantisName || 'Mantis'}):
+                  Cadence ({cadenceSnapshot.settings?.catName || 'Pet'}):
                 </span>
                 <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono">
-                  data/bloom.db ({Object.keys(bloomSnapshot.logsByDate || {}).length} days, {(bloomSnapshot.molts || []).length} molts • {bloomSnapshot.settings?.currentInstar || 'L2'})
+                  {Object.keys(cadenceSnapshot.logsByDate || {}).length} days logged
                 </code>
               </div>
-              {activeProfile.id === 'partner2' && (
-                <div className="flex flex-wrap items-center justify-between gap-1.5">
-                  <span className="font-semibold">Floodgate DB ({activeProfile.name}):</span>
-                  <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono">
-                    data/floodgate.db ({Object.keys(floodgateSnapshot.logsByDate || {}).length} days)
-                  </code>
-                </div>
-              )}
+              <div className="flex flex-wrap items-center justify-between gap-1.5">
+                <span className="font-semibold">
+                  Bloom ({bloomSnapshot.settings?.mantisName || 'Mantis'}):
+                </span>
+                <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono">
+                  {Object.keys(bloomSnapshot.logsByDate || {}).length} days,{' '}
+                  {(bloomSnapshot.molts || []).length} molts &bull;{' '}
+                  {bloomSnapshot.settings?.currentInstar || 'L2'}
+                </code>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-1.5">
+                <span className="font-semibold">Floodgate:</span>
+                <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono">
+                  {activeProfile.id === 'partner2'
+                    ? `${Object.keys(floodgateSnapshot.logsByDate || {}).length} days logged`
+                    : 'Included in full database export'}
+                </code>
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -2553,25 +2593,26 @@ export default function App() {
                 className="w-full py-3 px-4 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm cursor-pointer"
               >
                 <Download className="w-4 h-4" />
-                <span>
-                  Download Full Household Backup (
-                  {activeProfile.id === 'partner2'
-                    ? 'Howard + Cadence + Bloom + Floodgate'
-                    : 'Howard + Cadence + Bloom'}
-                  )
-                </span>
+                <span>Download Full Database Backup (Entire DB incl. Floodgate)</span>
               </button>
 
-              <label className="w-full py-3 px-4 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60">
-                <Upload className="w-4 h-4 text-teal-600" />
-                <span>Restore / Merge from Howard or Standalone Backup JSON</span>
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={handleRestoreFullBackup}
-                  className="hidden"
-                />
-              </label>
+              {activeProfile.id === 'partner1' && (
+                <>
+                  <label className="w-full py-3 px-4 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                    <Upload className="w-4 h-4 text-teal-600" />
+                    <span>Restore / Merge from Howard or Standalone Backup JSON</span>
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={handleRestoreFullBackup}
+                      className="hidden"
+                    />
+                  </label>
+                  <p className="text-[11px] text-center text-slate-500 dark:text-slate-400">
+                    Every restore automatically saves a pre-restore SQLite safety snapshot first.
+                  </p>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -2580,7 +2621,7 @@ export default function App() {
       {/* ====================================================================
           MODAL 3: BACKUP RESTORE CONFIRMATION MODAL
       ==================================================================== */}
-      {pendingRestore && (
+      {pendingRestore && activeProfile.id === 'partner1' && (
         <div
           onClick={() => !isRestoringBackup && setPendingRestore(null)}
           className="fixed inset-0 z-[60] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"

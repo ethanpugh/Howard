@@ -304,6 +304,7 @@ export default function CadenceApp({
       given: true,
       timestamp: timestampIso,
       givenBy: caregiverName,
+      ...(activeProfile?.id ? { givenByProfileId: activeProfile.id } : {}),
       dosage: settings.dosageLabel,
       note: customNote.trim(),
       recordedByUid
@@ -389,10 +390,20 @@ export default function CadenceApp({
     const timestampIso = new Date().toISOString();
     const prevLogs = logsByDate;
 
+    const nextGivenBy = manualCaregiverInput.trim() || activeCaregiver;
+    const preservedProfileId =
+      manualLogModal.existingData?.givenBy &&
+      nextGivenBy === manualLogModal.existingData.givenBy
+        ? manualLogModal.existingData.givenByProfileId || null
+        : nextGivenBy === activeCaregiver
+          ? activeProfile?.id || null
+          : null;
+
     const dosePayload = {
       given: true,
       timestamp: customDateObj.toISOString(),
-      givenBy: manualCaregiverInput.trim() || activeCaregiver,
+      givenBy: nextGivenBy,
+      ...(preservedProfileId ? { givenByProfileId: preservedProfileId } : {}),
       dosage: settings.dosageLabel,
       note: manualNoteInput.trim(),
       recordedByUid

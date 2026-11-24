@@ -477,6 +477,7 @@ export default function BloomApp({
       id: `mist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       timestamp: tsIso,
       by: activeCaregiver,
+      ...(activeProfile?.id ? { byProfileId: activeProfile.id } : {}),
       dropletDrinkObserved: drank,
       note: noteText
     };
@@ -530,6 +531,7 @@ export default function BloomApp({
       id: `feed-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       timestamp: tsIso,
       by: activeCaregiver,
+      ...(activeProfile?.id ? { byProfileId: activeProfile.id } : {}),
       outcome, // 'eaten' | 'refused'
       preyId,
       preyLabel: preyMeta.label,
@@ -624,6 +626,7 @@ export default function BloomApp({
       id: `clim-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       timestamp: tsIso,
       by: activeCaregiver,
+      ...(activeProfile?.id ? { byProfileId: activeProfile.id } : {}),
       tempC: tVal !== '' ? Number(tVal) : null,
       humidityPct: hVal !== '' ? Number(hVal) : null
     };
@@ -742,6 +745,7 @@ export default function BloomApp({
           colorShift: moltColorInput.trim(),
           quality: moltQualityInput,
           loggedBy: activeCaregiver,
+          ...(activeProfile?.id ? { loggedByProfileId: activeProfile.id } : {}),
           note: moltNoteInput.trim(),
           advanceInstar: isLatestMolt,
           startHardening: shouldStartHardening

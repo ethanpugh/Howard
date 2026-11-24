@@ -726,3 +726,34 @@ export const computeLedgerSettlement = (monthExpenses = [], partner1JointShare =
     netPartner1Balance
   };
 };
+
+export const inferProfileIdFromName = (profiles = [], rawName = '') => {
+  const lower = String(rawName || '').trim().toLowerCase();
+  if (!lower || lower === 'both' || lower === 'pets' || lower === 'household') {
+    return null;
+  }
+  for (const prof of profiles || []) {
+    if (!prof || typeof prof.id !== 'string') continue;
+    const pName = String(prof.name || '').trim().toLowerCase();
+    const pCaregiver = String(prof.caregiverName || '').trim().toLowerCase();
+    if (
+      lower === prof.id.toLowerCase() ||
+      (pName && lower === pName) ||
+      (pCaregiver && lower === pCaregiver)
+    ) {
+      return prof.id;
+    }
+  }
+  if (lower === 'partner 1' || lower === 'partner1') return 'partner1';
+  if (lower === 'partner 2' || lower === 'partner2') return 'partner2';
+  if (lower === 'caregiver') return 'caregiver';
+  return null;
+};
+
+export const resolveProfileDisplayName = (profiles = [], profileId, fallbackName = '') => {
+  if (profileId) {
+    const match = (profiles || []).find((p) => p && p.id === profileId);
+    if (match?.name) return match.name;
+  }
+  return fallbackName;
+};
