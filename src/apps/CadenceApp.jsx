@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Cat,
   Sun,
@@ -19,7 +19,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Info,
-  X,
   Check
 } from 'lucide-react';
 
@@ -34,6 +33,7 @@ import {
   getCalendarWeekDays,
   formatWeekRangeLabel
 } from '../utils/householdHelpers.js';
+import { ModuleHeader, ModalShell, getFieldClass } from '../components/HowardUI.jsx';
 
 const DEFAULT_SETTINGS = {
   catName: 'Pet',
@@ -61,8 +61,9 @@ export default function CadenceApp({
   // ==========================================
   // STATE MANAGEMENT
   // ==========================================
-  const recordedByUid = `howard-${activeProfile?.id || 'caregiver'}`;
   const [syncError, setSyncError] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const isSavingRef = useRef(false);
   const now = useMemo(() => new Date(nowMs), [nowMs]);
 
   // Local SQLite synced states (fed directly by Howard's unified incremental sync)
@@ -91,22 +92,6 @@ export default function CadenceApp({
   const [manualCaregiverInput, setManualCaregiverInput] = useState('');
   const [manualNoteInput, setManualNoteInput] = useState('');
 
-  useEffect(() => {
-    if (!settingsModalOpen && !confirmUndoModal && !confirmNewBottleModal && !manualLogModal) {
-      return;
-    }
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        if (confirmUndoModal) setConfirmUndoModal(null);
-        else if (confirmNewBottleModal) setConfirmNewBottleModal(false);
-        else if (manualLogModal) setManualLogModal(null);
-        else if (settingsModalOpen) setSettingsModalOpen(false);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [settingsModalOpen, confirmUndoModal, confirmNewBottleModal, manualLogModal]);
-
   // ==========================================
   // RECEIVE UNIFIED HOWARD SNAPSHOT UPDATES
   // ==========================================
@@ -125,7 +110,7 @@ export default function CadenceApp({
   const [selectedWeekMonday, setSelectedWeekMonday] = useState(() =>
     getMondayOfWeek(new Date())
   );
-  const prevWeekMondayRef = React.useRef(currentWeekMonday);
+  const prevWeekMondayRef = useRef(currentWeekMonday);
 
   useEffect(() => {
     if (prevWeekMondayRef.current !== currentWeekMonday) {
@@ -296,6 +281,9 @@ export default function CadenceApp({
   };
 
   const handleRecordDose = async (slot, customNote = '') => {
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
+    setIsSaving(true);
     const caregiverName = activeCaregiver;
     const timestampIso = new Date().toISOString();
     const prevLogs = logsByDate;
@@ -304,10 +292,9 @@ export default function CadenceApp({
       given: true,
       timestamp: timestampIso,
       givenBy: caregiverName,
-      ...(activeProfile?.id ? { givenByProfileId: activeProfile.id } : {}),
+      givenByProfileId: activeProfile?.id || null,
       dosage: settings.dosageLabel,
-      note: customNote.trim(),
-      recordedByUid
+      note: customNote.trim()
     };
 
     const currentDayData = logsByDate[todayKey] || { dateKey: todayKey };
@@ -332,11 +319,16 @@ export default function CadenceApp({
       setLogsByDate(prevLogs);
       if (onGlobalSync) onGlobalSync({ force: true });
       setSyncError('Failed to save dose to local server. Reverted — please check Wi-Fi.');
+    } finally {
+      isSavingRef.current = false;
+      setIsSaving(false);
     }
   };
 
   const handleConfirmUndoDose = async () => {
-    if (!confirmUndoModal) return;
+    if (!confirmUndoModal || isSavingRef.current) return;
+    isSavingRef.current = true;
+    setIsSaving(true);
     const { dateKey, slot } = confirmUndoModal;
     const timestampIso = new Date().toISOString();
     const prevLogs = logsByDate;
@@ -362,6 +354,9 @@ export default function CadenceApp({
       setLogsByDate(prevLogs);
       if (onGlobalSync) onGlobalSync({ force: true });
       setSyncError('Failed to undo dose record — reverted.');
+    } finally {
+      isSavingRef.current = false;
+      setIsSaving(false);
     }
   };
 
@@ -381,7 +376,9 @@ export default function CadenceApp({
 
   const handleSaveManualEntry = async (e) => {
     e.preventDefault();
-    if (!manualLogModal) return;
+    if (!manualLogModal || isSavingRef.current) return;
+    isSavingRef.current = true;
+    setIsSaving(true);
 
     const { dateKey, slot } = manualLogModal;
     const [year, month, day] = dateKey.split('-').map(Number);
@@ -391,22 +388,28 @@ export default function CadenceApp({
     const prevLogs = logsByDate;
 
     const nextGivenBy = manualCaregiverInput.trim() || activeCaregiver;
-    const preservedProfileId =
+    const matchedCaregiverItem = Array.isArray(settings.caregiverItems)
+      ? settings.caregiverItems.find(
+          (item) => (item?.name || '').trim().toLowerCase() === nextGivenBy.toLowerCase()
+        )
+      : null;
+    const resolvedProfileId =
       manualLogModal.existingData?.givenBy &&
       nextGivenBy === manualLogModal.existingData.givenBy
         ? manualLogModal.existingData.givenByProfileId || null
-        : nextGivenBy === activeCaregiver
-          ? activeProfile?.id || null
-          : null;
+        : matchedCaregiverItem
+          ? matchedCaregiverItem.profileId || null
+          : nextGivenBy === activeCaregiver
+            ? activeProfile?.id || null
+            : null;
 
     const dosePayload = {
       given: true,
       timestamp: customDateObj.toISOString(),
       givenBy: nextGivenBy,
-      ...(preservedProfileId ? { givenByProfileId: preservedProfileId } : {}),
+      givenByProfileId: resolvedProfileId,
       dosage: settings.dosageLabel,
-      note: manualNoteInput.trim(),
-      recordedByUid
+      note: manualNoteInput.trim()
     };
 
     const currentDayData = logsByDate[dateKey] || { dateKey };
@@ -430,12 +433,17 @@ export default function CadenceApp({
       setLogsByDate(prevLogs);
       if (onGlobalSync) onGlobalSync({ force: true });
       setSyncError('Failed to save manual entry — reverted.');
+    } finally {
+      isSavingRef.current = false;
+      setIsSaving(false);
     }
   };
 
   const handleSaveSettings = async (e) => {
     e.preventDefault();
-    if (!canConfigure) return;
+    if (!canConfigure || isSavingRef.current) return;
+    isSavingRef.current = true;
+    setIsSaving(true);
     const prevSettings = settings;
     const parsedShelf = Number(settingsForm.bottleShelfLifeDays);
     const editablePayload = {
@@ -463,11 +471,16 @@ export default function CadenceApp({
       setSettings(prevSettings);
       if (onGlobalSync) onGlobalSync({ force: true });
       setSyncError('Failed to update settings — reverted.');
+    } finally {
+      isSavingRef.current = false;
+      setIsSaving(false);
     }
   };
 
   const handleOpenNewBottleToday = async () => {
-    if (!canConfigure) return;
+    if (!canConfigure || isSavingRef.current) return;
+    isSavingRef.current = true;
+    setIsSaving(true);
     const prevSettings = settings;
     const updated = {
       ...settings,
@@ -484,6 +497,9 @@ export default function CadenceApp({
       setSettings(prevSettings);
       if (onGlobalSync) onGlobalSync({ force: true });
       setSyncError('Failed to update bottle opened date — reverted.');
+    } finally {
+      isSavingRef.current = false;
+      setIsSaving(false);
     }
   };
 
@@ -498,8 +514,8 @@ export default function CadenceApp({
 
     if (bothDone) {
       return {
-        theme: 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-900/10',
-        badgeTheme: 'bg-emerald-800/80 text-emerald-50 border border-emerald-400/30',
+        theme: 'bg-emerald-700 text-white border-emerald-600 shadow-emerald-900/10',
+        badgeTheme: 'bg-emerald-900/80 text-emerald-50 border border-emerald-400/30',
         iconWrapTheme: 'bg-white/15',
         icon: <CheckCircle2 className="w-8 h-8 text-white shrink-0" />,
         title: `All Done Today! Both of ${settings.catName}'s Doses Given`,
@@ -511,12 +527,8 @@ export default function CadenceApp({
     if (onlyMorningDone) {
       const isEveningWindow = currentHour >= 17;
       return {
-        theme: isEveningWindow
-          ? 'bg-indigo-600 text-white border-indigo-500 shadow-indigo-900/10'
-          : 'bg-purple-600 text-white border-purple-500 shadow-purple-900/10',
-        badgeTheme: isEveningWindow
-          ? 'bg-indigo-800/80 text-indigo-50 border border-indigo-400/30'
-          : 'bg-purple-800/80 text-purple-50 border border-purple-400/30',
+        theme: 'bg-purple-600 text-white border-purple-500 shadow-purple-900/10',
+        badgeTheme: 'bg-purple-800/80 text-purple-50 border border-purple-400/30',
         iconWrapTheme: 'bg-white/15',
         icon: isEveningWindow ? (
           <Moon className="w-8 h-8 text-amber-200 shrink-0" />
@@ -533,8 +545,8 @@ export default function CadenceApp({
 
     if (onlyEveningDone) {
       return {
-        theme: 'bg-amber-600 text-white border-amber-500 shadow-amber-900/10',
-        badgeTheme: 'bg-amber-800/85 text-amber-50 border border-amber-300/30',
+        theme: 'bg-amber-700 text-white border-amber-600 shadow-amber-900/10',
+        badgeTheme: 'bg-amber-900/75 text-amber-50 border border-amber-400/30',
         iconWrapTheme: 'bg-white/15',
         icon: <AlertTriangle className="w-8 h-8 text-white shrink-0" />,
         title: `Evening Dose Logged • Morning Dose Unchecked`,
@@ -563,53 +575,45 @@ export default function CadenceApp({
         {/* ========================================== */}
         {/* CADENCE MODULE HEADER BAR                  */}
         {/* ========================================== */}
-        <section
-          className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex items-center justify-between gap-3 ${cardSurface}`}
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-purple-600 to-fuchsia-600 flex items-center justify-center text-white shadow-xs shrink-0">
-              <Cat className="w-5 h-5 sm:w-6 sm:h-6" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-lg sm:text-xl font-extrabold tracking-tight">
-                  Cadence • {settings.catName}&apos;s {settings.medicationName}
-                </h1>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] sm:text-xs font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30">
-                  <Droplets className="w-3 h-3" />
-                  {settings.dosageLabel}
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Twice-daily dose check-in, bottle shelf-life tracker &amp; household adherence history
-              </p>
-            </div>
-          </div>
-
-          {canConfigure && (
-            <button
-              type="button"
-              onClick={() => {
-                setSettingsForm(settings);
-                setSettingsModalOpen(true);
-              }}
-              className={`flex items-center gap-1.5 p-2.5 sm:px-3.5 sm:py-2 rounded-xl font-bold text-xs border transition cursor-pointer shrink-0 ${
-                darkMode
-                  ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
-                  : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
-              }`}
-              title="Edit Household & Medication Settings"
-              aria-label="Edit Household & Medication Settings"
-            >
-              <Settings className="w-4 h-4" />
-              <span className="hidden sm:inline">Medication Settings</span>
-            </button>
-          )}
-        </section>
+        <ModuleHeader
+          accent="purple"
+          icon={Cat}
+          title={<>Cadence • {settings.catName}&apos;s {settings.medicationName}</>}
+          badges={
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-bold bg-purple-500/15 text-purple-800 dark:text-purple-300 border border-purple-500/30">
+              <Droplets className="w-3 h-3" />
+              {settings.dosageLabel}
+            </span>
+          }
+          subtitle="Twice-daily dose check-in, bottle shelf-life tracker & household adherence history"
+          darkMode={darkMode}
+          compactActions
+          actions={
+            canConfigure ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSettingsForm(settings);
+                  setSettingsModalOpen(true);
+                }}
+                className={`min-w-[44px] min-h-[44px] inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:px-3.5 rounded-xl font-bold text-xs border transition active:scale-[0.98] cursor-pointer ${
+                  darkMode
+                    ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+                    : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+                }`}
+                title="Edit Household & Medication Settings"
+                aria-label="Edit Household & Medication Settings"
+              >
+                <Settings className="w-4 h-4 shrink-0" />
+                <span className="hidden sm:inline">Medication Settings</span>
+              </button>
+            ) : null
+          }
+        />
 
         {/* SYNC ERROR NOTICE IF ANY */}
         {syncError && (
-          <div className="p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-700 dark:text-rose-300 flex items-center justify-between gap-3 text-sm">
+          <div className="p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-700 dark:text-rose-300 flex flex-wrap items-center justify-between gap-3 text-sm">
             <div className="flex items-center gap-2.5">
               <AlertTriangle className="w-5 h-5 shrink-0" />
               <span>{syncError}</span>
@@ -617,7 +621,7 @@ export default function CadenceApp({
             <button
               type="button"
               onClick={() => setSyncError(null)}
-              className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-rose-500/20"
+              className="min-h-[40px] text-xs font-semibold px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 transition active:scale-[0.98] cursor-pointer"
             >
               Dismiss
             </button>
@@ -658,7 +662,7 @@ export default function CadenceApp({
               <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight leading-snug">
                 {statusBanner.title}
               </h2>
-              <p className="text-sm sm:text-base opacity-90 leading-relaxed">
+              <p className="text-sm sm:text-base leading-relaxed">
                 {statusBanner.subtitle}
               </p>
             </div>
@@ -680,17 +684,17 @@ export default function CadenceApp({
                 ? darkMode
                   ? 'bg-emerald-950/30 border-emerald-600 shadow-sm'
                   : 'bg-emerald-50/70 border-emerald-400 shadow-sm'
-                : `${cardSurface} hover:border-amber-400`
+                : `${cardSurface} hover:border-purple-400`
             }`}
           >
             <div>
-              <div className="flex items-center justify-between gap-2 mb-4">
-                <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
                   <div
-                    className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-xs ${
+                    className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-xs shrink-0 ${
                       morningDose?.given
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-amber-500/20 text-amber-600 dark:text-amber-300'
+                        ? 'bg-emerald-700 text-white'
+                        : 'bg-purple-500/15 text-purple-700 dark:text-purple-300'
                     }`}
                   >
                     {morningDose?.given ? (
@@ -699,8 +703,8 @@ export default function CadenceApp({
                       <Sun className="w-6 h-6" />
                     )}
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-lg font-extrabold">Morning Dose</h3>
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-800">
                         ~{settings.morningTargetTime}
@@ -713,10 +717,10 @@ export default function CadenceApp({
                 </div>
 
                 <span
-                  className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${
+                  className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide shrink-0 ${
                     morningDose?.given
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                      ? 'bg-emerald-700 text-white'
+                      : 'bg-purple-500/15 text-purple-800 dark:text-purple-300 border border-purple-500/25'
                   }`}
                 >
                   {morningDose?.given ? 'Completed' : 'Pending'}
@@ -731,21 +735,21 @@ export default function CadenceApp({
                       : 'bg-white/90 border-emerald-200'
                   }`}
                 >
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-500 font-medium">Time Given:</span>
-                    <span className="font-bold text-emerald-600 dark:text-emerald-400 text-base">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <span className="text-slate-600 dark:text-slate-300 font-medium">Time Given:</span>
+                    <span className="font-bold text-emerald-700 dark:text-emerald-400 text-base">
                       {formatTimeDisplay(morningDose.timestamp)}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-500 font-medium">Given By:</span>
-                    <span className="font-bold inline-flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                      {morningDose.givenBy}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <span className="text-slate-600 dark:text-slate-300 font-medium shrink-0">Given By:</span>
+                    <span className="font-bold inline-flex items-center gap-1.5 min-w-0 max-w-full">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                      <span className="min-w-0 truncate">{morningDose.givenBy}</span>
                     </span>
                   </div>
                   {morningDose.note && (
-                    <div className="pt-1.5 border-t border-slate-200/60 dark:border-slate-800 text-xs opacity-85">
+                    <div className="pt-1.5 border-t border-slate-200/60 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-200 break-words">
                       <span className="font-semibold">Note: </span>
                       {morningDose.note}
                     </div>
@@ -753,7 +757,7 @@ export default function CadenceApp({
                 </div>
               ) : (
                 <div className="mb-4">
-                  <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
                     Optional note (e.g., given with lick treat, syringe direct):
                   </label>
                   <input
@@ -761,7 +765,7 @@ export default function CadenceApp({
                     value={morningNoteInput}
                     onChange={(e) => setMorningNoteInput(e.target.value)}
                     placeholder="Add quick note (optional)..."
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    className={getFieldClass('purple')}
                     maxLength={80}
                   />
                 </div>
@@ -769,17 +773,19 @@ export default function CadenceApp({
             </div>
 
             {morningDose?.given ? (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
+                  disabled={isSaving}
                   onClick={() => openManualEntryModal(todayKey, 'morning', morningDose)}
-                  className="flex-1 py-3 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 font-semibold text-xs sm:text-sm transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="flex-1 min-w-[160px] min-h-[44px] py-2.5 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 font-semibold text-xs sm:text-sm transition active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <Edit3 className="w-4 h-4" />
-                  Edit Time / Person
+                  <Edit3 className="w-4 h-4 shrink-0" />
+                  <span>Edit Time / Person</span>
                 </button>
                 <button
                   type="button"
+                  disabled={isSaving}
                   onClick={() =>
                     setConfirmUndoModal({
                       dateKey: todayKey,
@@ -787,27 +793,29 @@ export default function CadenceApp({
                       existingData: morningDose
                     })
                   }
-                  className="py-3 px-3.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-600 dark:text-rose-300 border border-rose-500/30 font-semibold text-xs sm:text-sm transition flex items-center justify-center gap-1 cursor-pointer"
+                  className="min-h-[44px] py-2.5 px-3.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 border border-rose-500/30 font-semibold text-xs sm:text-sm transition active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
                   title="Undo Morning Dose"
                 >
-                  <Trash2 className="w-4 h-4" />
-                  Undo
+                  <Trash2 className="w-4 h-4 shrink-0" />
+                  <span>Undo</span>
                 </button>
               </div>
             ) : (
               <div className="space-y-2">
                 <button
                   type="button"
+                  disabled={isSaving}
                   onClick={() => handleRecordDose('morning', morningNoteInput)}
-                  className="w-full py-4 px-5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-extrabold text-base sm:text-lg shadow-md shadow-amber-500/20 active:scale-[0.98] transition flex items-center justify-center gap-2.5 cursor-pointer"
+                  className="w-full min-h-[48px] py-4 px-5 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-base sm:text-lg shadow-md shadow-purple-500/20 active:scale-[0.98] transition flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <CheckCircle2 className="w-6 h-6 shrink-0" />
                   <span>Check Morning Dose ({activeCaregiver})</span>
                 </button>
                 <button
                   type="button"
+                  disabled={isSaving}
                   onClick={() => openManualEntryModal(todayKey, 'morning', null)}
-                  className="w-full py-1.5 text-xs font-semibold text-slate-500 hover:underline text-center cursor-pointer"
+                  className="w-full min-h-[40px] py-2 px-3 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/70 hover:underline text-center transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   Gave it earlier? Log custom morning time
                 </button>
@@ -822,17 +830,17 @@ export default function CadenceApp({
                 ? darkMode
                   ? 'bg-emerald-950/30 border-emerald-600 shadow-sm'
                   : 'bg-emerald-50/70 border-emerald-400 shadow-sm'
-                : `${cardSurface} hover:border-indigo-400`
+                : `${cardSurface} hover:border-purple-400`
             }`}
           >
             <div>
-              <div className="flex items-center justify-between gap-2 mb-4">
-                <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
                   <div
-                    className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-xs ${
+                    className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-xs shrink-0 ${
                       eveningDose?.given
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-300'
+                        ? 'bg-emerald-700 text-white'
+                        : 'bg-purple-500/15 text-purple-700 dark:text-purple-300'
                     }`}
                   >
                     {eveningDose?.given ? (
@@ -841,8 +849,8 @@ export default function CadenceApp({
                       <Moon className="w-6 h-6" />
                     )}
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-lg font-extrabold">Evening Dose</h3>
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-800">
                         ~{settings.eveningTargetTime}
@@ -855,10 +863,10 @@ export default function CadenceApp({
                 </div>
 
                 <span
-                  className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${
+                  className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide shrink-0 ${
                     eveningDose?.given
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-indigo-500/20 text-indigo-700 dark:text-indigo-300'
+                      ? 'bg-emerald-700 text-white'
+                      : 'bg-purple-500/15 text-purple-800 dark:text-purple-300 border border-purple-500/25'
                   }`}
                 >
                   {eveningDose?.given ? 'Completed' : 'Pending'}
@@ -873,21 +881,21 @@ export default function CadenceApp({
                       : 'bg-white/90 border-emerald-200'
                   }`}
                 >
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-500 font-medium">Time Given:</span>
-                    <span className="font-bold text-emerald-600 dark:text-emerald-400 text-base">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <span className="text-slate-600 dark:text-slate-300 font-medium">Time Given:</span>
+                    <span className="font-bold text-emerald-700 dark:text-emerald-400 text-base">
                       {formatTimeDisplay(eveningDose.timestamp)}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-500 font-medium">Given By:</span>
-                    <span className="font-bold inline-flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                      {eveningDose.givenBy}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <span className="text-slate-600 dark:text-slate-300 font-medium shrink-0">Given By:</span>
+                    <span className="font-bold inline-flex items-center gap-1.5 min-w-0 max-w-full">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                      <span className="min-w-0 truncate">{eveningDose.givenBy}</span>
                     </span>
                   </div>
                   {eveningDose.note && (
-                    <div className="pt-1.5 border-t border-slate-200/60 dark:border-slate-800 text-xs opacity-85">
+                    <div className="pt-1.5 border-t border-slate-200/60 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-200 break-words">
                       <span className="font-semibold">Note: </span>
                       {eveningDose.note}
                     </div>
@@ -895,7 +903,7 @@ export default function CadenceApp({
                 </div>
               ) : (
                 <div className="mb-4">
-                  <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
                     Optional note (e.g., given after dinner, appetite good):
                   </label>
                   <input
@@ -903,7 +911,7 @@ export default function CadenceApp({
                     value={eveningNoteInput}
                     onChange={(e) => setEveningNoteInput(e.target.value)}
                     placeholder="Add quick note (optional)..."
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    className={getFieldClass('purple')}
                     maxLength={80}
                   />
                 </div>
@@ -911,17 +919,19 @@ export default function CadenceApp({
             </div>
 
             {eveningDose?.given ? (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
+                  disabled={isSaving}
                   onClick={() => openManualEntryModal(todayKey, 'evening', eveningDose)}
-                  className="flex-1 py-3 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 font-semibold text-xs sm:text-sm transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="flex-1 min-w-[160px] min-h-[44px] py-2.5 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 font-semibold text-xs sm:text-sm transition active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <Edit3 className="w-4 h-4" />
-                  Edit Time / Person
+                  <Edit3 className="w-4 h-4 shrink-0" />
+                  <span>Edit Time / Person</span>
                 </button>
                 <button
                   type="button"
+                  disabled={isSaving}
                   onClick={() =>
                     setConfirmUndoModal({
                       dateKey: todayKey,
@@ -929,27 +939,29 @@ export default function CadenceApp({
                       existingData: eveningDose
                     })
                   }
-                  className="py-3 px-3.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-600 dark:text-rose-300 border border-rose-500/30 font-semibold text-xs sm:text-sm transition flex items-center justify-center gap-1 cursor-pointer"
+                  className="min-h-[44px] py-2.5 px-3.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 border border-rose-500/30 font-semibold text-xs sm:text-sm transition active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
                   title="Undo Evening Dose"
                 >
-                  <Trash2 className="w-4 h-4" />
-                  Undo
+                  <Trash2 className="w-4 h-4 shrink-0" />
+                  <span>Undo</span>
                 </button>
               </div>
             ) : (
               <div className="space-y-2">
                 <button
                   type="button"
+                  disabled={isSaving}
                   onClick={() => handleRecordDose('evening', eveningNoteInput)}
-                  className="w-full py-4 px-5 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-extrabold text-base sm:text-lg shadow-md shadow-indigo-500/20 active:scale-[0.98] transition flex items-center justify-center gap-2.5 cursor-pointer"
+                  className="w-full min-h-[48px] py-4 px-5 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-base sm:text-lg shadow-md shadow-purple-500/20 active:scale-[0.98] transition flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <CheckCircle2 className="w-6 h-6 shrink-0" />
                   <span>Check Evening Dose ({activeCaregiver})</span>
                 </button>
                 <button
                   type="button"
+                  disabled={isSaving}
                   onClick={() => openManualEntryModal(todayKey, 'evening', null)}
-                  className="w-full py-1.5 text-xs font-semibold text-slate-500 hover:underline text-center cursor-pointer"
+                  className="w-full min-h-[40px] py-2 px-3 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/70 hover:underline text-center transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   Gave it earlier? Log custom evening time
                 </button>
@@ -972,8 +984,8 @@ export default function CadenceApp({
                   bottleStatus.isExpired
                     ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400'
                     : bottleStatus.isExpiringSoon
-                      ? 'bg-amber-500/20 text-amber-600 dark:text-amber-300'
-                      : 'bg-purple-500/15 text-purple-600 dark:text-purple-400'
+                      ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                      : 'bg-purple-500/15 text-purple-700 dark:text-purple-300'
                 }`}
               >
                 <Droplets className="w-6 h-6" />
@@ -995,11 +1007,12 @@ export default function CadenceApp({
             </div>
 
             {canConfigure && (
-              <div className="flex items-center gap-2 self-start sm:self-center">
+              <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
                 <button
                   type="button"
+                  disabled={isSaving}
                   onClick={() => setConfirmNewBottleModal(true)}
-                  className="px-3 py-2 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-700 dark:text-purple-300 border border-purple-500/30 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                  className="min-h-[40px] px-3.5 py-2 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-800 dark:text-purple-300 border border-purple-500/30 text-xs font-bold transition active:scale-[0.98] inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   Opened New Bottle Today
@@ -1010,7 +1023,7 @@ export default function CadenceApp({
                     setSettingsForm(settings);
                     setSettingsModalOpen(true);
                   }}
-                  className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-semibold transition cursor-pointer"
+                  className="min-h-[40px] px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition active:scale-[0.98] cursor-pointer"
                 >
                   Configure
                 </button>
@@ -1019,8 +1032,8 @@ export default function CadenceApp({
           </div>
 
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs font-semibold">
-              <span className="opacity-75">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold">
+              <span className="text-slate-600 dark:text-slate-300">
                 Bottle Shelf Life ({settings.bottleShelfLifeDays}-day limit once opened)
               </span>
               <span
@@ -1028,8 +1041,8 @@ export default function CadenceApp({
                   bottleStatus.isExpired
                     ? 'text-rose-600 dark:text-rose-400 font-bold'
                     : bottleStatus.isExpiringSoon
-                      ? 'text-amber-600 dark:text-amber-300 font-bold'
-                      : 'text-purple-600 dark:text-purple-400'
+                      ? 'text-amber-700 dark:text-amber-300 font-bold'
+                      : 'text-purple-700 dark:text-purple-300'
                 }
               >
                 {bottleStatus.isExpired
@@ -1059,7 +1072,7 @@ export default function CadenceApp({
                   : 'bg-slate-50 border-slate-200/80 text-slate-600'
               }`}
             >
-              <Info className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+              <Info className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0 mt-0.5" />
               <div>
                 <span className="font-semibold">Household Care Note: </span>
                 {settings.administrationNote}
@@ -1077,7 +1090,7 @@ export default function CadenceApp({
         >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 mb-4 border-b border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
                 <History className="w-5 h-5" />
               </div>
               <div>
@@ -1098,30 +1111,30 @@ export default function CadenceApp({
           </div>
 
           <div
-            className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 mb-4 rounded-2xl border ${
+            className={`flex flex-col lg:flex-row lg:items-center flex-wrap justify-between gap-3 p-3 mb-4 rounded-2xl border ${
               darkMode
                 ? 'bg-slate-800/50 border-slate-700'
                 : 'bg-slate-50 border-slate-200/80'
             }`}
           >
-            <div className="flex items-center justify-between sm:justify-start gap-2">
+            <div className="flex flex-wrap items-center justify-between sm:justify-start gap-2 min-w-0">
               <button
                 type="button"
                 onClick={() =>
                   setSelectedWeekMonday(shiftDateKey(activeWeekMonday, -7))
                 }
-                className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                className="min-w-[40px] min-h-[40px] p-2 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center transition active:scale-[0.98] cursor-pointer"
                 title="Previous Week"
                 aria-label="Previous Week"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
 
-              <div className="flex items-center gap-2 px-2">
-                <Calendar className="w-4 h-4 text-purple-600 shrink-0" />
+              <div className="flex flex-wrap items-center gap-2 px-1">
+                <Calendar className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
                 <span className="text-xs sm:text-sm font-bold">{weekRangeLabel}</span>
                 {isCurrentWeek && (
-                  <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-700 dark:text-purple-300">
+                  <span className="text-[11px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-800 dark:text-purple-300">
                     This Week
                   </span>
                 )}
@@ -1136,10 +1149,10 @@ export default function CadenceApp({
                     nextMonday > currentWeekMonday ? currentWeekMonday : nextMonday
                   );
                 }}
-                className={`p-2 rounded-xl border transition ${
+                className={`min-w-[40px] min-h-[40px] p-2 rounded-xl border flex items-center justify-center transition ${
                   isCurrentWeek
                     ? 'opacity-40 cursor-not-allowed border-slate-200 dark:border-slate-800'
-                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 cursor-pointer'
+                    : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-700 active:scale-[0.98] cursor-pointer'
                 }`}
                 title="Next Week"
                 aria-label="Next Week"
@@ -1151,36 +1164,38 @@ export default function CadenceApp({
                 <button
                   type="button"
                   onClick={() => setSelectedWeekMonday(currentWeekMonday)}
-                  className="px-2.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold transition cursor-pointer"
+                  className="min-h-[40px] px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold transition active:scale-[0.98] cursor-pointer"
                 >
                   This Week
                 </button>
               )}
             </div>
 
-            <div className="flex items-center gap-2 self-end sm:self-auto">
-              <label className="text-xs font-semibold text-slate-500 whitespace-nowrap">
+            <div className="flex flex-wrap items-center gap-2 self-stretch lg:self-auto min-w-0">
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap">
                 Jump to date:
               </label>
-              <input
-                type="date"
-                max={todayKey}
-                value={isCurrentWeek ? todayKey : activeWeekMonday}
-                onChange={(e) => {
-                  if (e.target.value) {
-                    const targetMon = getMondayOfWeek(e.target.value);
-                    setSelectedWeekMonday(
-                      targetMon > currentWeekMonday ? currentWeekMonday : targetMon
-                    );
-                  }
-                }}
-                className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-semibold"
-              />
+              <div className="flex-1 min-w-0 sm:w-44 sm:flex-initial">
+                <input
+                  type="date"
+                  max={todayKey}
+                  value={isCurrentWeek ? todayKey : activeWeekMonday}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      const targetMon = getMondayOfWeek(e.target.value);
+                      setSelectedWeekMonday(
+                        targetMon > currentWeekMonday ? currentWeekMonday : targetMon
+                      );
+                    }
+                  }}
+                  className={getFieldClass('purple', 'min-h-[40px] min-w-0 font-semibold')}
+                />
+              </div>
             </div>
           </div>
 
           {isLoadingData ? (
-            <div className="py-10 text-center text-sm text-slate-400">
+            <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
               Loading {settings.catName}&apos;s medication history...
             </div>
           ) : (
@@ -1200,7 +1215,7 @@ export default function CadenceApp({
                   >
                     <div className="flex items-center gap-2.5 min-w-[140px]">
                       <div
-                        className={`w-2.5 h-2.5 rounded-full ${
+                        className={`w-2.5 h-2.5 rounded-full shrink-0 ${
                           am?.given && pm?.given
                             ? 'bg-emerald-500'
                             : am?.given || pm?.given
@@ -1209,46 +1224,50 @@ export default function CadenceApp({
                         }`}
                       />
                       <div>
-                        <div className="font-bold text-sm flex items-center gap-1.5">
+                        <div className="font-bold text-sm flex flex-wrap items-center gap-1.5">
                           <span>{formatFriendlyDate(dateKey, todayKey)}</span>
                           {isToday && (
-                            <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-700 dark:text-purple-300">
+                            <span className="text-[11px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-800 dark:text-purple-300">
                               Active
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-slate-400 font-medium">{dateKey}</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                          {dateKey}
+                        </div>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 flex-1 max-w-md">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1 sm:max-w-md min-w-0">
                       {/* Morning Pill */}
                       <button
                         type="button"
                         onClick={() => openManualEntryModal(dateKey, 'morning', am)}
-                        className={`px-3 py-2 rounded-xl border text-left transition flex items-center justify-between gap-2 cursor-pointer ${
+                        className={`min-w-0 w-full min-h-[44px] px-3 py-2 rounded-xl border text-left transition active:scale-[0.98] flex items-center justify-between gap-2 cursor-pointer ${
                           am?.given
                             ? 'bg-emerald-500/15 border-emerald-500/30'
                             : darkMode
-                              ? 'bg-slate-800/50 border-slate-700 text-slate-400'
-                              : 'bg-slate-50 border-slate-200/80 text-slate-500'
+                              ? 'bg-slate-800/50 border-slate-700 text-slate-300 hover:bg-slate-800'
+                              : 'bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100'
                         }`}
                       >
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1 text-xs font-bold">
                             <Sun
                               className={`w-3.5 h-3.5 shrink-0 ${
-                                am?.given ? 'text-amber-500' : 'text-slate-400'
+                                am?.given
+                                  ? 'text-purple-600 dark:text-purple-400'
+                                  : 'text-slate-400'
                               }`}
                             />
                             <span>AM</span>
                             {am?.given && (
-                              <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">
+                              <span className="text-emerald-700 dark:text-emerald-400 font-extrabold">
                                 • {formatTimeDisplay(am.timestamp)}
                               </span>
                             )}
                           </div>
-                          <div className="text-[11px] truncate mt-0.5">
+                          <div className="text-xs truncate mt-0.5">
                             {am?.given
                               ? `By ${am.givenBy}${am.note ? ` • ${am.note}` : ''}`
                               : 'Not logged (Tap to add)'}
@@ -1265,29 +1284,31 @@ export default function CadenceApp({
                       <button
                         type="button"
                         onClick={() => openManualEntryModal(dateKey, 'evening', pm)}
-                        className={`px-3 py-2 rounded-xl border text-left transition flex items-center justify-between gap-2 cursor-pointer ${
+                        className={`min-w-0 w-full min-h-[44px] px-3 py-2 rounded-xl border text-left transition active:scale-[0.98] flex items-center justify-between gap-2 cursor-pointer ${
                           pm?.given
                             ? 'bg-emerald-500/15 border-emerald-500/30'
                             : darkMode
-                              ? 'bg-slate-800/50 border-slate-700 text-slate-400'
-                              : 'bg-slate-50 border-slate-200/80 text-slate-500'
+                              ? 'bg-slate-800/50 border-slate-700 text-slate-300 hover:bg-slate-800'
+                              : 'bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100'
                         }`}
                       >
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1 text-xs font-bold">
                             <Moon
                               className={`w-3.5 h-3.5 shrink-0 ${
-                                pm?.given ? 'text-indigo-500' : 'text-slate-400'
+                                pm?.given
+                                  ? 'text-purple-600 dark:text-purple-400'
+                                  : 'text-slate-400'
                               }`}
                             />
                             <span>PM</span>
                             {pm?.given && (
-                              <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">
+                              <span className="text-emerald-700 dark:text-emerald-400 font-extrabold">
                                 • {formatTimeDisplay(pm.timestamp)}
                               </span>
                             )}
                           </div>
-                          <div className="text-[11px] truncate mt-0.5">
+                          <div className="text-xs truncate mt-0.5">
                             {pm?.given
                               ? `By ${pm.givenBy}${pm.note ? ` • ${pm.note}` : ''}`
                               : 'Not logged (Tap to add)'}
@@ -1310,422 +1331,391 @@ export default function CadenceApp({
       {/* ========================================== */}
       {/* MODAL 1: UNDO CONFIRMATION MODAL           */}
       {/* ========================================== */}
-      {confirmUndoModal && (
-        <div
-          onClick={() => setConfirmUndoModal(null)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Confirm Uncheck Dose"
-            className={`rounded-2xl sm:rounded-3xl max-w-md w-full max-h-[calc(100dvh-1.5rem)] overflow-y-auto p-4 sm:p-6 shadow-xl border space-y-4 ${cardSurface}`}
-          >
-            <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400">
-              <div className="w-11 h-11 rounded-2xl bg-rose-500/15 flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold">
-                  Uncheck {confirmUndoModal.slot === 'morning' ? 'Morning' : 'Evening'} Dose?
-                </h3>
-                <p className="text-xs text-slate-500">Date: {confirmUndoModal.dateKey}</p>
-              </div>
-            </div>
-
-            <p className="text-sm opacity-85 leading-relaxed">
-              This dose was marked as given at{' '}
-              <strong>{formatTimeDisplay(confirmUndoModal.existingData?.timestamp)}</strong> by{' '}
-              <strong>{confirmUndoModal.existingData?.givenBy}</strong>. Unchecking it will show
-              the dose as pending on everyone&apos;s phone.
-            </p>
-
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setConfirmUndoModal(null)}
-                className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 font-semibold text-sm"
-              >
-                Keep Checked
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmUndoDose}
-                className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm"
-              >
-                Yes, Uncheck Dose
-              </button>
-            </div>
+      <ModalShell
+        isOpen={Boolean(confirmUndoModal)}
+        onClose={() => setConfirmUndoModal(null)}
+        title={
+          confirmUndoModal
+            ? `Uncheck ${confirmUndoModal.slot === 'morning' ? 'Morning' : 'Evening'} Dose?`
+            : 'Uncheck Dose'
+        }
+        subtitle={confirmUndoModal ? `Date: ${confirmUndoModal.dateKey}` : ''}
+        icon={AlertTriangle}
+        accent="rose"
+        darkMode={darkMode}
+        maxWidthClass="max-w-md"
+        ariaLabel="Confirm Uncheck Dose"
+        footer={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={() => setConfirmUndoModal(null)}
+              className="min-h-[44px] px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm transition active:scale-[0.98] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Keep Checked
+            </button>
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={handleConfirmUndoDose}
+              className="min-h-[44px] px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm transition active:scale-[0.98] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Yes, Uncheck Dose
+            </button>
           </div>
-        </div>
-      )}
+        }
+      >
+        {confirmUndoModal && (
+          <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+            This dose was marked as given at{' '}
+            <strong className="text-slate-900 dark:text-slate-100">
+              {formatTimeDisplay(confirmUndoModal.existingData?.timestamp)}
+            </strong>{' '}
+            by{' '}
+            <strong className="text-slate-900 dark:text-slate-100">
+              {confirmUndoModal.existingData?.givenBy}
+            </strong>
+            . Unchecking it will show the dose as pending on everyone&apos;s phone.
+          </p>
+        )}
+      </ModalShell>
 
       {/* ========================================== */}
       {/* MODAL 2: MANUAL / PAST DOSE ENTRY MODAL    */}
       {/* ========================================== */}
-      {manualLogModal && (
-        <div
-          onClick={() => setManualLogModal(null)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Log or Edit Dose Entry"
-            className={`rounded-2xl sm:rounded-3xl max-w-md w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto p-4 sm:p-6 shadow-xl border ${cardSurface}`}
-          >
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
-              <div>
-                <h3 className="text-lg font-bold">
-                  {manualLogModal.existingData?.given ? 'Edit' : 'Log'}{' '}
-                  {manualLogModal.slot === 'morning' ? 'Morning (AM)' : 'Evening (PM)'} Dose
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Date: {formatFriendlyDate(manualLogModal.dateKey, todayKey)} (
-                  {manualLogModal.dateKey})
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setManualLogModal(null)}
-                aria-label="Close Dose Entry Modal"
-                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveManualEntry} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Time Dose Was Given
-                </label>
-                <input
-                  type="time"
-                  value={manualTimeInput}
-                  onChange={(e) => setManualTimeInput(e.target.value)}
-                  required
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-semibold"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Given By
-                </label>
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {(settings.caregivers || DEFAULT_SETTINGS.caregivers).map((person) => (
-                    <button
-                      key={person}
-                      type="button"
-                      onClick={() => setManualCaregiverInput(person)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
-                        manualCaregiverInput === person
-                          ? 'bg-purple-600 text-white'
-                          : 'bg-slate-100 dark:bg-slate-800'
-                      }`}
-                    >
-                      {person}
-                    </button>
-                  ))}
-                </div>
-                <input
-                  type="text"
-                  value={manualCaregiverInput}
-                  onChange={(e) => setManualCaregiverInput(e.target.value)}
-                  placeholder="Name of person..."
-                  required
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Optional Note
-                </label>
-                <input
-                  type="text"
-                  value={manualNoteInput}
-                  onChange={(e) => setManualNoteInput(e.target.value)}
-                  placeholder="e.g., Took well with wet food"
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
-                />
-              </div>
-
-              <div className="flex items-center justify-between gap-2 pt-2">
-                {manualLogModal.existingData?.given ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const modalRef = manualLogModal;
-                      setManualLogModal(null);
-                      setConfirmUndoModal(modalRef);
-                    }}
-                    className="px-3.5 py-2.5 rounded-xl bg-rose-500/15 text-rose-600 dark:text-rose-300 font-semibold text-xs sm:text-sm"
-                  >
-                    Clear / Uncheck
-                  </button>
-                ) : (
-                  <div />
-                )}
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setManualLogModal(null)}
-                    className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 font-semibold text-sm"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-sm"
-                  >
-                    Save Entry
-                  </button>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================== */}
-      {/* MODAL 3: DOSAGE & BOTTLE SETTINGS MODAL    */}
-      {/* ========================================== */}
-      {settingsModalOpen && canConfigure && (
-        <div
-          onClick={() => setSettingsModalOpen(false)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Pet and Medication Settings"
-            className={`rounded-2xl sm:rounded-3xl max-w-lg w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto p-4 sm:p-6 shadow-xl border ${cardSurface}`}
-          >
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
-              <div>
-                <h3 className="text-lg font-bold">
-                  Cadence • Pet &amp; Medication Settings
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Changes sync immediately across all household devices
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSettingsModalOpen(false)}
-                aria-label="Close Medication Settings Modal"
-                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveSettings} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                    Pet Name
-                  </label>
-                  <input
-                    type="text"
-                    value={settingsForm.catName}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, catName: e.target.value })
-                    }
-                    placeholder="e.g., Milo, Luna"
-                    required
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                    Prescribed Dosage Badge
-                  </label>
-                  <input
-                    type="text"
-                    value={settingsForm.dosageLabel}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, dosageLabel: e.target.value })
-                    }
-                    placeholder="e.g., 2.5 mg / 0.5 ml"
-                    required
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  Medication Name
-                </label>
-                <input
-                  type="text"
-                  value={settingsForm.medicationName}
-                  onChange={(e) =>
-                    setSettingsForm({ ...settingsForm, medicationName: e.target.value })
-                  }
-                  placeholder="e.g., Oral Solution, Methimazole"
-                  required
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                    Morning Target Time
-                  </label>
-                  <input
-                    type="time"
-                    value={settingsForm.morningTargetTime}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, morningTargetTime: e.target.value })
-                    }
-                    required
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                    Evening Target Time
-                  </label>
-                  <input
-                    type="time"
-                    value={settingsForm.eveningTargetTime}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, eveningTargetTime: e.target.value })
-                    }
-                    required
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                    Current Bottle Opened Date
-                  </label>
-                  <input
-                    type="date"
-                    value={settingsForm.bottleOpenedDate}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, bottleOpenedDate: e.target.value })
-                    }
-                    required
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                    Shelf Life Once Opened (Days)
-                  </label>
-                  <input
-                    type="number"
-                    min="7"
-                    max="365"
-                    value={settingsForm.bottleShelfLifeDays ?? ''}
-                    onChange={(e) =>
-                      setSettingsForm({
-                        ...settingsForm,
-                        bottleShelfLifeDays: e.target.value
-                      })
-                    }
-                    required
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  Administration &amp; Care Instructions
-                </label>
-                <textarea
-                  rows={2}
-                  value={settingsForm.administrationNote}
-                  onChange={(e) =>
-                    setSettingsForm({ ...settingsForm, administrationNote: e.target.value })
-                  }
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+      <ModalShell
+        isOpen={Boolean(manualLogModal)}
+        onClose={() => setManualLogModal(null)}
+        title={
+          manualLogModal
+            ? `${manualLogModal.existingData?.given ? 'Edit' : 'Log'} ${
+                manualLogModal.slot === 'morning' ? 'Morning (AM)' : 'Evening (PM)'
+              } Dose`
+            : 'Log or Edit Dose Entry'
+        }
+        subtitle={
+          manualLogModal
+            ? `Date: ${formatFriendlyDate(manualLogModal.dateKey, todayKey)} (${manualLogModal.dateKey})`
+            : ''
+        }
+        icon={Edit3}
+        accent="purple"
+        darkMode={darkMode}
+        maxWidthClass="max-w-md"
+        ariaLabel="Log or Edit Dose Entry"
+        footer={
+          manualLogModal ? (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {manualLogModal.existingData?.given ? (
                 <button
                   type="button"
-                  onClick={() => setSettingsModalOpen(false)}
-                  className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 font-semibold text-sm"
+                  onClick={() => {
+                    const modalRef = manualLogModal;
+                    setManualLogModal(null);
+                    setConfirmUndoModal(modalRef);
+                  }}
+                  className="min-h-[44px] px-3.5 py-2.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 font-semibold text-xs sm:text-sm transition active:scale-[0.98] cursor-pointer"
+                >
+                  Clear / Uncheck
+                </button>
+              ) : (
+                <div />
+              )}
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={() => setManualLogModal(null)}
+                  className="min-h-[44px] px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm transition active:scale-[0.98] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-sm"
+                  form="cadence-manual-log-form"
+                  disabled={isSaving}
+                  className="min-h-[44px] px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-sm transition active:scale-[0.98] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  Save Household Settings
+                  {isSaving ? 'Saving...' : 'Save Entry'}
                 </button>
               </div>
-            </form>
+            </div>
+          ) : null
+        }
+      >
+        {manualLogModal && (
+          <form id="cadence-manual-log-form" onSubmit={handleSaveManualEntry} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
+                Time Dose Was Given
+              </label>
+              <input
+                type="time"
+                value={manualTimeInput}
+                onChange={(e) => setManualTimeInput(e.target.value)}
+                required
+                className={getFieldClass('purple', 'font-semibold')}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
+                Given By
+              </label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {(settings.caregivers || DEFAULT_SETTINGS.caregivers).map((person) => (
+                  <button
+                    key={person}
+                    type="button"
+                    onClick={() => setManualCaregiverInput(person)}
+                    className={`min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-semibold transition active:scale-[0.98] cursor-pointer ${
+                      manualCaregiverInput === person
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {person}
+                  </button>
+                ))}
+              </div>
+              <input
+                type="text"
+                value={manualCaregiverInput}
+                onChange={(e) => setManualCaregiverInput(e.target.value)}
+                placeholder="Name of person..."
+                required
+                className={getFieldClass('purple')}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
+                Optional Note
+              </label>
+              <input
+                type="text"
+                value={manualNoteInput}
+                onChange={(e) => setManualNoteInput(e.target.value)}
+                placeholder="e.g., Took well with wet food"
+                className={getFieldClass('purple')}
+              />
+            </div>
+          </form>
+        )}
+      </ModalShell>
+
+      {/* ========================================== */}
+      {/* MODAL 3: DOSAGE & BOTTLE SETTINGS MODAL    */}
+      {/* ========================================== */}
+      <ModalShell
+        isOpen={Boolean(settingsModalOpen && canConfigure)}
+        onClose={() => setSettingsModalOpen(false)}
+        title="Cadence • Pet & Medication Settings"
+        subtitle="Changes sync immediately across all household devices"
+        icon={Settings}
+        accent="purple"
+        darkMode={darkMode}
+        maxWidthClass="max-w-lg"
+        ariaLabel="Pet and Medication Settings"
+        footer={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={() => setSettingsModalOpen(false)}
+              className="min-h-[44px] px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm transition active:scale-[0.98] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="cadence-settings-form"
+              disabled={isSaving}
+              className="min-h-[44px] px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-sm transition active:scale-[0.98] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isSaving ? 'Saving...' : 'Save Household Settings'}
+            </button>
           </div>
-        </div>
-      )}
+        }
+      >
+        {settingsModalOpen && canConfigure && (
+          <form id="cadence-settings-form" onSubmit={handleSaveSettings} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
+                  Pet Name
+                </label>
+                <input
+                  type="text"
+                  value={settingsForm.catName}
+                  onChange={(e) =>
+                    setSettingsForm({ ...settingsForm, catName: e.target.value })
+                  }
+                  placeholder="e.g., Milo, Luna"
+                  required
+                  className={getFieldClass('purple')}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
+                  Prescribed Dosage Badge
+                </label>
+                <input
+                  type="text"
+                  value={settingsForm.dosageLabel}
+                  onChange={(e) =>
+                    setSettingsForm({ ...settingsForm, dosageLabel: e.target.value })
+                  }
+                  placeholder="e.g., 2.5 mg / 0.5 ml"
+                  required
+                  className={getFieldClass('purple')}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
+                Medication Name
+              </label>
+              <input
+                type="text"
+                value={settingsForm.medicationName}
+                onChange={(e) =>
+                  setSettingsForm({ ...settingsForm, medicationName: e.target.value })
+                }
+                placeholder="e.g., Oral Solution, Methimazole"
+                required
+                className={getFieldClass('purple')}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
+                  Morning Target Time
+                </label>
+                <input
+                  type="time"
+                  value={settingsForm.morningTargetTime}
+                  onChange={(e) =>
+                    setSettingsForm({ ...settingsForm, morningTargetTime: e.target.value })
+                  }
+                  required
+                  className={getFieldClass('purple')}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
+                  Evening Target Time
+                </label>
+                <input
+                  type="time"
+                  value={settingsForm.eveningTargetTime}
+                  onChange={(e) =>
+                    setSettingsForm({ ...settingsForm, eveningTargetTime: e.target.value })
+                  }
+                  required
+                  className={getFieldClass('purple')}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
+                  Current Bottle Opened Date
+                </label>
+                <input
+                  type="date"
+                  value={settingsForm.bottleOpenedDate}
+                  onChange={(e) =>
+                    setSettingsForm({ ...settingsForm, bottleOpenedDate: e.target.value })
+                  }
+                  required
+                  className={getFieldClass('purple')}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
+                  Shelf Life Once Opened (Days)
+                </label>
+                <input
+                  type="number"
+                  min="7"
+                  max="365"
+                  value={settingsForm.bottleShelfLifeDays ?? ''}
+                  onChange={(e) =>
+                    setSettingsForm({
+                      ...settingsForm,
+                      bottleShelfLifeDays: e.target.value
+                    })
+                  }
+                  required
+                  className={getFieldClass('purple')}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
+                Administration &amp; Care Instructions
+              </label>
+              <textarea
+                rows={2}
+                value={settingsForm.administrationNote}
+                onChange={(e) =>
+                  setSettingsForm({ ...settingsForm, administrationNote: e.target.value })
+                }
+                className={getFieldClass('purple')}
+              />
+            </div>
+          </form>
+        )}
+      </ModalShell>
 
       {/* ========================================== */}
       {/* MODAL 4: RESET BOTTLE DATE CONFIRMATION    */}
       {/* ========================================== */}
-      {confirmNewBottleModal && canConfigure && (
-        <div
-          onClick={() => setConfirmNewBottleModal(false)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Confirm New Bottle"
-            className={`rounded-2xl sm:rounded-3xl max-w-md w-full max-h-[calc(100dvh-1.5rem)] overflow-y-auto p-4 sm:p-6 shadow-xl border space-y-4 ${cardSurface}`}
-          >
-            <div className="flex items-center gap-3 text-purple-600 dark:text-purple-400">
-              <div className="w-11 h-11 rounded-2xl bg-purple-500/15 flex items-center justify-center shrink-0">
-                <RefreshCw className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold">Start Fresh Bottle Today?</h3>
-                <p className="text-xs text-slate-500">
-                  Sets opened date to {todayKey} ({settings.bottleShelfLifeDays}-day shelf life)
-                </p>
-              </div>
-            </div>
-            <p className="text-sm opacity-85 leading-relaxed">
-              This will reset {settings.catName}&apos;s {settings.medicationName} bottle shelf-life countdown for everyone in the household.
-            </p>
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setConfirmNewBottleModal(false)}
-                className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 font-semibold text-sm cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleOpenNewBottleToday}
-                className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-sm cursor-pointer"
-              >
-                Confirm New Bottle
-              </button>
-            </div>
+      <ModalShell
+        isOpen={Boolean(confirmNewBottleModal && canConfigure)}
+        onClose={() => setConfirmNewBottleModal(false)}
+        title="Start Fresh Bottle Today?"
+        subtitle={`Sets opened date to ${formatFriendlyDate(todayKey, todayKey)} (${now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}) • ${settings.bottleShelfLifeDays}-day shelf life`}
+        icon={RefreshCw}
+        accent="purple"
+        darkMode={darkMode}
+        maxWidthClass="max-w-md"
+        ariaLabel="Confirm New Bottle"
+        footer={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={() => setConfirmNewBottleModal(false)}
+              className="min-h-[44px] px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm transition active:scale-[0.98] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={handleOpenNewBottleToday}
+              className="min-h-[44px] px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-sm transition active:scale-[0.98] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Confirm New Bottle
+            </button>
           </div>
-        </div>
-      )}
+        }
+      >
+        {confirmNewBottleModal && canConfigure && (
+          <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+            This will reset {settings.catName}&apos;s {settings.medicationName} bottle shelf-life countdown for everyone in the household.
+          </p>
+        )}
+      </ModalShell>
     </main>
   );
 }

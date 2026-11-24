@@ -52,7 +52,7 @@ Howard is intentionally designed for **trusted home LAN / Tailscale networks** r
 ## 💾 Unified Database Architecture & Daily Backups
 
 Howard stores the entire household in a single atomic SQLite database inside `./data` (`/app/data` in Docker):
-* `./data/howard.db` — Unified SQLite database (`PRAGMA user_version = 4`) containing Profiles, Almanac calendar events, Ledger bookkeeping, Beacon house guide, Cadence pet medication logs, Bloom mantis habitat & growth logs, and Floodgate clinical symptom logs. Legacy 4-database setups (`cadence.db`, `bloom.db`, `floodgate.db`) automatically archive to `./data/backups/legacy-4db-*/` and consolidate on first boot.
+* `./data/howard.db` — Unified SQLite database (`PRAGMA user_version = 5`) containing Profiles, Almanac calendar events, Ledger bookkeeping, Beacon house guide, Cadence pet medication logs, Bloom mantis habitat & growth logs, and Floodgate clinical symptom logs. Legacy 4-database setups (`cadence.db`, `bloom.db`, `floodgate.db`) automatically archive to `./data/backups/legacy-4db-*/` and consolidate on first boot.
 
 > **Backup & Restore Access:** Both **Partner 1** and **Partner 2** can inspect live sync status and export the full household database (including Floodgate in its entirety) from the top-right Database menu. Only **Partner 1** can restore or merge JSON backups, and every restore automatically saves a pre-restore `VACUUM INTO` snapshot to `./data/backups/pre-restore-*/` inside a single SQLite transaction (`mode: "replace"` in the UI or `mode: "merge"` for standalone Cadence/Floodgate JSONs).
 
@@ -129,7 +129,7 @@ npm run dev
 
 **Checks & Production Build:**
 ```bash
-npm test          # Node built-in test runner (helper & schedule unit suite)
+npm test          # Node built-in test runner (unit & SQLite server integration suite)
 npm run lint      # Oxlint static checks
 npm run build     # Production Vite bundle -> ./dist
 ```

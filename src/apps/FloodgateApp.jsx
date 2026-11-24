@@ -27,6 +27,13 @@ import {
   shiftDateKey,
   escapeCSVCell
 } from '../utils/householdHelpers.js';
+import {
+  ModuleHeader,
+  SegmentedTabs,
+  ModalShell,
+  EmptyStateCard,
+  getFieldClass
+} from '../components/HowardUI.jsx';
 
 // Unified incremental Howard sync (no duplicate standalone polling loop)
 
@@ -34,12 +41,60 @@ import {
 // CLINICAL CONSTANTS & PRESET OPTIONS
 // ============================================================================
 const BLEEDING_LEVELS = [
-  { id: 'none', label: 'None', score: 0, drops: 0, desc: 'No bleeding today', color: 'bg-slate-100 text-slate-600 border-slate-200', activeColor: 'bg-slate-700 text-white border-slate-700', dotColor: 'bg-slate-300' },
-  { id: 'spotting', label: 'Spotting', score: 1, drops: 1, desc: 'Drops / pantyliner only', color: 'bg-rose-50 text-rose-700 border-rose-200', activeColor: 'bg-rose-400 text-white border-rose-500', dotColor: 'bg-rose-300' },
-  { id: 'light', label: 'Light', score: 2, drops: 2, desc: 'Light flow, regular change', color: 'bg-rose-50 text-rose-800 border-rose-200', activeColor: 'bg-rose-500 text-white border-rose-600', dotColor: 'bg-rose-400' },
-  { id: 'medium', label: 'Medium', score: 3, drops: 3, desc: 'Moderate typical flow', color: 'bg-rose-100 text-rose-900 border-rose-300', activeColor: 'bg-rose-600 text-white border-rose-700', dotColor: 'bg-rose-500' },
-  { id: 'heavy', label: 'Heavy', score: 4, drops: 4, desc: 'High volume / frequent changes', color: 'bg-rose-100 text-rose-950 border-rose-300', activeColor: 'bg-rose-700 text-white border-rose-800', dotColor: 'bg-rose-700' },
-  { id: 'flooding', label: 'Flooding', score: 5, drops: 5, desc: 'Soaking hourly / double protection', color: 'bg-red-100 text-red-950 border-red-300', activeColor: 'bg-red-800 text-white border-red-900', dotColor: 'bg-red-800' }
+  {
+    id: 'none',
+    label: 'None',
+    score: 0,
+    drops: 0,
+    desc: 'No bleeding today',
+    dotColor: 'bg-slate-400 dark:bg-slate-500',
+    pillClass: 'bg-slate-200 text-slate-800 border border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700'
+  },
+  {
+    id: 'spotting',
+    label: 'Spotting',
+    score: 1,
+    drops: 1,
+    desc: 'Drops / pantyliner only',
+    dotColor: 'bg-rose-300',
+    pillClass: 'bg-rose-100 text-rose-900 border border-rose-300 dark:bg-rose-900/60 dark:text-rose-100 dark:border-rose-700'
+  },
+  {
+    id: 'light',
+    label: 'Light',
+    score: 2,
+    drops: 2,
+    desc: 'Light flow, regular change',
+    dotColor: 'bg-rose-400',
+    pillClass: 'bg-rose-200 text-rose-950 border border-rose-300 dark:bg-rose-800/80 dark:text-rose-50 dark:border-rose-600'
+  },
+  {
+    id: 'medium',
+    label: 'Medium',
+    score: 3,
+    drops: 3,
+    desc: 'Moderate typical flow',
+    dotColor: 'bg-rose-500',
+    pillClass: 'bg-rose-600 text-white border border-rose-600'
+  },
+  {
+    id: 'heavy',
+    label: 'Heavy',
+    score: 4,
+    drops: 4,
+    desc: 'High volume / frequent changes',
+    dotColor: 'bg-rose-700',
+    pillClass: 'bg-rose-800 text-white border border-rose-800'
+  },
+  {
+    id: 'flooding',
+    label: 'Flooding',
+    score: 5,
+    drops: 5,
+    desc: 'Soaking hourly / double protection',
+    dotColor: 'bg-red-800',
+    pillClass: 'bg-red-900 text-white border border-red-900'
+  }
 ];
 
 const CLOT_SIZES = [
@@ -48,6 +103,8 @@ const CLOT_SIZES = [
   { id: 'large', label: 'Large (>2cm)', desc: '10p/50p coin or larger' },
   { id: 'tissue', label: 'Decidual / Tissue-like', desc: 'Fleshy or cast-like clots' }
 ];
+
+const CLOT_SIZE_LABELS = Object.fromEntries(CLOT_SIZES.map((s) => [s.id, s.label]));
 
 const PAIN_LOCATIONS = [
   'Pelvic / Uterine',
@@ -72,7 +129,7 @@ const PAIN_TYPES = [
 
 const BOWEL_SEVERITIES = [
   { id: 'none', label: 'None', score: 0, activeColor: 'bg-slate-700 text-white border-slate-700' },
-  { id: 'mild', label: 'Mild', score: 1, activeColor: 'bg-amber-500 text-white border-amber-600' },
+  { id: 'mild', label: 'Mild', score: 1, activeColor: 'bg-amber-500 text-slate-950 border-amber-600' },
   { id: 'moderate', label: 'Moderate', score: 2, activeColor: 'bg-orange-600 text-white border-orange-700' },
   { id: 'severe', label: 'Severe', score: 3, activeColor: 'bg-red-700 text-white border-red-800' }
 ];
@@ -102,9 +159,20 @@ const PRESET_MEDICATIONS = [
 
 const MED_EFFECTIVENESS = [
   { id: 'helped', label: 'Helped', activeClass: 'bg-emerald-600 text-white border-emerald-700' },
-  { id: 'partial', label: 'Partial', activeClass: 'bg-amber-500 text-white border-amber-600' },
+  { id: 'partial', label: 'Partial', activeClass: 'bg-amber-500 text-slate-950 border-amber-600' },
   { id: 'none', label: 'No Relief', activeClass: 'bg-slate-600 text-white border-slate-700' }
 ];
+
+const MED_EFFECTIVENESS_LABELS = Object.fromEntries(
+  MED_EFFECTIVENESS.map((e) => [e.id, e.label])
+);
+
+const formatMedicationSummary = (med) => {
+  if (!med) return '';
+  const nameDose = [med.name, med.dose].filter(Boolean).join(' ').trim();
+  const relief = med.effective ? MED_EFFECTIVENESS_LABELS[med.effective] || med.effective : '';
+  return relief ? `${nameDose} (${relief})` : nameDose;
+};
 
 const EXTERNAL_FACTORS = [
   { id: 'heat_pad', label: 'Heat Pad / Hot Water Bottle', type: 'relief' },
@@ -286,6 +354,8 @@ export default function FloodgateApp({
     createEmptyEntry(getLocalDateKey(new Date(nowMs)))
   );
   const [isDirty, setIsDirty] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const [pendingNav, setPendingNav] = useState(null);
 
   const isDirtyRef = useRef(false);
   const selectedDateRef = useRef(selectedDate);
@@ -295,6 +365,7 @@ export default function FloodgateApp({
   const inFlightMutationRef = useRef(0);
   const isTransitioningRef = useRef(false);
   const onGlobalSyncRef = useRef(onGlobalSync);
+  const profileIdRef = useRef(activeProfile?.id || 'caregiver');
 
   useEffect(() => {
     isDirtyRef.current = isDirty;
@@ -312,24 +383,44 @@ export default function FloodgateApp({
     onGlobalSyncRef.current = onGlobalSync;
   }, [onGlobalSync]);
 
+  useEffect(() => {
+    profileIdRef.current = activeProfile?.id || 'caregiver';
+  }, [activeProfile?.id]);
+
   // Auto-save unsaved edits on tab close/refresh (pagehide) or switching away to another Howard app
   useEffect(() => {
     const flushUnsavedKeepalive = (syncAfter = false) => {
       if (!isDirtyRef.current || !formDataRef.current || !selectedDateRef.current) return;
+      const profileId = profileIdRef.current || 'caregiver';
       const dateToFlush = selectedDateRef.current;
       const payload = {
         ...formDataRef.current,
         date: dateToFlush,
         updatedAt: new Date().toISOString()
       };
-      fetch(`/api/floodgate/logs/${encodeURIComponent(dateToFlush)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        keepalive: true
-      })
+      fetch(
+        `/api/floodgate/logs/${encodeURIComponent(dateToFlush)}?profile=${encodeURIComponent(profileId)}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Howard-Profile': profileId
+          },
+          body: JSON.stringify(payload),
+          keepalive: true
+        }
+      )
         .then((res) => {
-          if (res.ok && syncAfter) {
+          let storedProfile = null;
+          try {
+            storedProfile = window.localStorage?.getItem('howard-active-profile');
+          } catch {
+            // ignore storage errors
+          }
+          const isStillPartner2 =
+            profileIdRef.current === 'partner2' &&
+            (!storedProfile || storedProfile === 'partner2');
+          if (res.ok && syncAfter && isStillPartner2) {
             onGlobalSyncRef.current?.();
           }
         })
@@ -343,7 +434,7 @@ export default function FloodgateApp({
     window.addEventListener('pagehide', handlePageHide);
     return () => {
       window.removeEventListener('pagehide', handlePageHide);
-      flushUnsavedKeepalive(true);
+      flushUnsavedKeepalive(profileIdRef.current === 'partner2');
     };
   }, []);
 
@@ -364,17 +455,6 @@ export default function FloodgateApp({
   // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState(null);
 
-  useEffect(() => {
-    if (!confirmModal) return;
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        setConfirmModal(null);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [confirmModal]);
-
   // User Profile / Name State (defaults to Partner 2 inside Howard)
   const [ownerName, setOwnerName] = useState(activeProfile?.name || 'Partner 2');
 
@@ -385,6 +465,16 @@ export default function FloodgateApp({
     [appShowToast]
   );
 
+  const applyDateSelection = useCallback((nextDate) => {
+    setSelectedDate(nextDate);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) {
+      const [y, m] = nextDate.split('-').map(Number);
+      if (Number.isFinite(y) && Number.isFinite(m)) {
+        setCalendarMonth({ year: y, month: m - 1 });
+      }
+    }
+  }, []);
+
   // Apply cross-app navigation intent (e.g. from Foyer or Almanac GP report link)
   useEffect(() => {
     if (!navigationIntent) return;
@@ -394,24 +484,26 @@ export default function FloodgateApp({
         const ok = await saveDayEntryRef.current(formDataRef.current, selectedDateRef.current, {
           silentToast: true
         });
-        if (!ok || cancelled) return;
+        if (!ok) {
+          if (!cancelled) {
+            setPendingNav({ type: 'intent', target: navigationIntent });
+          }
+          return;
+        }
+        if (cancelled) return;
         showToast(`Auto-saved changes for ${formatShortDate(selectedDateRef.current)}`);
       }
       if (cancelled) return;
       if (navigationIntent.tab) setActiveTab(navigationIntent.tab);
       if (navigationIntent.date && /^\d{4}-\d{2}-\d{2}$/.test(navigationIntent.date)) {
-        setSelectedDate(navigationIntent.date);
-        const [y, m] = navigationIntent.date.split('-').map(Number);
-        if (Number.isFinite(y) && Number.isFinite(m)) {
-          setCalendarMonth({ year: y, month: m - 1 });
-        }
+        applyDateSelection(navigationIntent.date);
       }
     };
     applyNavigationIntent();
     return () => {
       cancelled = true;
     };
-  }, [navigationIntent, showToast]);
+  }, [navigationIntent, showToast, applyDateSelection]);
 
   // --------------------------------------------------------------------------
   // 1. RECEIVE UNIFIED HOWARD SNAPSHOT UPDATES (PRESERVING UNSAVED FORM EDITS)
@@ -446,6 +538,7 @@ export default function FloodgateApp({
     setFormData(normalizeEntry(selectedDate, logsMap[selectedDate]));
     setIsDirty(false);
     isDirtyRef.current = false;
+    setSaveFailed(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
@@ -455,6 +548,7 @@ export default function FloodgateApp({
   const saveDayEntry = async (customEntry = null, targetDate = selectedDate, { silentToast = false } = {}) => {
     const prevLog = logsMap[targetDate];
     const saveEditVersion = editVersionRef.current;
+    const profileId = activeProfile?.id || 'caregiver';
     const entryToSave = {
       ...(customEntry || formData),
       date: targetDate,
@@ -468,11 +562,17 @@ export default function FloodgateApp({
 
     inFlightMutationRef.current += 1;
     try {
-      const res = await fetch(`/api/floodgate/logs/${encodeURIComponent(targetDate)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(entryToSave)
-      });
+      const res = await fetch(
+        `/api/floodgate/logs/${encodeURIComponent(targetDate)}?profile=${encodeURIComponent(profileId)}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Howard-Profile': profileId
+          },
+          body: JSON.stringify(entryToSave)
+        }
+      );
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
@@ -490,6 +590,8 @@ export default function FloodgateApp({
         setIsDirty(false);
         isDirtyRef.current = false;
       }
+      setSaveFailed(false);
+      setPendingNav(null);
       if (onGlobalSyncRef.current) onGlobalSyncRef.current();
       if (!silentToast) {
         showToast(`Saved ${ownerName ? `${ownerName}'s ` : ''}log for ${formatShortDate(targetDate)}`);
@@ -503,7 +605,8 @@ export default function FloodgateApp({
         else delete next[targetDate];
         return next;
       });
-      showToast('Could not save log to server — your edits remain in the form', 'error');
+      setSaveFailed(true);
+      showToast('Could not save log to server — retry or discard unsaved changes', 'error');
       return false;
     } finally {
       inFlightMutationRef.current = Math.max(0, inFlightMutationRef.current - 1);
@@ -518,16 +621,14 @@ export default function FloodgateApp({
     try {
       if (isDirtyRef.current) {
         const ok = await saveDayEntry(formDataRef.current, selectedDate, { silentToast: true });
-        if (!ok) return;
+        if (!ok) {
+          setPendingNav({ type: 'date', target: nextDate });
+          return;
+        }
         showToast(`Auto-saved changes for ${formatShortDate(selectedDate)}`);
       }
-      setSelectedDate(nextDate);
-      if (/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) {
-        const [y, m] = nextDate.split('-').map(Number);
-        if (Number.isFinite(y) && Number.isFinite(m)) {
-          setCalendarMonth({ year: y, month: m - 1 });
-        }
-      }
+      setPendingNav(null);
+      applyDateSelection(nextDate);
     } finally {
       isTransitioningRef.current = false;
     }
@@ -540,12 +641,59 @@ export default function FloodgateApp({
     try {
       if (isDirtyRef.current) {
         const ok = await saveDayEntry(formDataRef.current, selectedDate, { silentToast: true });
-        if (!ok) return;
+        if (!ok) {
+          setPendingNav({ type: 'tab', target: nextTab });
+          return;
+        }
         showToast(`Auto-saved changes for ${formatShortDate(selectedDate)}`);
       }
+      setPendingNav(null);
       setActiveTab(nextTab);
     } finally {
       isTransitioningRef.current = false;
+    }
+  };
+
+  const discardPendingNavigation = () => {
+    const nav = pendingNav;
+    editVersionRef.current += 1;
+    setFormData(normalizeEntry(selectedDate, logsMap[selectedDate]));
+    setIsDirty(false);
+    isDirtyRef.current = false;
+    setSaveFailed(false);
+    setPendingNav(null);
+
+    if (nav?.type === 'date' && nav.target) {
+      applyDateSelection(nav.target);
+    } else if (nav?.type === 'tab' && nav.target) {
+      setActiveTab(nav.target);
+    } else if (nav?.type === 'intent' && nav.target) {
+      if (nav.target.tab) setActiveTab(nav.target.tab);
+      if (nav.target.date && /^\d{4}-\d{2}-\d{2}$/.test(nav.target.date)) {
+        applyDateSelection(nav.target.date);
+      }
+    }
+    showToast(`Discarded unsaved edits for ${formatShortDate(selectedDate)}`, 'info');
+  };
+
+  const retryPendingNavigation = async () => {
+    if (isTransitioningRef.current || inFlightMutationRef.current > 0) return;
+    const nav = pendingNav;
+    const prevDate = selectedDate;
+    const ok = await saveDayEntry(formDataRef.current, selectedDate, { silentToast: Boolean(nav) });
+    if (!ok) return;
+    if (nav?.type === 'date' && nav.target) {
+      showToast(`Auto-saved changes for ${formatShortDate(prevDate)}`);
+      applyDateSelection(nav.target);
+    } else if (nav?.type === 'tab' && nav.target) {
+      showToast(`Auto-saved changes for ${formatShortDate(prevDate)}`);
+      setActiveTab(nav.target);
+    } else if (nav?.type === 'intent' && nav.target) {
+      showToast(`Auto-saved changes for ${formatShortDate(prevDate)}`);
+      if (nav.target.tab) setActiveTab(nav.target.tab);
+      if (nav.target.date && /^\d{4}-\d{2}-\d{2}$/.test(nav.target.date)) {
+        applyDateSelection(nav.target.date);
+      }
     }
   };
 
@@ -553,6 +701,7 @@ export default function FloodgateApp({
     const prevLog = logsMap[dateToDelete];
     const prevForm = formData;
     const prevDirty = isDirty;
+    const profileId = activeProfile?.id || 'caregiver';
 
     setLogsMap((prev) => {
       const copy = { ...prev };
@@ -564,13 +713,21 @@ export default function FloodgateApp({
       setFormData(createEmptyEntry(selectedDate));
       setIsDirty(false);
       isDirtyRef.current = false;
+      setSaveFailed(false);
+      setPendingNav(null);
     }
 
     inFlightMutationRef.current += 1;
     try {
-      const res = await fetch(`/api/floodgate/logs/${encodeURIComponent(dateToDelete)}`, {
-        method: 'DELETE'
-      });
+      const res = await fetch(
+        `/api/floodgate/logs/${encodeURIComponent(dateToDelete)}?profile=${encodeURIComponent(profileId)}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'X-Howard-Profile': profileId
+          }
+        }
+      );
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
@@ -788,7 +945,6 @@ export default function FloodgateApp({
   };
 
   const exportCSV = () => {
-    const clotSizeLabelMap = Object.fromEntries(CLOT_SIZES.map((s) => [s.id, s.label]));
     const factorLabelMap = Object.fromEntries(EXTERNAL_FACTORS.map((f) => [f.id, f.label]));
 
     const headers = [
@@ -821,14 +977,21 @@ export default function FloodgateApp({
       escapeCSVCell(l.leakedThrough ? 'Yes' : 'No'),
       escapeCSVCell(l.hasClots ? 'Yes' : 'No'),
       escapeCSVCell(l.clotCount || 0),
-      escapeCSVCell((l.clotSizes || []).map((id) => clotSizeLabelMap[id] || id).join('; ')),
+      escapeCSVCell((l.clotSizes || []).map((id) => CLOT_SIZE_LABELS[id] || id).join('; ')),
       escapeCSVCell(l.painScore || 0),
       escapeCSVCell((l.painLocations || []).join('; ')),
       escapeCSVCell((l.painTypes || []).join('; ')),
       escapeCSVCell(l.bowelSeverity || 'none'),
       escapeCSVCell((l.bowelSymptoms || []).join('; ')),
       escapeCSVCell(l.bowelMovementsCount ?? ''),
-      escapeCSVCell((l.medications || []).map((m) => `${m.name} (${m.dose} @ ${m.timeNotes}${m.effective ? ` - ${m.effective}` : ''})`).join('; ')),
+      escapeCSVCell(
+        (l.medications || [])
+          .map((m) => {
+            const effLabel = m.effective ? MED_EFFECTIVENESS_LABELS[m.effective] || m.effective : '';
+            return `${m.name} (${m.dose} @ ${m.timeNotes}${effLabel ? ` - ${effLabel}` : ''})`;
+          })
+          .join('; ')
+      ),
       escapeCSVCell((l.externalFactors || []).map((id) => factorLabelMap[id] || id).join('; ')),
       escapeCSVCell(l.notes || '')
     ]);
@@ -885,45 +1048,24 @@ export default function FloodgateApp({
   return (
     <>
       {/* CUSTOM CONFIRMATION MODAL */}
-      {confirmModal && (
-        <div
-          onClick={() => setConfirmModal(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 no-print"
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={confirmModal.title}
-            onClick={(e) => e.stopPropagation()}
-            className={`max-w-md w-full rounded-3xl p-6 shadow-xl border ${
-              darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
-            }`}
-          >
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300">
-                  <AlertCircle className="w-5 h-5" />
-                </div>
-                <h3 className="text-lg font-semibold">{confirmModal.title}</h3>
-              </div>
-              <button
-                type="button"
-                aria-label="Close confirmation modal"
-                onClick={() => setConfirmModal(null)}
-                className="p-1.5 rounded-lg hover:bg-slate-200/50 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <p className={`text-sm mb-6 leading-relaxed ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>
-              {confirmModal.message}
-            </p>
+      <ModalShell
+        isOpen={Boolean(confirmModal)}
+        onClose={() => setConfirmModal(null)}
+        title={confirmModal?.title || ''}
+        icon={AlertCircle}
+        accent="rose"
+        darkMode={darkMode}
+        maxWidthClass="max-w-md"
+        footer={
+          confirmModal ? (
             <div className="flex items-center justify-end gap-3">
               <button
                 type="button"
                 onClick={() => setConfirmModal(null)}
-                className={`px-4 py-2.5 rounded-xl text-sm font-medium border cursor-pointer ${
-                  darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'
+                className={`min-h-[40px] px-4 py-2 rounded-xl text-sm font-medium border active:scale-[0.98] transition cursor-pointer ${
+                  darkMode
+                    ? 'border-slate-700 text-slate-200 hover:bg-slate-800'
+                    : 'border-slate-300 text-slate-700 hover:bg-slate-100'
                 }`}
               >
                 Cancel
@@ -934,86 +1076,100 @@ export default function FloodgateApp({
                   confirmModal.onConfirm();
                   setConfirmModal(null);
                 }}
-                className={`px-4 py-2.5 rounded-xl text-sm font-semibold text-white cursor-pointer ${
+                className={`min-h-[40px] px-4 py-2 rounded-xl text-sm font-semibold text-white active:scale-[0.98] transition cursor-pointer ${
                   confirmModal.danger ? 'bg-red-600 hover:bg-red-700' : 'bg-rose-600 hover:bg-rose-700'
                 }`}
               >
                 {confirmModal.confirmText || 'Confirm'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          ) : null
+        }
+      >
+        {confirmModal && (
+          <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+            {confirmModal.message}
+          </p>
+        )}
+      </ModalShell>
 
       {/* ====================================================================
           MAIN CONTENT CONTAINER + FLOODGATE HEADER & SUB-TABS
       ==================================================================== */}
       <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4 space-y-4 sm:space-y-5">
-        <section
-          className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 no-print ${
-            darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-rose-500 to-rose-700 flex items-center justify-center text-white shadow-xs shrink-0">
-              <Heart className="w-5 h-5 sm:w-6 sm:h-6 fill-rose-200/30" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-lg sm:text-xl font-extrabold tracking-tight">
-                  Floodgate • {ownerName}&apos;s Journal
-                </h1>
-                <span className="text-[10px] sm:text-xs px-2 py-0.5 rounded-full font-semibold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 whitespace-nowrap">
-                  Private Module
-                </span>
-              </div>
-              <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                Period, Blood Clots, Pain &amp; Endometriosis Clinical Tracker
-              </p>
-            </div>
-          </div>
+        <ModuleHeader
+          accent="rose"
+          icon={Heart}
+          title={`Floodgate • ${ownerName}'s Journal`}
+          subtitle="Period, Blood Clots, Pain & Endometriosis Clinical Tracker"
+          badges={
+            <span className="text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full font-semibold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 whitespace-nowrap">
+              Private Module
+            </span>
+          }
+          darkMode={darkMode}
+          className="no-print"
+          footer={
+            <SegmentedTabs
+              accent="rose"
+              darkMode={darkMode}
+              activeId={activeTab}
+              onChange={handleSwitchTab}
+              tabs={[
+                { id: 'log', label: 'Daily Log', shortLabel: 'Log', icon: Droplets },
+                { id: 'calendar', label: 'Cycle Calendar', shortLabel: 'Calendar', icon: CalendarIcon },
+                {
+                  id: 'insights',
+                  label: 'Insights & GP Report',
+                  shortLabel: 'Insights',
+                  icon: Stethoscope
+                },
+                { id: 'data', label: 'Export & Data', shortLabel: 'Export', icon: ShieldCheck }
+              ]}
+            />
+          }
+        />
 
-          {/* Internal Sub-Tabs: 2x2 Grid on Mobile, 1x4 Horizontal Row on Tablet/Desktop */}
+        {isDirty && (pendingNav || saveFailed) && (
           <div
-            className={`w-full lg:w-auto grid grid-cols-2 sm:flex sm:items-center gap-1 p-1 rounded-2xl border ${
-              darkMode
-                ? 'bg-slate-950/70 border-slate-800'
-                : 'bg-slate-100/90 border-slate-200/80'
-            }`}
+            role="alert"
+            className="no-print rounded-2xl p-3.5 sm:p-4 border border-rose-500/40 bg-rose-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
           >
-            {[
-              { id: 'log', label: 'Daily Log', icon: Droplets },
-              { id: 'calendar', label: 'Cycle Calendar', icon: CalendarIcon },
-              {
-                id: 'insights',
-                label: 'Insights & GP Report',
-                shortLabel: 'GP & Insights',
-                icon: Stethoscope
-              },
-              { id: 'data', label: 'Export & Data', icon: ShieldCheck }
-            ].map((tab) => {
-              const Icon = tab.icon;
-              const active = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => handleSwitchTab(tab.id)}
-                  className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
-                    active
-                      ? 'bg-rose-600 text-white shadow-xs'
-                      : darkMode
-                        ? 'text-slate-300 hover:bg-slate-800'
-                        : 'text-slate-600 hover:bg-white'
-                  }`}
-                >
-                  <Icon className="w-4 h-4 shrink-0" />
-                  <span className="sm:hidden">{tab.shortLabel || tab.label}</span>
-                  <span className="hidden sm:inline">{tab.label}</span>
-                </button>
-              );
-            })}
+            <div className="flex items-start gap-2.5 text-xs text-rose-900 dark:text-rose-100">
+              <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <div className="font-bold">
+                  Unable to save changes for {formatShortDate(selectedDate)}
+                </div>
+                <p className="text-rose-800 dark:text-rose-200">
+                  {pendingNav
+                    ? 'You can retry saving when reconnected, or discard your unsaved edits to leave this view.'
+                    : 'The server could not be reached. Retry saving or discard your unsaved edits.'}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={retryPendingNavigation}
+                className="min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white active:scale-[0.98] transition cursor-pointer"
+              >
+                {pendingNav ? 'Retry Save & Continue' : 'Retry Save'}
+              </button>
+              <button
+                type="button"
+                onClick={discardPendingNavigation}
+                className={`min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-bold border active:scale-[0.98] transition cursor-pointer ${
+                  darkMode
+                    ? 'border-rose-400/50 text-rose-200 hover:bg-rose-500/20'
+                    : 'border-rose-300 bg-white text-rose-800 hover:bg-rose-50'
+                }`}
+              >
+                Discard Unsaved Changes
+              </button>
+            </div>
           </div>
-        </section>
+        )}
 
         {/* ==================================================================
             TAB 1: DAILY SYMPTOM & PERIOD LOG
@@ -1027,8 +1183,9 @@ export default function FloodgateApp({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-slate-200/60 dark:border-slate-800">
                 <div className="flex items-center justify-between sm:justify-start gap-2 w-full sm:w-auto">
                   <button
+                    type="button"
                     onClick={() => handleSelectDate(shiftDateKey(selectedDate, -1))}
-                    className={`p-2.5 rounded-xl border shrink-0 ${
+                    className={`min-w-[40px] min-h-[40px] p-2 rounded-xl border flex items-center justify-center shrink-0 active:scale-[0.98] transition cursor-pointer ${
                       darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-50'
                     }`}
                     aria-label="Previous day"
@@ -1037,24 +1194,25 @@ export default function FloodgateApp({
                   </button>
 
                   <div className="px-2 text-center sm:text-left">
-                    <div className="flex items-center justify-center sm:justify-start gap-2">
+                    <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
                       <h2 className="text-base sm:text-xl font-bold">
                         {formatDateFriendly(selectedDate)}
                       </h2>
                       {selectedDate === todayKey && (
-                        <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">
+                        <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
                           Today
                         </span>
                       )}
                     </div>
-                    <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
                       {logsMap[selectedDate] ? 'Logged entry saved for this date' : 'No entry saved yet for this date'}
                     </p>
                   </div>
 
                   <button
+                    type="button"
                     onClick={() => handleSelectDate(shiftDateKey(selectedDate, 1))}
-                    className={`p-2.5 rounded-xl border shrink-0 ${
+                    className={`min-w-[40px] min-h-[40px] p-2 rounded-xl border flex items-center justify-center shrink-0 active:scale-[0.98] transition cursor-pointer ${
                       darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-50'
                     }`}
                     aria-label="Next day"
@@ -1063,24 +1221,37 @@ export default function FloodgateApp({
                   </button>
                 </div>
 
-                {/* Date Picker & Quick Today Button */}
-                <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
+                {/* Quick Save, Date Picker & Quick Today Button */}
+                <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
+                  {isDirty && (
+                    <button
+                      type="button"
+                      onClick={() => saveDayEntry()}
+                      title={`Save log for ${formatShortDate(selectedDate)}`}
+                      className="min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-xs flex items-center gap-1.5 active:scale-[0.98] transition cursor-pointer"
+                    >
+                      <Check className="w-4 h-4 stroke-[2.5]" />
+                      <span>Save</span>
+                    </button>
+                  )}
                   {selectedDate !== todayKey && (
                     <button
+                      type="button"
                       onClick={() => handleSelectDate(todayKey)}
-                      className="px-3 py-2 rounded-xl text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800"
+                      className="min-h-[40px] px-3 py-2 rounded-xl text-xs font-semibold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 hover:bg-rose-500/20 active:scale-[0.98] transition cursor-pointer"
                     >
                       Jump to Today
                     </button>
                   )}
-                  <input
-                    type="date"
-                    value={selectedDate}
-                    onChange={(e) => e.target.value && handleSelectDate(e.target.value)}
-                    className={`px-3 py-2 rounded-xl text-xs font-medium border ${
-                      darkMode ? 'bg-slate-800 border-slate-700 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-700'
-                    }`}
-                  />
+                  <div className="min-w-[145px] flex-1 sm:flex-initial sm:w-44">
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      aria-label="Select log date"
+                      onChange={(e) => e.target.value && handleSelectDate(e.target.value)}
+                      className={getFieldClass('rose', 'min-h-[40px] font-medium', { compact: true })}
+                    />
+                  </div>
                   {logsMap[selectedDate] && (
                     <button
                       type="button"
@@ -1095,7 +1266,7 @@ export default function FloodgateApp({
                       }
                       title="Clear this day's entry"
                       aria-label="Clear this day's entry"
-                      className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
+                      className="min-w-[40px] min-h-[40px] p-2 rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 active:scale-[0.98] transition cursor-pointer"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -1104,7 +1275,7 @@ export default function FloodgateApp({
               </div>
 
               {/* 7-Day Quick Selector Strip */}
-              <div className="grid grid-cols-7 gap-1.5 sm:gap-2 pt-4">
+              <div className="grid grid-cols-7 gap-1 sm:gap-2 pt-4">
                 {weekStripDates.map((dStr) => {
                   const [y, m, d] = dStr.split('-').map(Number);
                   const dateObj = new Date(y, m - 1, d);
@@ -1116,8 +1287,9 @@ export default function FloodgateApp({
                   return (
                     <button
                       key={dStr}
+                      type="button"
                       onClick={() => handleSelectDate(dStr)}
-                      className={`flex flex-col items-center py-2 px-1 rounded-2xl border transition-all ${
+                      className={`flex flex-col items-center py-2 px-0.5 sm:px-1 rounded-2xl border transition-all active:scale-[0.98] cursor-pointer ${
                         isSelected
                           ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
                           : darkMode
@@ -1125,7 +1297,7 @@ export default function FloodgateApp({
                             : 'bg-slate-50/80 border-slate-200/70 hover:bg-rose-50/50 text-slate-700'
                       }`}
                     >
-                      <span className={`text-[11px] font-medium ${isSelected ? 'text-rose-100' : 'opacity-70'}`}>
+                      <span className={`text-[11px] sm:text-xs font-medium ${isSelected ? 'text-rose-100' : 'text-slate-500 dark:text-slate-400'}`}>
                         {dayName}
                       </span>
                       <span className="text-sm sm:text-base font-bold my-0.5">{d}</span>
@@ -1167,10 +1339,10 @@ export default function FloodgateApp({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2.5 opacity-75">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2.5 text-slate-600 dark:text-slate-300">
                     Bleeding Severity
                   </label>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 gap-2.5">
                     {BLEEDING_LEVELS.map((level) => {
                       const active = formData.bleedingSeverity === level.id;
                       return (
@@ -1178,32 +1350,30 @@ export default function FloodgateApp({
                           key={level.id}
                           type="button"
                           onClick={() => updateField('bleedingSeverity', level.id)}
-                          className={`flex flex-col items-start p-3 rounded-2xl border text-left transition-all ${
+                          className={`flex flex-col items-start p-3 rounded-2xl border text-left transition-all active:scale-[0.98] cursor-pointer ${
                             active
-                              ? level.activeColor + ' shadow-xs scale-[1.01]'
+                              ? 'border-rose-600 ring-2 ring-rose-600/30 bg-rose-500/10 dark:bg-rose-500/15 text-slate-900 dark:text-slate-100 shadow-xs'
                               : darkMode
-                                ? 'bg-slate-800/70 border-slate-700 text-slate-200 hover:bg-slate-800'
-                                : level.color + ' hover:brightness-95'
+                                ? 'bg-slate-800/60 border-slate-700 text-slate-200 hover:bg-slate-800'
+                                : 'bg-slate-50/80 border-slate-200 text-slate-800 hover:bg-white'
                           }`}
                         >
-                          <div className="flex items-center justify-between w-full mb-1">
-                            <span className="font-bold text-sm">{level.label}</span>
-                            <div className="flex gap-0.5">
+                          <div className="flex items-center justify-between gap-1.5 w-full mb-1 min-w-0">
+                            <span className="font-bold text-sm leading-tight">{level.label}</span>
+                            <div className="flex gap-0.5 shrink-0">
                               {Array.from({ length: Math.max(1, level.drops) }).map((_, idx) => (
                                 <span
                                   key={idx}
-                                  className={`w-1.5 h-2.5 rounded-full ${
+                                  className={`w-1 h-2.5 rounded-full ${
                                     level.drops === 0
-                                      ? 'bg-slate-400/40'
-                                      : active
-                                        ? 'bg-white'
-                                        : 'bg-rose-500'
+                                      ? 'bg-slate-300 dark:bg-slate-600'
+                                      : level.dotColor
                                   }`}
                                 />
                               ))}
                             </div>
                           </div>
-                          <span className={`text-[11px] leading-tight ${active ? 'text-rose-100' : 'opacity-75'}`}>
+                          <span className={`text-xs leading-tight ${active ? 'text-slate-700 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400'}`}>
                             {level.desc}
                           </span>
                         </button>
@@ -1216,10 +1386,10 @@ export default function FloodgateApp({
                   <div className={`p-4 rounded-2xl border space-y-4 ${
                     darkMode ? 'bg-slate-800/40 border-slate-800' : 'bg-rose-50/40 border-rose-100'
                   }`}>
-                    <div className="text-xs font-semibold uppercase tracking-wider opacity-75">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
                       Protection Used Today (Optional)
                     </div>
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       {[
                         { field: 'padCount', label: 'Pads' },
                         { field: 'tamponCount', label: 'Tampons' },
@@ -1237,7 +1407,7 @@ export default function FloodgateApp({
                               type="button"
                               aria-label={`Decrease ${item.label}`}
                               onClick={() => updateField(item.field, Math.max(0, (formData[item.field] || 0) - 1))}
-                              className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
+                              className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.98] transition cursor-pointer"
                             >
                               <Minus className="w-3.5 h-3.5" />
                             </button>
@@ -1246,7 +1416,7 @@ export default function FloodgateApp({
                               type="button"
                               aria-label={`Increase ${item.label}`}
                               onClick={() => updateField(item.field, (formData[item.field] || 0) + 1)}
-                              className="p-1.5 rounded-lg bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200 hover:bg-rose-200"
+                              className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200 hover:bg-rose-200 active:scale-[0.98] transition cursor-pointer"
                             >
                               <Plus className="w-3.5 h-3.5" />
                             </button>
@@ -1258,7 +1428,7 @@ export default function FloodgateApp({
                     <button
                       type="button"
                       onClick={() => updateField('leakedThrough', !formData.leakedThrough)}
-                      className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition-all ${
+                      className={`w-full min-h-[40px] flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer ${
                         formData.leakedThrough
                           ? 'bg-red-700 text-white border-red-800'
                           : darkMode
@@ -1268,7 +1438,7 @@ export default function FloodgateApp({
                     >
                       <span>Leaked through clothes or bedding today</span>
                       <div className={`w-5 h-5 rounded-md flex items-center justify-center ${
-                        formData.leakedThrough ? 'bg-white text-red-700' : 'border border-slate-300'
+                        formData.leakedThrough ? 'bg-white text-red-700' : 'border border-slate-300 dark:border-slate-600'
                       }`}>
                         {formData.leakedThrough && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                       </div>
@@ -1286,7 +1456,7 @@ export default function FloodgateApp({
                       ? 'bg-slate-800/40 border-slate-800'
                       : 'bg-slate-50/70 border-slate-200/80'
                 }`}>
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
                       <h4 className="font-bold text-sm flex items-center gap-2">
                         <span>Blood Clots Tracker</span>
@@ -1296,19 +1466,19 @@ export default function FloodgateApp({
                           </span>
                         )}
                       </h4>
-                      <p className="text-xs opacity-75">Did you pass any blood clots today?</p>
+                      <p className="text-xs text-slate-600 dark:text-slate-300">Did you pass any blood clots today?</p>
                     </div>
 
-                    <div className="flex rounded-xl p-1 bg-slate-200/70 dark:bg-slate-900">
+                    <div className="flex gap-1 rounded-2xl p-1 bg-slate-200/70 dark:bg-slate-950/70 self-start sm:self-auto">
                       <button
                         type="button"
                         onClick={() => updateField('hasClots', false)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                        className={`min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer ${
                           !formData.hasClots
                             ? darkMode
                               ? 'bg-slate-700 text-white shadow-2xs'
                               : 'bg-white text-slate-800 shadow-2xs'
-                            : 'text-slate-500'
+                            : 'text-slate-600 dark:text-slate-300'
                         }`}
                       >
                         No Clots
@@ -1319,10 +1489,10 @@ export default function FloodgateApp({
                           updateField('hasClots', true);
                           if (!formData.clotCount) updateField('clotCount', 1);
                         }}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                        className={`min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer ${
                           formData.hasClots
                             ? 'bg-purple-600 text-white shadow-2xs'
-                            : 'text-slate-500'
+                            : 'text-slate-600 dark:text-slate-300'
                         }`}
                       >
                         Yes, Clots
@@ -1339,7 +1509,7 @@ export default function FloodgateApp({
                             type="button"
                             aria-label="Decrease clot count"
                             onClick={() => updateField('clotCount', Math.max(1, (formData.clotCount || 1) - 1))}
-                            className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-purple-200 dark:border-slate-700 hover:bg-purple-100 dark:hover:bg-slate-700"
+                            className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-white dark:bg-slate-800 border border-purple-200 dark:border-slate-700 hover:bg-purple-100 dark:hover:bg-slate-700 active:scale-[0.98] transition cursor-pointer"
                           >
                             <Minus className="w-4 h-4" />
                           </button>
@@ -1350,7 +1520,7 @@ export default function FloodgateApp({
                             type="button"
                             aria-label="Increase clot count"
                             onClick={() => updateField('clotCount', (formData.clotCount || 0) + 1)}
-                            className="p-2 rounded-xl bg-purple-600 text-white hover:bg-purple-700"
+                            className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-purple-600 text-white hover:bg-purple-700 active:scale-[0.98] transition cursor-pointer"
                           >
                             <Plus className="w-4 h-4" />
                           </button>
@@ -1359,7 +1529,7 @@ export default function FloodgateApp({
 
                       <div>
                         <span className="block text-xs font-semibold mb-2">Clot Size(s) Observed:</span>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {CLOT_SIZES.map((sz) => {
                             const selected = (formData.clotSizes || []).includes(sz.id);
                             return (
@@ -1367,7 +1537,7 @@ export default function FloodgateApp({
                                 key={sz.id}
                                 type="button"
                                 onClick={() => toggleArrayItem('clotSizes', sz.id)}
-                                className={`p-2.5 rounded-xl border text-left transition-all ${
+                                className={`min-h-[40px] p-2.5 rounded-xl border text-left transition-all active:scale-[0.98] cursor-pointer ${
                                   selected
                                     ? 'bg-purple-700 text-white border-purple-700'
                                     : darkMode
@@ -1376,7 +1546,7 @@ export default function FloodgateApp({
                                 }`}
                               >
                                 <div className="text-xs font-bold">{sz.label}</div>
-                                <div className={`text-[10px] ${selected ? 'text-purple-200' : 'opacity-70'}`}>
+                                <div className={`text-xs ${selected ? 'text-purple-100' : 'text-slate-500 dark:text-slate-400'}`}>
                                   {sz.desc}
                                 </div>
                               </button>
@@ -1393,25 +1563,25 @@ export default function FloodgateApp({
               <section className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-5 ${
                 darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2.5 rounded-2xl bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="p-2.5 rounded-2xl bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 shrink-0">
                       <Activity className="w-5 h-5" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <h3 className="text-base sm:text-lg font-bold">Endo Pain &amp; Cramping</h3>
-                      <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
                         Severity scale (0–10), body locations &amp; pain sensations
                       </p>
                     </div>
                   </div>
-                  <div className={`px-3 py-1.5 rounded-2xl text-sm font-bold ${getPainBadgeStyle(formData.painScore)}`}>
+                  <div className={`px-3 py-1.5 rounded-2xl text-sm font-bold shrink-0 whitespace-nowrap ${getPainBadgeStyle(formData.painScore)}`}>
                     {formData.painScore} / 10
                   </div>
                 </div>
 
                 <div className="space-y-3">
-                  <div className="flex justify-between text-xs font-medium opacity-75">
+                  <div className="flex justify-between text-xs font-medium text-slate-600 dark:text-slate-300">
                     <span>0 • No Pain</span>
                     <span>5 • Moderate</span>
                     <span>10 • Bedbound</span>
@@ -1425,7 +1595,7 @@ export default function FloodgateApp({
                     onChange={(e) => updateField('painScore', Number(e.target.value))}
                     className="w-full accent-rose-600 h-2.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
                   />
-                  <div className="grid grid-cols-11 gap-1">
+                  <div className="grid grid-cols-6 sm:grid-cols-11 lg:grid-cols-6 xl:grid-cols-11 gap-1.5 xl:gap-1">
                     {Array.from({ length: 11 }).map((_, num) => {
                       const active = Number(formData.painScore) === num;
                       return (
@@ -1433,7 +1603,7 @@ export default function FloodgateApp({
                           key={num}
                           type="button"
                           onClick={() => updateField('painScore', num)}
-                          className={`py-2 rounded-xl text-xs font-bold border transition-all ${
+                          className={`min-h-[40px] py-2 rounded-xl text-xs font-bold border transition-all active:scale-[0.98] cursor-pointer ${
                             active
                               ? 'bg-rose-600 text-white border-rose-600 scale-105 shadow-xs'
                               : darkMode
@@ -1449,7 +1619,7 @@ export default function FloodgateApp({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2.5 opacity-75">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2.5 text-slate-600 dark:text-slate-300">
                     Where is the pain located?
                   </label>
                   <div className="flex flex-wrap gap-2">
@@ -1460,9 +1630,9 @@ export default function FloodgateApp({
                           key={loc}
                           type="button"
                           onClick={() => toggleArrayItem('painLocations', loc)}
-                          className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all ${
+                          className={`min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
                             active
-                              ? 'bg-amber-600 text-white border-amber-700 shadow-2xs'
+                              ? 'bg-amber-700 text-white border-amber-800 shadow-2xs'
                               : darkMode
                                 ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
                                 : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-amber-50'
@@ -1476,7 +1646,7 @@ export default function FloodgateApp({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2.5 opacity-75">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2.5 text-slate-600 dark:text-slate-300">
                     Type of Pain
                   </label>
                   <div className="flex flex-wrap gap-2">
@@ -1487,11 +1657,9 @@ export default function FloodgateApp({
                           key={pt}
                           type="button"
                           onClick={() => toggleArrayItem('painTypes', pt)}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
+                          className={`min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
                             active
-                              ? darkMode
-                                ? 'bg-rose-600 text-white border-rose-500'
-                                : 'bg-slate-800 text-white border-slate-900'
+                              ? 'bg-rose-600 text-white border-rose-600'
                               : darkMode
                                 ? 'bg-slate-800/50 border-slate-700 text-slate-300'
                                 : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
@@ -1516,7 +1684,7 @@ export default function FloodgateApp({
                     </div>
                     <div>
                       <h3 className="text-base sm:text-lg font-bold">Bowel &amp; GI Symptoms</h3>
-                      <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
                         &ldquo;Endo belly&rdquo; bloating, bowel pain &amp; digestive changes
                       </p>
                     </div>
@@ -1524,7 +1692,7 @@ export default function FloodgateApp({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2.5 opacity-75">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2.5 text-slate-600 dark:text-slate-300">
                     Overall Bowel / GI Distress
                   </label>
                   <div className="grid grid-cols-4 gap-2">
@@ -1535,7 +1703,7 @@ export default function FloodgateApp({
                           key={sev.id}
                           type="button"
                           onClick={() => updateField('bowelSeverity', sev.id)}
-                          className={`py-2.5 px-2 rounded-2xl text-xs font-bold border transition-all ${
+                          className={`min-h-[40px] py-2.5 px-2 rounded-xl text-xs font-bold border transition-all active:scale-[0.98] cursor-pointer ${
                             active
                               ? sev.activeColor + ' shadow-xs'
                               : darkMode
@@ -1551,7 +1719,7 @@ export default function FloodgateApp({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2.5 opacity-75">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2.5 text-slate-600 dark:text-slate-300">
                     Specific Bowel &amp; GI Symptoms
                   </label>
                   <div className="flex flex-wrap gap-2">
@@ -1567,7 +1735,7 @@ export default function FloodgateApp({
                               updateField('bowelSeverity', 'mild');
                             }
                           }}
-                          className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all ${
+                          className={`min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
                             active
                               ? 'bg-orange-600 text-white border-orange-700 shadow-2xs'
                               : darkMode
@@ -1587,14 +1755,14 @@ export default function FloodgateApp({
                 }`}>
                   <div>
                     <div className="text-xs font-bold">Bowel Movements Today</div>
-                    <div className="text-[11px] opacity-70">Helpful for tracking constipation vs frequency</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">Helpful for tracking constipation vs frequency</div>
                   </div>
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
                       aria-label="Decrease bowel movements"
                       onClick={() => updateField('bowelMovementsCount', Math.max(0, (formData.bowelMovementsCount || 0) - 1))}
-                      className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
+                      className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 active:scale-[0.98] transition cursor-pointer"
                     >
                       <Minus className="w-4 h-4" />
                     </button>
@@ -1603,7 +1771,7 @@ export default function FloodgateApp({
                       type="button"
                       aria-label="Increase bowel movements"
                       onClick={() => updateField('bowelMovementsCount', (formData.bowelMovementsCount || 0) + 1)}
-                      className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
+                      className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 active:scale-[0.98] transition cursor-pointer"
                     >
                       <Plus className="w-4 h-4" />
                     </button>
@@ -1622,7 +1790,7 @@ export default function FloodgateApp({
                     </div>
                     <div>
                       <h3 className="text-base sm:text-lg font-bold">Medication &amp; Relief</h3>
-                      <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
                         Painkillers, hormones, heat therapy &amp; daily triggers
                       </p>
                     </div>
@@ -1630,14 +1798,14 @@ export default function FloodgateApp({
                   <button
                     type="button"
                     onClick={copyYesterdayMedications}
-                    className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800"
+                    className="min-h-[40px] text-xs font-semibold px-3.5 py-2 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 active:scale-[0.98] transition cursor-pointer"
                   >
                     Copy Yesterday&apos;s Meds
                   </button>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2 opacity-75">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2 text-slate-600 dark:text-slate-300">
                     Tap to Log Medication
                   </label>
                   <div className="flex flex-wrap gap-1.5">
@@ -1646,51 +1814,45 @@ export default function FloodgateApp({
                         key={preset.name}
                         type="button"
                         onClick={() => handleAddPresetMed(preset)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                        className={`min-h-[40px] flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
                           darkMode
                             ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-emerald-950 hover:border-emerald-700'
                             : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-emerald-50 hover:border-emerald-300'
                         }`}
                       >
-                        <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                        <Plus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                         <span>{preset.name}</span>
-                        <span className="opacity-60 text-[10px]">({preset.defaultDose})</span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">({preset.defaultDose})</span>
                       </button>
                     ))}
                   </div>
                 </div>
 
-                <form onSubmit={handleAddCustomMed} className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                <form onSubmit={handleAddCustomMed} className="grid grid-cols-2 xl:grid-cols-12 gap-2">
                   <input
                     type="text"
                     placeholder="Custom medication..."
                     value={customMedName}
                     onChange={(e) => setCustomMedName(e.target.value)}
-                    className={`sm:col-span-4 px-3 py-2 rounded-xl text-xs border ${
-                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'
-                    }`}
+                    className={getFieldClass('rose', 'col-span-2 xl:col-span-4', { compact: true })}
                   />
                   <input
                     type="text"
                     placeholder="Dose (e.g. 500mg)"
                     value={customMedDose}
                     onChange={(e) => setCustomMedDose(e.target.value)}
-                    className={`sm:col-span-3 px-3 py-2 rounded-xl text-xs border ${
-                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'
-                    }`}
+                    className={getFieldClass('rose', 'col-span-1 xl:col-span-3', { compact: true })}
                   />
                   <input
                     type="text"
                     placeholder="Time (optional)"
                     value={customMedTime}
                     onChange={(e) => setCustomMedTime(e.target.value)}
-                    className={`sm:col-span-2 px-3 py-2 rounded-xl text-xs border ${
-                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'
-                    }`}
+                    className={getFieldClass('rose', 'col-span-1 xl:col-span-2', { compact: true })}
                   />
                   <button
                     type="submit"
-                    className="sm:col-span-3 px-3 py-2 rounded-xl text-xs font-bold bg-emerald-700 text-white hover:bg-emerald-800"
+                    className="col-span-2 xl:col-span-3 min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold bg-emerald-700 text-white hover:bg-emerald-800 active:scale-[0.98] transition cursor-pointer"
                   >
                     + Add Med
                   </button>
@@ -1698,7 +1860,7 @@ export default function FloodgateApp({
 
                 {formData.medications.length > 0 && (
                   <div className="space-y-2">
-                    <div className="text-xs font-semibold opacity-75">Taken on {formatShortDate(selectedDate)}:</div>
+                    <div className="text-xs font-semibold text-slate-600 dark:text-slate-300">Taken on {formatShortDate(selectedDate)}:</div>
                     {formData.medications.map((med) => (
                       <div
                         key={med.id}
@@ -1706,34 +1868,34 @@ export default function FloodgateApp({
                           darkMode ? 'bg-slate-800/70 border-slate-700' : 'bg-emerald-50/40 border-emerald-200/80'
                         }`}
                       >
-                        <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap xl:flex-nowrap items-center justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-[130px]">
-                            <Pill className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <Pill className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                             <span className="font-bold text-xs">{med.name}</span>
                           </div>
-                          <div className="flex items-center gap-2 flex-1">
-                            <input
-                              type="text"
-                              value={med.dose}
-                              onChange={(e) => updateMedicationItem(med.id, 'dose', e.target.value)}
-                              placeholder="Dose"
-                              className={`w-24 px-2 py-1 rounded-lg text-xs border ${
-                                darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'
-                              }`}
-                            />
-                            <input
-                              type="text"
-                              value={med.timeNotes}
-                              onChange={(e) => updateMedicationItem(med.id, 'timeNotes', e.target.value)}
-                              placeholder="Time(s)"
-                              className={`flex-1 min-w-[80px] px-2 py-1 rounded-lg text-xs border ${
-                                darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'
-                              }`}
-                            />
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <div className="w-24 sm:w-28 shrink-0">
+                              <input
+                                type="text"
+                                value={med.dose}
+                                onChange={(e) => updateMedicationItem(med.id, 'dose', e.target.value)}
+                                placeholder="Dose"
+                                className={getFieldClass('rose', '', { compact: true })}
+                              />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <input
+                                type="text"
+                                value={med.timeNotes}
+                                onChange={(e) => updateMedicationItem(med.id, 'timeNotes', e.target.value)}
+                                placeholder="Time(s)"
+                                className={getFieldClass('rose', '', { compact: true })}
+                              />
+                            </div>
                             <button
                               type="button"
                               onClick={() => removeMedicationItem(med.id)}
-                              className="p-1.5 text-slate-400 hover:text-red-600"
+                              className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 active:scale-[0.98] transition cursor-pointer shrink-0"
                               title="Remove medication"
                               aria-label={`Remove ${med.name}`}
                             >
@@ -1742,9 +1904,9 @@ export default function FloodgateApp({
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between pt-1.5 border-t border-emerald-200/40 dark:border-slate-700/60">
-                          <span className="text-[11px] opacity-70">Relief effectiveness:</span>
-                          <div className="flex items-center gap-1">
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-emerald-200/40 dark:border-slate-700/60">
+                          <span className="text-xs text-slate-600 dark:text-slate-300">Relief effectiveness:</span>
+                          <div className="flex flex-wrap items-center gap-1.5">
                             {MED_EFFECTIVENESS.map((eff) => {
                               const active = (med.effective || 'helped') === eff.id;
                               return (
@@ -1752,11 +1914,11 @@ export default function FloodgateApp({
                                   key={eff.id}
                                   type="button"
                                   onClick={() => updateMedicationItem(med.id, 'effective', eff.id)}
-                                  className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold border transition-all ${
+                                  className={`min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
                                     active
                                       ? eff.activeClass
                                       : darkMode
-                                        ? 'bg-slate-900 border-slate-700 text-slate-400'
+                                        ? 'bg-slate-900 border-slate-700 text-slate-300'
                                         : 'bg-white border-slate-200 text-slate-600'
                                   }`}
                                 >
@@ -1772,7 +1934,7 @@ export default function FloodgateApp({
                 )}
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2.5 opacity-75">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2.5 text-slate-600 dark:text-slate-300">
                     Relief Methods &amp; External Factors
                   </label>
                   <div className="flex flex-wrap gap-2">
@@ -1783,7 +1945,7 @@ export default function FloodgateApp({
                           key={ef.id}
                           type="button"
                           onClick={() => toggleArrayItem('externalFactors', ef.id)}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                          className={`min-h-[40px] px-3 py-2 rounded-xl text-xs font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
                             active
                               ? 'bg-emerald-700 text-white border-emerald-800 shadow-2xs'
                               : darkMode
@@ -1805,7 +1967,7 @@ export default function FloodgateApp({
               darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
             }`}>
               <div className="flex items-center gap-2 mb-3">
-                <FileText className="w-5 h-5 text-rose-500" />
+                <FileText className="w-5 h-5 text-rose-600 dark:text-rose-400" />
                 <h3 className="text-base font-bold">{ownerName ? `${ownerName}'s Daily Notes` : 'Daily Notes'}</h3>
               </div>
               <textarea
@@ -1813,30 +1975,41 @@ export default function FloodgateApp({
                 value={formData.notes}
                 onChange={(e) => updateField('notes', e.target.value)}
                 placeholder="Write any extra details about today (e.g. specific foods eaten, how sleep went, questions for the GP or gynecologist)..."
-                className={`w-full p-3.5 rounded-2xl text-sm border focus:outline-hidden focus:ring-2 focus:ring-rose-500 ${
-                  darkMode
-                    ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500'
-                    : 'bg-slate-50/70 border-slate-200 text-slate-800 placeholder-slate-400'
-                }`}
+                className={getFieldClass('rose')}
               />
 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-4 pt-4 border-t border-slate-200/60 dark:border-slate-800">
-                <div className="text-xs opacity-75 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-rose-500" />
+                <div className="text-xs text-slate-600 dark:text-slate-300 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
                   <span>
                     {isDirty
                       ? 'You have unsaved changes for this day (will also auto-save if you switch dates).'
                       : 'All changes saved to your local Floodgate database across phone & tablet.'}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => saveDayEntry()}
-                  className="w-full sm:w-auto px-8 py-3.5 rounded-2xl font-bold text-sm bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-700 hover:to-rose-800 text-white shadow-md flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Check className="w-4 h-4 stroke-[2.5]" />
-                  <span>Save Log for {formatShortDate(selectedDate)}</span>
-                </button>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  {isDirty && (saveFailed || pendingNav) && (
+                    <button
+                      type="button"
+                      onClick={discardPendingNavigation}
+                      className={`min-h-[44px] px-4 py-3 rounded-2xl font-bold text-xs border active:scale-[0.98] transition cursor-pointer ${
+                        darkMode
+                          ? 'border-rose-500/40 text-rose-200 hover:bg-rose-500/15'
+                          : 'border-rose-300 text-rose-800 hover:bg-rose-50'
+                      }`}
+                    >
+                      Discard Unsaved Changes
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => saveDayEntry()}
+                    className="w-full sm:w-auto min-h-[44px] px-8 py-3.5 rounded-2xl font-bold text-sm bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-700 hover:to-rose-800 text-white shadow-md flex items-center justify-center gap-2 active:scale-[0.98] transition cursor-pointer"
+                  >
+                    <Check className="w-4 h-4 stroke-[2.5]" />
+                    <span>Save Log for {formatShortDate(selectedDate)}</span>
+                  </button>
+                </div>
               </div>
             </section>
           </div>
@@ -1846,11 +2019,11 @@ export default function FloodgateApp({
             TAB 2: INTERACTIVE CALENDAR & HISTORY VIEW
         ================================================================== */}
         {activeTab === 'calendar' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
-            <div className={`lg:col-span-8 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 sm:gap-5">
+            <div className={`xl:col-span-8 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${
               darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
             }`}>
-              <div className="flex items-center justify-between mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
                 <div>
                   <h2 className="text-xl font-bold">
                     {new Date(calendarMonth.year, calendarMonth.month, 1).toLocaleDateString('en-GB', {
@@ -1873,7 +2046,7 @@ export default function FloodgateApp({
                         return { year: d.getFullYear(), month: d.getMonth() };
                       })
                     }
-                    className={`p-2 rounded-xl border ${
+                    className={`min-w-[40px] min-h-[40px] p-2 rounded-xl border flex items-center justify-center active:scale-[0.98] transition cursor-pointer ${
                       darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-100'
                     }`}
                   >
@@ -1885,7 +2058,7 @@ export default function FloodgateApp({
                       setCalendarMonth({ year: now.getFullYear(), month: now.getMonth() });
                       handleSelectDate(todayKey);
                     }}
-                    className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800"
+                    className="min-h-[40px] px-3 py-2 rounded-xl text-xs font-semibold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 hover:bg-rose-500/20 active:scale-[0.98] transition cursor-pointer"
                   >
                     Current Month
                   </button>
@@ -1898,7 +2071,7 @@ export default function FloodgateApp({
                         return { year: d.getFullYear(), month: d.getMonth() };
                       })
                     }
-                    className={`p-2 rounded-xl border ${
+                    className={`min-w-[40px] min-h-[40px] p-2 rounded-xl border flex items-center justify-center active:scale-[0.98] transition cursor-pointer ${
                       darkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-100'
                     }`}
                   >
@@ -1915,7 +2088,7 @@ export default function FloodgateApp({
                   <span className="w-3 h-3 rounded-full bg-purple-600 inline-block" /> Blood Clots
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span className="px-1.5 py-0.5 rounded-md font-bold text-[10px] bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300">
+                  <span className="px-1.5 py-0.5 rounded-md font-bold text-[11px] bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300">
                     6+
                   </span>{' '}
                   High Pain (≥6)
@@ -1928,16 +2101,16 @@ export default function FloodgateApp({
                 </span>
               </div>
 
-              <div className="grid grid-cols-7 gap-1.5 text-center text-xs font-bold opacity-60 mb-2">
+              <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center text-[11px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 mb-2">
                 {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
                   <div key={d} className="py-1">{d}</div>
                 ))}
               </div>
 
-              <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+              <div className="grid grid-cols-7 gap-1 sm:gap-2">
                 {calendarGrid.map((cell, idx) => {
                   if (!cell) {
-                    return <div key={`empty-${idx}`} className="h-16 sm:h-22 rounded-2xl bg-transparent" />;
+                    return <div key={`empty-${idx}`} className="min-h-[4.25rem] sm:h-24 rounded-xl sm:rounded-2xl bg-transparent" />;
                   }
                   const { dayNumber, dateStr, log } = cell;
                   const isSelected = dateStr === selectedDate;
@@ -1948,23 +2121,24 @@ export default function FloodgateApp({
                   return (
                     <button
                       key={dateStr}
+                      type="button"
                       onClick={() => handleSelectDate(dateStr)}
-                      className={`h-16 sm:h-22 p-1.5 sm:p-2 rounded-2xl border flex flex-col justify-between text-left transition-all relative ${
+                      className={`min-h-[4.25rem] sm:h-24 p-1 sm:p-2 rounded-xl sm:rounded-2xl border flex flex-col justify-between text-left transition-all relative active:scale-[0.98] cursor-pointer ${
                         isSelected
-                          ? 'ring-2 ring-rose-600 border-rose-600 bg-rose-50/40 dark:bg-rose-950/30'
+                          ? 'ring-2 ring-rose-600 border-rose-600 bg-rose-500/10'
                           : darkMode
                             ? 'bg-slate-800/50 border-slate-800 hover:bg-slate-800'
                             : 'bg-slate-50/60 border-slate-200/70 hover:bg-white'
                       }`}
                     >
-                      <div className="flex items-center justify-between w-full">
-                        <span className={`text-xs sm:text-sm font-bold w-6 h-6 rounded-full flex items-center justify-center ${
+                      <div className="flex items-center justify-between w-full gap-0.5">
+                        <span className={`w-5 h-5 sm:w-6 sm:h-6 text-[11px] sm:text-xs font-bold rounded-full flex items-center justify-center shrink-0 ${
                           isToday ? 'bg-rose-600 text-white' : ''
                         }`}>
                           {dayNumber}
                         </span>
                         {log?.painScore > 0 && (
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${getPainBadgeStyle(log.painScore)}`}>
+                          <span className={`hidden sm:inline text-[11px] px-1.5 py-0.5 rounded-md font-bold ${getPainBadgeStyle(log.painScore)}`}>
                             {log.painScore}
                           </span>
                         )}
@@ -1972,21 +2146,33 @@ export default function FloodgateApp({
 
                       <div className="space-y-1 w-full">
                         {hasBleeding && (
-                          <div className={`w-full text-[10px] font-semibold px-1.5 py-0.5 rounded-md truncate text-white ${
-                            bleedObj?.dotColor || 'bg-rose-500'
+                          <div className={`hidden sm:block w-full text-[11px] font-semibold px-1.5 py-0.5 rounded-md truncate ${
+                            bleedObj?.pillClass || 'bg-rose-600 text-white border border-rose-600'
                           }`}>
                             {bleedObj?.label}
                           </div>
                         )}
-                        <div className="flex items-center gap-1 flex-wrap">
+                        <div className="flex items-center gap-0.5 sm:gap-1 flex-wrap">
+                          {hasBleeding && (
+                            <span
+                              className={`sm:hidden w-2 h-2 rounded-full ${bleedObj?.dotColor || 'bg-rose-500'}`}
+                              title={`Flow: ${bleedObj?.label || log.bleedingSeverity}`}
+                            />
+                          )}
+                          {Number(log?.painScore) >= 6 && (
+                            <span
+                              className="sm:hidden w-2 h-2 rounded-full bg-amber-500"
+                              title={`Pain: ${log.painScore}/10`}
+                            />
+                          )}
                           {log?.hasClots && (
-                            <span className="w-2.5 h-2.5 rounded-full bg-purple-600" title={`Clots: ${log.clotCount}`} />
+                            <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-purple-600" title={`Clots: ${log.clotCount}`} />
                           )}
                           {(log?.bowelSeverity === 'moderate' || log?.bowelSeverity === 'severe') && (
-                            <span className="w-2.5 h-2.5 rounded-full bg-orange-500" title={`Bowel: ${log.bowelSeverity}`} />
+                            <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-orange-500" title={`Bowel: ${log.bowelSeverity}`} />
                           )}
                           {log?.medications?.length > 0 && (
-                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" title="Medication taken" />
+                            <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-600" title="Medication taken" />
                           )}
                         </div>
                       </div>
@@ -1996,20 +2182,21 @@ export default function FloodgateApp({
               </div>
             </div>
 
-            <div className={`lg:col-span-4 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between ${
+            <div className={`xl:col-span-4 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between ${
               darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
             }`}>
               <div className="space-y-5">
-                <div className="flex items-center justify-between border-b pb-4 border-slate-200/60 dark:border-slate-800">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-4 border-slate-200/60 dark:border-slate-800">
                   <div>
-                    <span className="text-xs font-semibold uppercase tracking-wider text-rose-500">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-rose-600 dark:text-rose-400">
                       Selected Date
                     </span>
                     <h3 className="text-lg font-bold">{formatDateFriendly(selectedDate)}</h3>
                   </div>
                   <button
+                    type="button"
                     onClick={() => handleSwitchTab('log')}
-                    className="px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700"
+                    className="min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 active:scale-[0.98] transition cursor-pointer"
                   >
                     Edit Day Log
                   </button>
@@ -2020,7 +2207,7 @@ export default function FloodgateApp({
                     <div className={`p-3.5 rounded-2xl border ${
                       darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-rose-50/50 border-rose-100'
                     }`}>
-                      <div className="text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
+                      <div className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
                         Bleeding &amp; Clots
                       </div>
                       <div className="font-semibold capitalize">
@@ -2029,10 +2216,16 @@ export default function FloodgateApp({
                       </div>
                       {logsMap[selectedDate].hasClots ? (
                         <div className="mt-2 pt-2 border-t border-rose-200/50 dark:border-slate-700 text-purple-700 dark:text-purple-300 font-semibold text-xs">
-                          Clots: {logsMap[selectedDate].clotCount} passed ({(logsMap[selectedDate].clotSizes || []).join(', ') || 'size not specified'})
+                          Clots: {logsMap[selectedDate].clotCount} passed (
+                          {(logsMap[selectedDate].clotSizes || []).length > 0
+                            ? logsMap[selectedDate].clotSizes
+                                .map((id) => CLOT_SIZE_LABELS[id] || id)
+                                .join(', ')
+                            : 'size not specified'}
+                          )
                         </div>
                       ) : (
-                        <div className="text-xs opacity-60 mt-1">No blood clots logged</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">No blood clots logged</div>
                       )}
                     </div>
 
@@ -2040,7 +2233,7 @@ export default function FloodgateApp({
                       darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-amber-50/40 border-amber-100'
                     }`}>
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-bold uppercase tracking-wider opacity-70">Pain Level</span>
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">Pain Level</span>
                         <span className={`px-2 py-0.5 rounded-lg text-xs font-bold ${getPainBadgeStyle(logsMap[selectedDate].painScore)}`}>
                           {logsMap[selectedDate].painScore} / 10
                         </span>
@@ -2055,35 +2248,42 @@ export default function FloodgateApp({
                     <div className={`p-3.5 rounded-2xl border ${
                       darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-orange-50/40 border-orange-100'
                     }`}>
-                      <div className="text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
+                      <div className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
                         Bowel &amp; GI ({logsMap[selectedDate].bowelSeverity})
                       </div>
                       {(logsMap[selectedDate].bowelSymptoms || []).length > 0 ? (
                         <div className="text-xs">{logsMap[selectedDate].bowelSymptoms.join(', ')}</div>
                       ) : (
-                        <div className="text-xs opacity-60">No specific GI symptoms tagged</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">No specific GI symptoms tagged</div>
                       )}
                     </div>
                   </div>
                 ) : (
-                  <div className="py-12 text-center space-y-3">
-                    <CalendarIcon className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700" />
-                    <p className="text-sm font-medium">No symptoms logged for this date yet.</p>
-                    <button
-                      onClick={() => handleSwitchTab('log')}
-                      className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-100 text-rose-800 hover:bg-rose-200 dark:bg-rose-950/80 dark:text-rose-200 dark:border dark:border-rose-800"
-                    >
-                      + Log Symptoms for {formatShortDate(selectedDate)}
-                    </button>
-                  </div>
+                  <EmptyStateCard
+                    accent="rose"
+                    darkMode={darkMode}
+                    icon={CalendarIcon}
+                    title="No symptoms logged for this date yet"
+                    description={`Record flow, pain, bowel symptoms, or medications for ${formatShortDate(selectedDate)}.`}
+                    action={
+                      <button
+                        type="button"
+                        onClick={() => handleSwitchTab('log')}
+                        className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 hover:bg-rose-500/20 active:scale-[0.98] transition cursor-pointer"
+                      >
+                        + Log Symptoms for {formatShortDate(selectedDate)}
+                      </button>
+                    }
+                  />
                 )}
               </div>
 
-              <div className="pt-4 mt-6 border-t border-slate-200/60 dark:border-slate-800 text-xs opacity-70 flex items-center justify-between">
+              <div className="pt-4 mt-6 border-t border-slate-200/60 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between gap-2">
                 <span>Total days tracked: {Object.keys(logsMap).length}</span>
                 <button
+                  type="button"
                   onClick={() => handleSwitchTab('insights')}
-                  className="text-rose-600 font-semibold hover:underline"
+                  className="min-h-[40px] inline-flex items-center px-2 rounded-xl text-rose-600 dark:text-rose-400 font-semibold hover:underline active:scale-[0.98] transition cursor-pointer"
                 >
                   View GP Report &rarr;
                 </button>
@@ -2102,10 +2302,10 @@ export default function FloodgateApp({
             }`}>
               <div>
                 <h2 className="text-xl font-bold flex items-center gap-2">
-                  <Stethoscope className="w-5 h-5 text-rose-600" />
+                  <Stethoscope className="w-5 h-5 text-rose-600 dark:text-rose-400" />
                   <span>{ownerName}&apos;s Endometriosis Insights &amp; GP Report</span>
                 </h2>
-                <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Symptom correlations, clot tracking &amp; printable clinical summary
                 </p>
               </div>
@@ -2119,8 +2319,9 @@ export default function FloodgateApp({
                 ].map((opt) => (
                   <button
                     key={opt.days}
+                    type="button"
                     onClick={() => setInsightsDays(opt.days)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold border ${
+                    className={`min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold border active:scale-[0.98] transition cursor-pointer ${
                       insightsDays === opt.days
                         ? 'bg-rose-600 text-white border-rose-600'
                         : darkMode
@@ -2133,8 +2334,9 @@ export default function FloodgateApp({
                 ))}
 
                 <button
+                  type="button"
                   onClick={() => window.print()}
-                  className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer ${
+                  className={`min-h-[40px] flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold active:scale-[0.98] transition cursor-pointer ${
                     darkMode
                       ? 'bg-slate-100 text-slate-900 hover:bg-white'
                       : 'bg-slate-800 text-white hover:bg-slate-900'
@@ -2156,50 +2358,50 @@ export default function FloodgateApp({
             </div>
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
-              <div className={`p-4 sm:p-5 rounded-2xl sm:rounded-3xl border shadow-xs ${
+              <div className={`print-avoid-break p-4 sm:p-5 rounded-2xl sm:rounded-3xl border shadow-xs ${
                 darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}>
-                <div className="text-xs font-semibold uppercase tracking-wider text-rose-600 mb-1">
+                <div className="text-xs font-semibold uppercase tracking-wider text-rose-600 dark:text-rose-400 mb-1">
                   Bleeding Days
                 </div>
                 <div className="text-2xl sm:text-3xl font-extrabold">{insightsData.bleedingDaysCount}</div>
-                <div className="text-xs opacity-75 mt-1">
+                <div className="text-xs text-slate-600 dark:text-slate-300 mt-1">
                   {insightsData.heavyDaysCount} heavy or flooding day(s)
                 </div>
               </div>
 
-              <div className={`p-4 sm:p-5 rounded-2xl sm:rounded-3xl border shadow-xs ${
+              <div className={`print-avoid-break p-4 sm:p-5 rounded-2xl sm:rounded-3xl border shadow-xs ${
                 darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}>
-                <div className="text-xs font-semibold uppercase tracking-wider text-purple-600 mb-1">
+                <div className="text-xs font-semibold uppercase tracking-wider text-purple-600 dark:text-purple-400 mb-1">
                   Blood Clot Episodes
                 </div>
                 <div className="text-2xl sm:text-3xl font-extrabold">{insightsData.totalClotsCount}</div>
-                <div className="text-xs opacity-75 mt-1">
+                <div className="text-xs text-slate-600 dark:text-slate-300 mt-1">
                   Across {insightsData.clotDaysCount} day(s) • {insightsData.largeClotDaysCount} with &gt;2cm clots
                 </div>
               </div>
 
-              <div className={`p-4 sm:p-5 rounded-2xl sm:rounded-3xl border shadow-xs ${
+              <div className={`print-avoid-break p-4 sm:p-5 rounded-2xl sm:rounded-3xl border shadow-xs ${
                 darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}>
-                <div className="text-xs font-semibold uppercase tracking-wider text-amber-600 mb-1">
+                <div className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400 mb-1">
                   Average Pain Score
                 </div>
                 <div className="text-2xl sm:text-3xl font-extrabold">{insightsData.avgPainAll} <span className="text-base font-normal">/ 10</span></div>
-                <div className="text-xs opacity-75 mt-1">
+                <div className="text-xs text-slate-600 dark:text-slate-300 mt-1">
                   {insightsData.highPainDaysCount} severe pain day(s) (≥6/10)
                 </div>
               </div>
 
-              <div className={`p-4 sm:p-5 rounded-2xl sm:rounded-3xl border shadow-xs ${
+              <div className={`print-avoid-break p-4 sm:p-5 rounded-2xl sm:rounded-3xl border shadow-xs ${
                 darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}>
-                <div className="text-xs font-semibold uppercase tracking-wider text-orange-600 mb-1">
+                <div className="text-xs font-semibold uppercase tracking-wider text-orange-600 dark:text-orange-400 mb-1">
                   Bowel / GI Flare Days
                 </div>
                 <div className="text-2xl sm:text-3xl font-extrabold">{insightsData.bowelFlareDaysCount}</div>
-                <div className="text-xs opacity-75 mt-1">
+                <div className="text-xs text-slate-600 dark:text-slate-300 mt-1">
                   Moderate or severe GI distress days
                 </div>
               </div>
@@ -2210,19 +2412,19 @@ export default function FloodgateApp({
                 {
                   title: 'Top Pain Locations',
                   items: insightsData.topPainLocations,
-                  badgeClass: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+                  badgeClass: 'bg-amber-500/15 text-amber-800 dark:text-amber-300',
                   emptyText: 'No pain locations logged in this window.'
                 },
                 {
                   title: 'Top Bowel / GI Symptoms',
                   items: insightsData.topBowelSymptoms,
-                  badgeClass: 'bg-orange-500/15 text-orange-700 dark:text-orange-300',
+                  badgeClass: 'bg-orange-500/15 text-orange-800 dark:text-orange-300',
                   emptyText: 'No bowel/GI symptoms logged in this window.'
                 },
                 {
                   title: 'Most Used Medications',
                   items: insightsData.topMedications,
-                  badgeClass: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+                  badgeClass: 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300',
                   emptyText: 'No medications recorded in this window.'
                 },
                 {
@@ -2234,11 +2436,11 @@ export default function FloodgateApp({
               ].map((panel) => (
                 <div
                   key={panel.title}
-                  className={`p-4 rounded-2xl sm:rounded-3xl border shadow-xs ${
+                  className={`print-avoid-break p-4 rounded-2xl sm:rounded-3xl border shadow-xs ${
                     darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
                   }`}
                 >
-                  <h3 className="text-xs font-bold uppercase tracking-wider opacity-75 mb-2.5">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-2.5">
                     {panel.title}
                   </h3>
                   {panel.items.length > 0 ? (
@@ -2249,12 +2451,12 @@ export default function FloodgateApp({
                           className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold ${panel.badgeClass}`}
                         >
                           <span>{label}</span>
-                          <span className="opacity-75 font-bold">×{count}</span>
+                          <span className="font-bold">×{count}</span>
                         </span>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-xs opacity-60">{panel.emptyText}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{panel.emptyText}</p>
                   )}
                 </div>
               ))}
@@ -2266,85 +2468,172 @@ export default function FloodgateApp({
               <h3 className="text-base sm:text-lg font-bold mb-4">
                 Chronological Consultation Table ({insightsData.periodLogs.length} Logged Days)
               </h3>
-              {insightsData.periodLogs.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200 dark:border-slate-800 opacity-75">
-                        <th className="py-2.5 pr-3">Date</th>
-                        <th className="py-2.5 px-3">Bleeding &amp; Protection</th>
-                        <th className="py-2.5 px-3">Clots</th>
-                        <th className="py-2.5 px-3">Pain (0–10) &amp; Sites</th>
-                        <th className="py-2.5 px-3">Bowel / GI</th>
-                        <th className="py-2.5 pl-3">Medications &amp; Notes</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200/60 dark:divide-slate-800">
-                      {[...insightsData.periodLogs].reverse().map((l) => {
-                        const padN = Number(l.padCount) || 0;
-                        const tamponN = Number(l.tamponCount) || 0;
-                        const cupN = Number(l.cupCount) || 0;
-                        const protectionParts = [
-                          padN > 0 && `${padN} ${padN === 1 ? 'pad' : 'pads'}`,
-                          tamponN > 0 && `${tamponN} ${tamponN === 1 ? 'tampon' : 'tampons'}`,
-                          cupN > 0 && `${cupN} ${cupN === 1 ? 'cup' : 'cups'}`
-                        ].filter(Boolean);
-                        return (
-                          <tr key={l.date} className="align-top">
-                            <td className="py-3 pr-3 font-bold whitespace-nowrap">
+              {insightsData.periodLogs.length > 0 ? (() => {
+                const consultationRows = [...insightsData.periodLogs].reverse().map((l) => {
+                  const padN = Number(l.padCount) || 0;
+                  const tamponN = Number(l.tamponCount) || 0;
+                  const cupN = Number(l.cupCount) || 0;
+                  const protectionParts = [
+                    padN > 0 && `${padN} ${padN === 1 ? 'pad' : 'pads'}`,
+                    tamponN > 0 && `${tamponN} ${tamponN === 1 ? 'tampon' : 'tampons'}`,
+                    cupN > 0 && `${cupN} ${cupN === 1 ? 'cup' : 'cups'}`
+                  ].filter(Boolean);
+                  return { l, protectionParts };
+                });
+
+                return (
+                  <>
+                    {/* Mobile stacked consultation card list (never prints, avoids horizontal scroll on mobile) */}
+                    <div className="space-y-3 md:hidden print:hidden">
+                      {consultationRows.map(({ l, protectionParts }) => (
+                        <div
+                          key={l.date}
+                          className={`p-3.5 rounded-2xl border space-y-2 text-xs ${
+                            darkMode
+                              ? 'bg-slate-800/50 border-slate-700'
+                              : 'bg-slate-50/70 border-slate-200/80'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-slate-200/70 dark:border-slate-700">
+                            <span className="font-bold text-sm">
                               {formatShortDateWithYear(l.date)}
-                            </td>
-                            <td className="py-3 px-3 capitalize">
-                              <span className="font-semibold">{l.bleedingSeverity}</span>
-                              {l.leakedThrough && <span className="text-red-600 font-bold ml-1">(Flooded)</span>}
-                              {protectionParts.length > 0 && (
-                                <div className="normal-case opacity-80 mt-0.5">
-                                  {protectionParts.join(', ')}
-                                </div>
-                              )}
-                            </td>
-                          <td className="py-3 px-3">
-                            {l.hasClots ? (
-                              <span className="text-purple-700 dark:text-purple-300 font-semibold">
-                                {l.clotCount}
-                                {(l.clotSizes || []).length > 0
-                                  ? ` (${l.clotSizes.join(', ')})`
-                                  : ''}
-                              </span>
-                            ) : (
-                              <span className="opacity-50">—</span>
-                            )}
-                          </td>
-                          <td className="py-3 px-3">
-                            <span className={`px-1.5 py-0.5 rounded-md font-bold mr-1.5 ${getPainBadgeStyle(l.painScore)}`}>
-                              {l.painScore}/10
                             </span>
-                            <span>{(l.painLocations || []).join(', ')}</span>
-                          </td>
-                          <td className="py-3 px-3">
-                            <span className="capitalize font-semibold">{l.bowelSeverity}</span>
-                            {(l.bowelSymptoms || []).length > 0 && (
-                              <div className="opacity-80">{l.bowelSymptoms.join(', ')}</div>
-                            )}
-                          </td>
-                            <td className="py-3 pl-3">
-                              {(l.medications || []).length > 0 && (
-                                <div className="font-medium text-emerald-700 dark:text-emerald-300">
-                                  {l.medications.map((m) => `${m.name} ${m.dose}`).join(', ')}
-                                </div>
+                            <span className={`px-2 py-0.5 rounded-md font-bold ${getPainBadgeStyle(l.painScore)}`}>
+                              Pain {l.painScore}/10
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-1.5">
+                            <div>
+                              <span className="font-semibold text-slate-600 dark:text-slate-300">Flow: </span>
+                              <span className="capitalize font-semibold">{l.bleedingSeverity}</span>
+                              {l.leakedThrough && (
+                                <span className="text-red-600 dark:text-red-400 font-bold ml-1">(Flooded)</span>
                               )}
-                              {l.notes && <div className="italic opacity-80 mt-0.5">&ldquo;{l.notes}&rdquo;</div>}
-                            </td>
+                              {protectionParts.length > 0 && (
+                                <span className="text-slate-600 dark:text-slate-300"> • {protectionParts.join(', ')}</span>
+                              )}
+                            </div>
+
+                            {l.hasClots && (
+                              <div>
+                                <span className="font-semibold text-slate-600 dark:text-slate-300">Clots: </span>
+                                <span className="text-purple-700 dark:text-purple-300 font-semibold">
+                                  {l.clotCount}
+                                  {(l.clotSizes || []).length > 0
+                                    ? ` (${l.clotSizes.map((id) => CLOT_SIZE_LABELS[id] || id).join(', ')})`
+                                    : ''}
+                                </span>
+                              </div>
+                            )}
+
+                            {(l.painLocations || []).length > 0 && (
+                              <div>
+                                <span className="font-semibold text-slate-600 dark:text-slate-300">Pain sites: </span>
+                                <span>{l.painLocations.join(', ')}</span>
+                              </div>
+                            )}
+
+                            <div>
+                              <span className="font-semibold text-slate-600 dark:text-slate-300">Bowel / GI: </span>
+                              <span className="capitalize font-semibold">{l.bowelSeverity}</span>
+                              {(l.bowelSymptoms || []).length > 0 && (
+                                <span className="text-slate-600 dark:text-slate-300"> • {l.bowelSymptoms.join(', ')}</span>
+                              )}
+                            </div>
+
+                            {(l.medications || []).length > 0 && (
+                              <div className="font-medium text-emerald-700 dark:text-emerald-300">
+                                <span className="font-semibold text-slate-600 dark:text-slate-300">Meds: </span>
+                                {l.medications.map(formatMedicationSummary).join(', ')}
+                              </div>
+                            )}
+
+                            {l.notes && (
+                              <div className="italic text-slate-600 dark:text-slate-300">
+                                &ldquo;{l.notes}&rdquo;
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Tablet / Desktop & Print 6-column table */}
+                    <div className="hidden md:block print:block overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300">
+                            <th className="py-2.5 pr-3">Date</th>
+                            <th className="py-2.5 px-3">Bleeding &amp; Protection</th>
+                            <th className="py-2.5 px-3">Clots</th>
+                            <th className="py-2.5 px-3">Pain (0–10) &amp; Sites</th>
+                            <th className="py-2.5 px-3">Bowel / GI</th>
+                            <th className="py-2.5 pl-3">Medications &amp; Notes</th>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="py-10 text-center text-sm opacity-65">
-                  No logs recorded within the last {insightsDays} days.
-                </div>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200/60 dark:divide-slate-800">
+                          {consultationRows.map(({ l, protectionParts }) => (
+                            <tr key={l.date} className="align-top">
+                              <td className="py-3 pr-3 font-bold whitespace-nowrap">
+                                {formatShortDateWithYear(l.date)}
+                              </td>
+                              <td className="py-3 px-3 capitalize">
+                                <span className="font-semibold">{l.bleedingSeverity}</span>
+                                {l.leakedThrough && <span className="text-red-600 dark:text-red-400 font-bold ml-1">(Flooded)</span>}
+                                {protectionParts.length > 0 && (
+                                  <div className="normal-case text-slate-600 dark:text-slate-300 mt-0.5">
+                                    {protectionParts.join(', ')}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-3 px-3">
+                                {l.hasClots ? (
+                                  <span className="text-purple-700 dark:text-purple-300 font-semibold">
+                                    {l.clotCount}
+                                    {(l.clotSizes || []).length > 0
+                                      ? ` (${l.clotSizes.map((id) => CLOT_SIZE_LABELS[id] || id).join(', ')})`
+                                      : ''}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 dark:text-slate-500">—</span>
+                                )}
+                              </td>
+                              <td className="py-3 px-3">
+                                <span className={`px-1.5 py-0.5 rounded-md font-bold mr-1.5 ${getPainBadgeStyle(l.painScore)}`}>
+                                  {l.painScore}/10
+                                </span>
+                                <span>{(l.painLocations || []).join(', ')}</span>
+                              </td>
+                              <td className="py-3 px-3">
+                                <span className="capitalize font-semibold">{l.bowelSeverity}</span>
+                                {(l.bowelSymptoms || []).length > 0 && (
+                                  <div className="text-slate-600 dark:text-slate-300">{l.bowelSymptoms.join(', ')}</div>
+                                )}
+                              </td>
+                              <td className="py-3 pl-3">
+                                {(l.medications || []).length > 0 && (
+                                  <div className="font-medium text-emerald-700 dark:text-emerald-300">
+                                    {l.medications.map(formatMedicationSummary).join(', ')}
+                                  </div>
+                                )}
+                                {l.notes && <div className="italic text-slate-600 dark:text-slate-300 mt-0.5">&ldquo;{l.notes}&rdquo;</div>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                );
+              })() : (
+                <EmptyStateCard
+                  accent="rose"
+                  darkMode={darkMode}
+                  icon={Stethoscope}
+                  title={`No logs recorded within the last ${insightsDays} days`}
+                  description="Add daily entries in the Daily Log tab to generate your printable GP clinical summary."
+                />
               )}
             </div>
           </div>
@@ -2361,15 +2650,16 @@ export default function FloodgateApp({
               }`}>
                 <div>
                   <h3 className="text-base font-bold mb-1">Clinical Spreadsheet &amp; JSON Export</h3>
-                  <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     Download your Floodgate symptom history as a standalone JSON backup or as a CSV spreadsheet for your GP or specialist.
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <button
+                    type="button"
                     onClick={exportJSON}
-                    className={`flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold cursor-pointer ${
+                    className={`min-h-[44px] flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold active:scale-[0.98] transition cursor-pointer ${
                       darkMode
                         ? 'bg-slate-100 text-slate-900 hover:bg-white'
                         : 'bg-slate-800 text-white hover:bg-slate-900'
@@ -2379,8 +2669,9 @@ export default function FloodgateApp({
                     <span>Export Floodgate JSON</span>
                   </button>
                   <button
+                    type="button"
                     onClick={exportCSV}
-                    className="flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 cursor-pointer"
+                    className="min-h-[44px] flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 active:scale-[0.98] transition cursor-pointer"
                   >
                     <FileText className="w-4 h-4" />
                     <span>Export CSV (Excel)</span>
@@ -2394,10 +2685,10 @@ export default function FloodgateApp({
               }`}>
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <Database className="w-4 h-4 text-rose-600" />
+                    <Database className="w-4 h-4 text-rose-600 dark:text-rose-400" />
                     <h3 className="text-base font-bold">Howard Unified Household Storage</h3>
                   </div>
-                  <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     Floodgate runs inside Howard&rsquo;s unified home server database (<code className="font-mono">data/howard.db</code>). You can also snapshot the entire household in one click.
                   </p>
                 </div>
@@ -2405,20 +2696,20 @@ export default function FloodgateApp({
                 <div className={`p-3.5 rounded-2xl border text-xs space-y-1.5 ${
                   darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
                 }`}>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between gap-2">
                     <span className="font-semibold">Database File:</span>
-                    <code className="font-mono">data/howard.db</code>
+                    <code className="font-mono shrink-0">data/howard.db</code>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between gap-2">
                     <span className="font-semibold">Logged Days Stored:</span>
-                    <span className="font-bold text-rose-600">{Object.keys(logsMap).length} days</span>
+                    <span className="font-bold text-rose-600 dark:text-rose-400 shrink-0">{Object.keys(logsMap).length} days</span>
                   </div>
                 </div>
 
                 <button
                   type="button"
                   onClick={onOpenBackupModal}
-                  className="w-full py-3 rounded-2xl text-xs font-bold bg-teal-600 text-white hover:bg-teal-700 cursor-pointer"
+                  className="w-full min-h-[44px] py-3 rounded-2xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 active:scale-[0.98] transition cursor-pointer"
                 >
                   Open Howard Status &amp; Backup Menu &rarr;
                 </button>

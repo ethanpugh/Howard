@@ -8,13 +8,23 @@ import { DatabaseSync } from 'node:sqlite';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = Number(process.env.PORT) || 3001;
+const PORT =
+  process.env.PORT !== undefined && process.env.PORT !== '' ? Number(process.env.PORT) : 3001;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DIST_DIR = path.join(__dirname, 'dist');
 
 const HOWARD_DB_PATH = path.join(DATA_DIR, 'howard.db');
 const LEGACY_DB_FILES = ['cadence.db', 'bloom.db', 'floodgate.db'];
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 5;
+const VALID_LEDGER_KINDS = new Set(['expense', 'recurring', 'income']);
+const VALID_LEDGER_OWNERS = new Set(['joint', 'partner1', 'partner2']);
+const VALID_DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+const createHttpError = (statusCode, message) => {
+  const err = new Error(message);
+  err.statusCode = statusCode;
+  return err;
+};
 const VALID_APP_IDS = new Set([
   'foyer',
   'cadence',
@@ -156,7 +166,21 @@ function createPreRestoreSnapshot() {
   const dirPath = path.join(backupsRoot, dirName);
   const filePath = path.join(dirPath, 'howard.db');
   checkpointDatabase();
-  vacuumSnapshotTo(howardDb, filePath);
+  try {
+    vacuumSnapshotTo(howardDb, filePath);
+  } catch (err) {
+    try {
+      if (fs.existsSync(dirPath)) {
+        fs.rmSync(dirPath, { recursive: true, force: true });
+      }
+    } catch {
+      // ignore empty snapshot cleanup errors
+    }
+    throw createHttpError(
+      500,
+      `Failed to create pre-restore safety snapshot: ${err?.message || err}`
+    );
+  }
 
   try {
     const preRestoreDirs = fs
@@ -181,62 +205,59 @@ function createPreRestoreSnapshot() {
 howardDb.exec(`
   CREATE TABLE IF NOT EXISTS howard_store (
     key TEXT PRIMARY KEY,
-    data TEXT NOT NULL,
+    data TEXT NOT NULL CHECK (json_valid(data)),
     updated_at TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS almanac_events (
     id TEXT PRIMARY KEY,
     date_key TEXT NOT NULL,
-    data TEXT NOT NULL,
+    data TEXT NOT NULL CHECK (json_valid(data)),
     updated_at TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS ledger_items (
     id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    data TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('expense', 'recurring', 'income')),
+    data TEXT NOT NULL CHECK (json_valid(data)),
     updated_at TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS cadence_logs (
     date_key TEXT PRIMARY KEY,
-    data TEXT NOT NULL,
+    data TEXT NOT NULL CHECK (json_valid(data)),
     updated_at TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS bloom_care_logs (
     date_key TEXT PRIMARY KEY,
-    data TEXT NOT NULL,
+    data TEXT NOT NULL CHECK (json_valid(data)),
     updated_at TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS bloom_molt_logs (
     id TEXT PRIMARY KEY,
     date_key TEXT NOT NULL,
-    data TEXT NOT NULL,
+    data TEXT NOT NULL CHECK (json_valid(data)),
     updated_at TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS bloom_feeder_cultures (
     id TEXT PRIMARY KEY,
-    data TEXT NOT NULL,
+    data TEXT NOT NULL CHECK (json_valid(data)),
     updated_at TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS floodgate_logs (
     date_key TEXT PRIMARY KEY,
-    data TEXT NOT NULL,
+    data TEXT NOT NULL CHECK (json_valid(data)),
     updated_at TEXT NOT NULL
   );
 
   CREATE INDEX IF NOT EXISTS idx_almanac_events_date_updated ON almanac_events (date_key ASC, updated_at ASC);
   CREATE INDEX IF NOT EXISTS idx_ledger_items_kind_updated ON ledger_items (kind, updated_at DESC);
-  CREATE INDEX IF NOT EXISTS idx_cadence_logs_updated ON cadence_logs (updated_at DESC);
-  CREATE INDEX IF NOT EXISTS idx_bloom_care_logs_updated ON bloom_care_logs (updated_at DESC);
   CREATE INDEX IF NOT EXISTS idx_bloom_molt_logs_date_updated ON bloom_molt_logs (date_key DESC, updated_at DESC);
   CREATE INDEX IF NOT EXISTS idx_bloom_feeder_cultures_updated ON bloom_feeder_cultures (updated_at DESC);
-  CREATE INDEX IF NOT EXISTS idx_floodgate_logs_updated ON floodgate_logs (updated_at DESC);
 `);
 
 const howardGetStmt = howardDb.prepare('SELECT data, updated_at FROM howard_store WHERE key = ?');
@@ -267,20 +288,30 @@ const almanacUpsertStmt = howardDb.prepare(`
 const almanacDeleteStmt = howardDb.prepare('DELETE FROM almanac_events WHERE id = ?');
 const almanacClearAllStmt = howardDb.prepare('DELETE FROM almanac_events');
 
-const ledgerCountStmt = howardDb.prepare('SELECT COUNT(*) AS cnt FROM ledger_items');
-const ledgerGetAllStmt = howardDb.prepare(
-  'SELECT id, kind, data, updated_at FROM ledger_items ORDER BY updated_at DESC'
-);
-const ledgerUpsertStmt = howardDb.prepare(`
-  INSERT INTO ledger_items (id, kind, data, updated_at)
-  VALUES (?, ?, ?, ?)
-  ON CONFLICT(id) DO UPDATE SET
-    kind = excluded.kind,
-    data = excluded.data,
-    updated_at = excluded.updated_at
-`);
-const ledgerDeleteStmt = howardDb.prepare('DELETE FROM ledger_items WHERE id = ?');
-const ledgerClearAllStmt = howardDb.prepare('DELETE FROM ledger_items');
+let ledgerCountStmt;
+let ledgerGetAllStmt;
+let ledgerUpsertStmt;
+let ledgerDeleteStmt;
+let ledgerClearAllStmt;
+
+function initLedgerStatements() {
+  ledgerCountStmt = howardDb.prepare('SELECT COUNT(*) AS cnt FROM ledger_items');
+  ledgerGetAllStmt = howardDb.prepare(
+    'SELECT id, kind, data, updated_at FROM ledger_items ORDER BY updated_at DESC'
+  );
+  ledgerUpsertStmt = howardDb.prepare(`
+    INSERT INTO ledger_items (id, kind, data, updated_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      kind = excluded.kind,
+      data = excluded.data,
+      updated_at = excluded.updated_at
+  `);
+  ledgerDeleteStmt = howardDb.prepare('DELETE FROM ledger_items WHERE id = ?');
+  ledgerClearAllStmt = howardDb.prepare('DELETE FROM ledger_items');
+}
+
+initLedgerStatements();
 
 const cadenceGetAllLogsStmt = howardDb.prepare('SELECT date_key, data, updated_at FROM cadence_logs');
 const cadenceGetLogByDateStmt = howardDb.prepare('SELECT data FROM cadence_logs WHERE date_key = ?');
@@ -651,17 +682,18 @@ function resolveAlmanacEvent(parsed, profilesById = getProfilesByIdMap()) {
 function enrichDoseSlot(slot, profilesList = getProfilesList()) {
   if (!isPlainObject(slot)) return slot;
   const profilesById = getProfilesByIdMap(profilesList);
+  const hasExplicitKey = Object.prototype.hasOwnProperty.call(slot, 'givenByProfileId');
   const explicitId =
     typeof slot.givenByProfileId === 'string' && profilesById[slot.givenByProfileId]
       ? slot.givenByProfileId
       : null;
-  const uidProfileId =
-    typeof slot.recordedByUid === 'string' && slot.recordedByUid.startsWith('howard-')
-      ? slot.recordedByUid.slice('howard-'.length)
-      : null;
-  const validUidProfile = uidProfileId && profilesById[uidProfileId] ? uidProfileId : null;
-  const resolvedId = explicitId || inferProfileIdFromName(slot.givenBy, profilesList) || validUidProfile;
-  return resolvedId ? { ...slot, givenByProfileId: resolvedId } : { ...slot };
+  const resolvedId = hasExplicitKey
+    ? explicitId || (slot.givenByProfileId === null ? null : inferProfileIdFromName(slot.givenBy, profilesList))
+    : inferProfileIdFromName(slot.givenBy, profilesList);
+  const next = { ...slot };
+  delete next.recordedByUid;
+  next.givenByProfileId = resolvedId || null;
+  return next;
 }
 
 function enrichCadenceRecord(rec, profilesList = getProfilesList()) {
@@ -788,24 +820,34 @@ function normalizeBeaconContacts(contacts, baseContacts = [], profilesList = get
   return (Array.isArray(contacts) ? contacts : []).map((c) => {
     if (!isPlainObject(c)) return c;
     const prev = c.id ? baseById.get(c.id) : null;
-    const prevProfileId = prev?.profileId || null;
-    let nextProfileId =
-      typeof c.profileId === 'string' && profilesById[c.profileId] ? c.profileId : prevProfileId;
-    if (!nextProfileId && (c.id === 'c-partner1' || c.id === 'c-partner2')) {
-      const targetId = c.id.slice(2);
-      const inferred = inferProfileIdFromName(c.name, profilesList);
-      if (!c.name || inferred === targetId) {
-        nextProfileId = targetId;
+    const prevProfileId = prev?.profileId && profilesById[prev.profileId] ? prev.profileId : null;
+    const hasExplicitPid = Object.prototype.hasOwnProperty.call(c, 'profileId');
+
+    let nextProfileId = null;
+    if (hasExplicitPid) {
+      if (typeof c.profileId === 'string' && profilesById[c.profileId]) {
+        nextProfileId = c.profileId;
+      } else if (c.profileId === null) {
+        nextProfileId = null;
+      } else {
+        nextProfileId = inferProfileIdFromName(c.name, profilesList);
       }
-    } else if (prevProfileId && c.name) {
-      const liveProfName = profilesById[prevProfileId]?.name;
-      if (liveProfName && String(c.name).trim() !== String(liveProfName).trim()) {
+    } else {
+      nextProfileId = prevProfileId || null;
+      if (!nextProfileId && (c.id === 'c-partner1' || c.id === 'c-partner2')) {
+        const targetId = c.id.slice(2);
+        const inferred = inferProfileIdFromName(c.name, profilesList);
+        if (!c.name || inferred === targetId) {
+          nextProfileId = targetId;
+        }
+      } else if (!nextProfileId && c.name) {
         nextProfileId = inferProfileIdFromName(c.name, profilesList);
       }
     }
+
     return {
       ...c,
-      ...(nextProfileId ? { profileId: nextProfileId } : { profileId: null })
+      profileId: nextProfileId || null
     };
   });
 }
@@ -832,12 +874,32 @@ function normalizeBeaconInfo(raw = {}, { baseContacts = [], profilesList = getPr
   };
 }
 
-function mergeBeaconInfo(current, incoming, profilesList = getProfilesList()) {
+function mergeBeaconInfo(
+  current,
+  incoming,
+  profilesList = getProfilesList(),
+  { mergeContacts = false } = {}
+) {
   const base = normalizeBeaconInfo(current, { profilesList });
   if (!isPlainObject(incoming)) return base;
-  const nextContacts = Array.isArray(incoming.contacts)
-    ? normalizeBeaconContacts(incoming.contacts, base.contacts, profilesList)
-    : base.contacts;
+  let nextContacts = base.contacts;
+  if (Array.isArray(incoming.contacts)) {
+    const normalizedIncoming = normalizeBeaconContacts(incoming.contacts, base.contacts, profilesList);
+    if (mergeContacts) {
+      const mergedMap = new Map();
+      for (const c of base.contacts) {
+        if (isPlainObject(c) && c.id) mergedMap.set(c.id, c);
+      }
+      for (const c of normalizedIncoming) {
+        if (!isPlainObject(c)) continue;
+        if (c.id) mergedMap.set(c.id, c);
+        else mergedMap.set(`c-${Date.now()}-${mergedMap.size}`, c);
+      }
+      nextContacts = Array.from(mergedMap.values());
+    } else {
+      nextContacts = normalizedIncoming;
+    }
+  }
   return {
     petCare: {
       ...base.petCare,
@@ -867,25 +929,37 @@ function resolveBeaconInfo(raw, profilesById = getProfilesByIdMap()) {
   };
 }
 
-function normalizeBloomSettings(parsed = {}) {
+function normalizeBloomSettings(parsed = {}, baseSettings = null, profilesList = getProfilesList()) {
   const defaults = createDefaultBloomSettings();
-  const baseCaregivers = Array.isArray(parsed.caregivers) ? parsed.caregivers : defaults.caregivers;
-  const items = Array.isArray(parsed.caregiverItems)
-    ? parsed.caregiverItems
-    : buildCaregiverItems(baseCaregivers);
+  const src = isPlainObject(parsed) ? parsed : {};
+  const base = isPlainObject(baseSettings) ? baseSettings : defaults;
+  const rawCaregivers = Array.isArray(src.caregivers)
+    ? src.caregivers
+    : Array.isArray(base.caregivers)
+      ? base.caregivers
+      : defaults.caregivers;
+  const items = Array.isArray(src.caregiverItems) && src.caregiverItems.length > 0
+    ? src.caregiverItems
+    : Array.isArray(src.caregivers)
+      ? buildCaregiverItems(src.caregivers, profilesList)
+      : Array.isArray(base.caregiverItems) && base.caregiverItems.length > 0
+        ? base.caregiverItems
+        : buildCaregiverItems(rawCaregivers, profilesList);
   return {
     ...defaults,
-    ...parsed,
-    caregivers: baseCaregivers,
+    ...base,
+    ...src,
+    caregivers: rawCaregivers,
     caregiverItems: items,
     enclosureInfo: {
       ...defaults.enclosureInfo,
-      ...(parsed.enclosureInfo && typeof parsed.enclosureInfo === 'object' ? parsed.enclosureInfo : {})
+      ...(isPlainObject(base.enclosureInfo) ? base.enclosureInfo : {}),
+      ...(isPlainObject(src.enclosureInfo) ? src.enclosureInfo : {})
     }
   };
 }
 
-function normalizeCadenceSettings(parsed = {}, baseSettings = null) {
+function normalizeCadenceSettings(parsed = {}, baseSettings = null, profilesList = getProfilesList()) {
   const defaults = createDefaultCadenceSettings();
   const src = isPlainObject(parsed) ? parsed : {};
   const base = isPlainObject(baseSettings) ? baseSettings : defaults;
@@ -894,13 +968,13 @@ function normalizeCadenceSettings(parsed = {}, baseSettings = null) {
     : Array.isArray(base.caregivers)
       ? base.caregivers
       : defaults.caregivers;
-  const items = Array.isArray(src.caregivers)
-    ? buildCaregiverItems(src.caregivers)
-    : Array.isArray(src.caregiverItems)
-      ? src.caregiverItems
-      : Array.isArray(base.caregiverItems)
+  const items = Array.isArray(src.caregiverItems) && src.caregiverItems.length > 0
+    ? src.caregiverItems
+    : Array.isArray(src.caregivers)
+      ? buildCaregiverItems(src.caregivers, profilesList)
+      : Array.isArray(base.caregiverItems) && base.caregiverItems.length > 0
         ? base.caregiverItems
-        : buildCaregiverItems(rawCaregivers);
+        : buildCaregiverItems(rawCaregivers, profilesList);
   return {
     ...defaults,
     ...base,
@@ -913,19 +987,25 @@ function normalizeCadenceSettings(parsed = {}, baseSettings = null) {
 // ============================================================================
 // 4. VERSIONED PRAGMA user_version MIGRATIONS (DB-ARCH-1 & OPTION B MERGE)
 // ============================================================================
+function isMissingTableError(err) {
+  return Boolean(err && typeof err.message === 'string' && /no such table/i.test(err.message));
+}
+
 function readLegacyTableSafely(dbInstance, sql) {
   try {
     return dbInstance.prepare(sql).all();
-  } catch {
-    return [];
+  } catch (err) {
+    if (isMissingTableError(err)) return [];
+    throw err;
   }
 }
 
 function readLegacySingleKeySafely(dbInstance, table, key) {
   try {
     return dbInstance.prepare(`SELECT data, updated_at FROM ${table} WHERE id = ?`).get(key) || null;
-  } catch {
-    return null;
+  } catch (err) {
+    if (isMissingTableError(err)) return null;
+    throw err;
   }
 }
 
@@ -1333,7 +1413,53 @@ function migrateV4BackfillStableProfileIds() {
   });
 }
 
+function migrateV5Hardening() {
+  runInTransaction(howardDb, () => {
+    howardDb.exec("DELETE FROM howard_store WHERE key IN ('almanac_events', 'ledger_data');");
+    howardDb.exec(`
+      DROP INDEX IF EXISTS idx_cadence_logs_updated;
+      DROP INDEX IF EXISTS idx_bloom_care_logs_updated;
+      DROP INDEX IF EXISTS idx_floodgate_logs_updated;
+    `);
+    const tableSqlRow = howardDb
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'ledger_items'")
+      .get();
+    const hasCheck =
+      typeof tableSqlRow?.sql === 'string' &&
+      /CHECK\s*\(\s*kind\s+IN/i.test(tableSqlRow.sql) &&
+      /json_valid/i.test(tableSqlRow.sql);
+    if (!hasCheck) {
+      howardDb.exec(`
+        CREATE TABLE ledger_items_v5 (
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL CHECK (kind IN ('expense', 'recurring', 'income')),
+          data TEXT NOT NULL CHECK (json_valid(data)),
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO ledger_items_v5 (id, kind, data, updated_at)
+        SELECT
+          id,
+          CASE WHEN kind IN ('expense', 'recurring', 'income') THEN kind ELSE 'expense' END,
+          data,
+          updated_at
+        FROM ledger_items
+        WHERE json_valid(data);
+        DROP TABLE ledger_items;
+        ALTER TABLE ledger_items_v5 RENAME TO ledger_items;
+        CREATE INDEX IF NOT EXISTS idx_ledger_items_kind_updated ON ledger_items (kind, updated_at DESC);
+      `);
+    }
+    howardDb.exec('PRAGMA user_version = 5;');
+  });
+}
+
 function runVersionedMigrations() {
+  const initialVersion = getSchemaVersion(howardDb);
+  if (initialVersion > CURRENT_SCHEMA_VERSION) {
+    throw new Error(
+      `Database schema version ${initialVersion} is newer than supported version ${CURRENT_SCHEMA_VERSION}; refusing downgrade.`
+    );
+  }
   if (getSchemaVersion(howardDb) < 1) {
     runInTransaction(howardDb, () => {
       migrateV1LegacyHowardBlobs();
@@ -1363,9 +1489,13 @@ function runVersionedMigrations() {
   if (getSchemaVersion(howardDb) < 4) {
     migrateV4BackfillStableProfileIds();
   }
+  if (getSchemaVersion(howardDb) < 5) {
+    migrateV5Hardening();
+  }
 }
 
 runVersionedMigrations();
+initLedgerStatements();
 setInterval(runDailyBackupSnapshots, 6 * 3600 * 1000).unref?.();
 
 // ============================================================================
@@ -1550,35 +1680,46 @@ function readCadenceLogs() {
   return { logsByDate, latestLogUpdate };
 }
 
+function resolveBloomSettingsPayload(parsed, profilesById, profilesList, includeInternal) {
+  const resolved = {
+    ...parsed,
+    caregivers: resolveCaregiverList(parsed.caregiverItems, parsed.caregivers, profilesById, profilesList)
+  };
+  if (resolved.livePreyInside && resolved.livePreyByProfileId) {
+    const byName = resolveProfileDisplayName(resolved.livePreyByProfileId, '', profilesById);
+    if (byName) {
+      resolved.livePreyNote = resolved.livePreyAt
+        ? `offered at ${resolved.livePreyAt} by ${byName}`
+        : `offered by ${byName}`;
+    }
+  }
+  if (!includeInternal) delete resolved.caregiverItems;
+  return resolved;
+}
+
 function readBloomSettings({ includeInternal = false } = {}) {
   const profilesList = getProfilesList();
   const profilesById = getProfilesByIdMap(profilesList);
   const row = howardGetStmt.get('bloom_settings');
   if (!row) {
-    const defaults = normalizeBloomSettings();
-    const resolved = {
-      ...defaults,
-      caregivers: resolveCaregiverList(defaults.caregiverItems, defaults.caregivers, profilesById, profilesList)
+    const defaults = normalizeBloomSettings({}, null, profilesList);
+    return {
+      settings: resolveBloomSettingsPayload(defaults, profilesById, profilesList, includeInternal),
+      updatedAt: new Date().toISOString()
     };
-    if (!includeInternal) delete resolved.caregiverItems;
-    return { settings: resolved, updatedAt: new Date().toISOString() };
   }
   try {
-    const parsed = normalizeBloomSettings(JSON.parse(row.data));
-    const resolved = {
-      ...parsed,
-      caregivers: resolveCaregiverList(parsed.caregiverItems, parsed.caregivers, profilesById, profilesList)
+    const parsed = normalizeBloomSettings(JSON.parse(row.data), null, profilesList);
+    return {
+      settings: resolveBloomSettingsPayload(parsed, profilesById, profilesList, includeInternal),
+      updatedAt: row.updated_at
     };
-    if (!includeInternal) delete resolved.caregiverItems;
-    return { settings: resolved, updatedAt: row.updated_at };
   } catch {
-    const defaults = normalizeBloomSettings();
-    const resolved = {
-      ...defaults,
-      caregivers: resolveCaregiverList(defaults.caregiverItems, defaults.caregivers, profilesById, profilesList)
+    const defaults = normalizeBloomSettings({}, null, profilesList);
+    return {
+      settings: resolveBloomSettingsPayload(defaults, profilesById, profilesList, includeInternal),
+      updatedAt: row.updated_at
     };
-    if (!includeInternal) delete resolved.caregiverItems;
-    return { settings: resolved, updatedAt: row.updated_at };
   }
 }
 
@@ -1766,6 +1907,42 @@ function getCachedHowardState() {
     };
   }
   return cacheHowardCombined;
+}
+
+function isPartner2PrivateAlmanacEvent(evt, profilesList = getProfilesList()) {
+  if (!isPlainObject(evt)) return false;
+  const isPrivateMed = Boolean(evt.linkToGpReport || evt.category === 'medical');
+  if (!isPrivateMed) return false;
+  if (evt.assignedToProfileId === 'partner2') return true;
+  if (evt.assignedToProfileId) return false;
+  return inferProfileIdFromName(evt.assignedTo, profilesList) === 'partner2';
+}
+
+function projectHowardStateForProfile(howardState, activeProfile) {
+  if (!howardState) return howardState;
+  const safeProfile = activeProfile || 'caregiver';
+  if (safeProfile === 'caregiver') {
+    return {
+      ...howardState,
+      almanacEvents: [],
+      ledgerData: {
+        splitRule: '50-50',
+        incomes: [],
+        recurring: [],
+        expenses: []
+      }
+    };
+  }
+  if (safeProfile === 'partner1') {
+    const profilesList = getProfilesList();
+    return {
+      ...howardState,
+      almanacEvents: (howardState.almanacEvents || []).filter(
+        (evt) => !isPartner2PrivateAlmanacEvent(evt, profilesList)
+      )
+    };
+  }
+  return howardState;
 }
 
 function getSyncTokenForProfile(profileId) {
@@ -1967,6 +2144,7 @@ function parseJsonBody(req, { allowArray = false } = {}) {
         const err = new Error('Payload too large');
         err.statusCode = 413;
         reject(err);
+        req.destroy();
         return;
       }
       chunks.push(buf);
@@ -2165,7 +2343,7 @@ const server = http.createServer(async (req, res) => {
           serverTime: new Date().toISOString()
         };
         if (prev.howard !== curH) {
-          payload.howard = getCachedHowardState();
+          payload.howard = projectHowardStateForProfile(getCachedHowardState(), activeProfile);
           payload.dbInfo = dbInfo;
           changedDomains.push('howard');
         }
@@ -2184,7 +2362,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, payload);
       }
 
-      const howardState = getCachedHowardState();
+      const howardState = projectHowardStateForProfile(getCachedHowardState(), activeProfile);
       const cadence = getCachedCadenceState();
       const bloom = getCachedBloomState();
       const floodgate = activeProfile === 'partner2' ? getCachedFloodgateState() : null;
@@ -2261,12 +2439,23 @@ const server = http.createServer(async (req, res) => {
     // Update a profile's display name (O(1) update via DB-ARCH-2 stable profileId resolution)
     if (pathname === '/api/howard/profiles/name' && req.method === 'PUT') {
       const { profileId, name } = await parseJsonBody(req);
+      if (profileId === 'caregiver') {
+        return sendJson(res, 400, { error: 'Caregiver profile display name cannot be changed' });
+      }
       const cleanedName = String(name || '').trim();
       if (!cleanedName) {
         return sendJson(res, 400, { error: 'Name cannot be empty' });
       }
+      if (cleanedName.length > 24) {
+        return sendJson(res, 400, { error: 'Name must be 24 characters or fewer' });
+      }
       const lowerCleaned = cleanedName.toLowerCase();
-      if (lowerCleaned === 'both' || lowerCleaned === 'pets') {
+      if (
+        lowerCleaned === 'both' ||
+        lowerCleaned === 'pets' ||
+        lowerCleaned === 'household' ||
+        lowerCleaned === 'caregiver'
+      ) {
         return sendJson(res, 400, { error: `"${cleanedName}" is reserved for household assignments` });
       }
       const { data: profiles } = readHowardKey('profiles', DEFAULT_PROFILES);
@@ -2305,21 +2494,31 @@ const server = http.createServer(async (req, res) => {
       const upserts = Array.isArray(incoming.upserts) ? incoming.upserts : [];
       const deleteIds = Array.isArray(incoming.deleteIds) ? incoming.deleteIds : [];
       const nowIso = new Date().toISOString();
-      const fallbackDate = getLocalDateKey(new Date());
       const profilesList = getProfilesList();
+
+      for (const evt of upserts) {
+        if (!isPlainObject(evt) || !evt.id) {
+          return sendJson(res, 400, { error: 'Each Almanac upsert requires a valid event id' });
+        }
+        if (typeof evt.title !== 'string' || !evt.title.trim()) {
+          return sendJson(res, 400, { error: 'Almanac event title cannot be empty' });
+        }
+        if (typeof evt.date !== 'string' || !VALID_DATE_KEY_RE.test(evt.date)) {
+          return sendJson(res, 400, { error: 'Almanac event date must be YYYY-MM-DD' });
+        }
+      }
 
       runInTransaction(howardDb, () => {
         for (const id of deleteIds) {
           if (id) almanacDeleteStmt.run(String(id));
         }
         for (const evt of upserts) {
-          if (!isPlainObject(evt) || !evt.id) continue;
           const id = String(evt.id);
-          const dateKey =
-            typeof evt.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(evt.date)
-              ? evt.date
-              : fallbackDate;
-          const record = enrichAlmanacEvent({ ...evt, id, date: dateKey, updatedAt: nowIso }, profilesList);
+          const dateKey = evt.date;
+          const record = enrichAlmanacEvent(
+            { ...evt, title: evt.title.trim(), id, date: dateKey, updatedAt: nowIso },
+            profilesList
+          );
           almanacUpsertStmt.run(id, dateKey, JSON.stringify(record), nowIso);
         }
       });
@@ -2338,12 +2537,18 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'PUT') {
         const incoming = await parseJsonBody(req);
         const evt = incoming.event || incoming;
-        const dateKey =
-          typeof evt.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(evt.date)
-            ? evt.date
-            : getLocalDateKey(new Date());
+        if (typeof evt.title !== 'string' || !evt.title.trim()) {
+          return sendJson(res, 400, { error: 'Almanac event title cannot be empty' });
+        }
+        if (typeof evt.date !== 'string' || !VALID_DATE_KEY_RE.test(evt.date)) {
+          return sendJson(res, 400, { error: 'Almanac event date must be YYYY-MM-DD' });
+        }
+        const dateKey = evt.date;
         const profilesList = getProfilesList();
-        const record = enrichAlmanacEvent({ ...evt, id: eventId, date: dateKey, updatedAt: nowIso }, profilesList);
+        const record = enrichAlmanacEvent(
+          { ...evt, title: evt.title.trim(), id: eventId, date: dateKey, updatedAt: nowIso },
+          profilesList
+        );
         almanacUpsertStmt.run(eventId, dateKey, JSON.stringify(record), nowIso);
         bumpRevision('almanac');
         return sendJson(res, 200, {
@@ -2387,10 +2592,35 @@ const server = http.createServer(async (req, res) => {
 
       if (req.method === 'PUT') {
         const incoming = await parseJsonBody(req);
-        const validKinds = ['expense', 'recurring', 'income'];
-        const kind = validKinds.includes(incoming.kind) ? incoming.kind : 'expense';
-        const rawItem = incoming.item || incoming;
-        const record = { ...rawItem, id: itemId, updatedAt: nowIso };
+        if (incoming.kind !== undefined && !VALID_LEDGER_KINDS.has(incoming.kind)) {
+          return sendJson(res, 400, { error: 'Invalid ledger item kind' });
+        }
+        const kind = VALID_LEDGER_KINDS.has(incoming.kind) ? incoming.kind : 'expense';
+        const rawItem = isPlainObject(incoming.item) ? incoming.item : incoming;
+        if (typeof rawItem.title !== 'string' || !rawItem.title.trim()) {
+          return sendJson(res, 400, { error: 'Ledger item title cannot be empty' });
+        }
+        const parsedAmount = Number(rawItem.amount);
+        if (!Number.isFinite(parsedAmount) || parsedAmount < 0) {
+          return sendJson(res, 400, { error: 'Ledger amount must be a non-negative finite number' });
+        }
+        if (rawItem.owner !== undefined && !VALID_LEDGER_OWNERS.has(rawItem.owner)) {
+          return sendJson(res, 400, { error: 'Invalid ledger owner' });
+        }
+        if (
+          kind === 'expense' &&
+          rawItem.paidBy !== undefined &&
+          !VALID_LEDGER_OWNERS.has(rawItem.paidBy)
+        ) {
+          return sendJson(res, 400, { error: 'Invalid expense paidBy value' });
+        }
+        const record = {
+          ...rawItem,
+          title: rawItem.title.trim(),
+          amount: parsedAmount,
+          id: itemId,
+          updatedAt: nowIso
+        };
         ledgerUpsertStmt.run(itemId, kind, JSON.stringify(record), nowIso);
         bumpRevision('ledger');
         return sendJson(res, 200, { id: itemId, kind, item: record, updatedAt: nowIso });
@@ -2428,7 +2658,7 @@ const server = http.createServer(async (req, res) => {
       const patch = isPlainObject(incoming.beaconInfo) ? incoming.beaconInfo : incoming;
       const { data: current } = readHowardKey('beacon_info', DEFAULT_BEACON_INFO);
       const profilesList = getProfilesList();
-      const updated = mergeBeaconInfo(current, patch, profilesList);
+      const updated = mergeBeaconInfo(current, patch, profilesList, { mergeContacts: false });
       const updatedAt = writeHowardKey('beacon_info', updated);
       bumpRevision('beacon');
       return sendJson(res, 200, {
@@ -2439,14 +2669,18 @@ const server = http.createServer(async (req, res) => {
 
     // Full Household Backup Export (Available to Partner 1 & Partner 2; includes Floodgate in its entirety)
     if (pathname === '/api/howard/backup' && req.method === 'GET') {
-      const reqProfile = parsedUrl.searchParams.get('profile') || '';
-      if (reqProfile === 'caregiver') {
+      const reqProfile = String(
+        parsedUrl.searchParams.get('profile') || req.headers['x-howard-profile'] || 'caregiver'
+      );
+      if (reqProfile !== 'partner1' && reqProfile !== 'partner2') {
         return sendJson(res, 403, { error: 'Caregiver profile cannot export database backups' });
       }
       checkpointDatabase();
       const includeFloodgate = parsedUrl.searchParams.get('includeFloodgate') !== '0';
       const howardState = getCachedHowardState();
+      const cadenceExportSettings = readCadenceSettings({ includeInternal: true }).settings;
       const cadenceState = getCachedCadenceState();
+      const bloomExportSettings = readBloomSettings({ includeInternal: true }).settings;
       const bloomState = getCachedBloomState();
 
       const payload = {
@@ -2461,11 +2695,11 @@ const server = http.createServer(async (req, res) => {
           beaconInfo: howardState.beaconInfo
         },
         cadence: {
-          settings: cadenceState.settings,
+          settings: cadenceExportSettings,
           logsByDate: cadenceState.logsByDate
         },
         bloom: {
-          settings: bloomState.settings,
+          settings: bloomExportSettings,
           logsByDate: bloomState.logsByDate,
           molts: bloomState.molts,
           feeders: bloomState.feeders
@@ -2487,10 +2721,22 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/howard/restore' && req.method === 'POST') {
       const incoming = await parseJsonBody(req);
       const actorProfileId = String(
-        parsedUrl.searchParams.get('profile') || incoming.profileId || ''
+        parsedUrl.searchParams.get('profile') ||
+          req.headers['x-howard-profile'] ||
+          incoming.profileId ||
+          'caregiver'
       );
       if (actorProfileId !== 'partner1') {
         return sendJson(res, 403, { error: 'Only the primary household profile can restore backups' });
+      }
+
+      if (incoming.schemaVersion !== undefined) {
+        const sv = Number(incoming.schemaVersion);
+        if (!Number.isInteger(sv) || sv < 1 || sv > CURRENT_SCHEMA_VERSION) {
+          return sendJson(res, 400, {
+            error: `Unsupported backup schemaVersion (${incoming.schemaVersion})`
+          });
+        }
       }
 
       const hasHoward = isPlainObject(incoming.howard);
@@ -2507,19 +2753,67 @@ const server = http.createServer(async (req, res) => {
       const nowIso = new Date().toISOString();
       const fallbackDate = getLocalDateKey(new Date());
 
+      let validatedProfilesPatch = null;
+      if (hasHoward && incoming.howard.profiles !== undefined) {
+        if (!Array.isArray(incoming.howard.profiles)) {
+          return sendJson(res, 400, { error: 'howard.profiles must be an array' });
+        }
+        const rawIncomingProfiles = incoming.howard.profiles.filter(
+          (p) => isPlainObject(p) && typeof p.id === 'string'
+        );
+        const currentProfiles = getProfilesList();
+        const incomingById = new Map(rawIncomingProfiles.map((p) => [p.id, p]));
+        const candidateProfiles = (
+          Array.isArray(currentProfiles) ? currentProfiles : DEFAULT_PROFILES
+        ).map((prof) => {
+          if (prof.id !== 'partner1' && prof.id !== 'partner2') return prof;
+          const inc = incomingById.get(prof.id);
+          if (!inc) return prof;
+          const cleanedName = typeof inc.name === 'string' ? inc.name.trim() : '';
+          const lowerName = cleanedName.toLowerCase();
+          if (
+            !cleanedName ||
+            cleanedName.length > 24 ||
+            lowerName === 'both' ||
+            lowerName === 'pets' ||
+            lowerName === 'household' ||
+            lowerName === 'caregiver'
+          ) {
+            throw createHttpError(400, `Invalid imported profile name for ${prof.id}`);
+          }
+          const nextEmoji =
+            typeof inc.badgeEmoji === 'string' && inc.badgeEmoji.trim()
+              ? inc.badgeEmoji.trim()
+              : prof.badgeEmoji;
+          return {
+            ...prof,
+            name: cleanedName,
+            caregiverName: cleanedName,
+            badgeEmoji: nextEmoji
+          };
+        });
+        const seenNames = new Set();
+        for (const p of candidateProfiles) {
+          const key = String(p.name || '').trim().toLowerCase();
+          if (seenNames.has(key)) {
+            throw createHttpError(400, `Duplicate profile name "${p.name}" in backup`);
+          }
+          seenNames.add(key);
+        }
+        validatedProfilesPatch = candidateProfiles;
+      }
+
       // Pre-validate & normalize all payloads before taking snapshot or opening transaction
       const howardPlan = hasHoward
         ? {
-            profiles: Array.isArray(incoming.howard.profiles)
-              ? incoming.howard.profiles.filter((p) => isPlainObject(p) && typeof p.id === 'string')
-              : null,
+            profiles: validatedProfilesPatch,
             events: Array.isArray(incoming.howard.almanacEvents)
               ? incoming.howard.almanacEvents
                   .filter((evt) => isPlainObject(evt))
                   .map((evt, idx) => {
                     const id = String(evt.id || `evt-${Date.now()}-${idx}`);
                     const dateKey =
-                      typeof evt.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(evt.date)
+                      typeof evt.date === 'string' && VALID_DATE_KEY_RE.test(evt.date)
                         ? evt.date
                         : fallbackDate;
                     const updatedAt = typeof evt.updatedAt === 'string' ? evt.updatedAt : nowIso;
@@ -2543,7 +2837,7 @@ const server = http.createServer(async (req, res) => {
             settings: isPlainObject(incoming.cadence.settings) ? incoming.cadence.settings : null,
             logs: isPlainObject(incoming.cadence.logsByDate)
               ? Object.entries(incoming.cadence.logsByDate)
-                  .filter(([dk, rec]) => /^\d{4}-\d{2}-\d{2}$/.test(dk) && isPlainObject(rec))
+                  .filter(([dk, rec]) => VALID_DATE_KEY_RE.test(dk) && isPlainObject(rec))
                   .map(([dk, rec]) => ({
                     dateKey: dk,
                     record: { ...rec, dateKey: dk },
@@ -2558,7 +2852,7 @@ const server = http.createServer(async (req, res) => {
             settings: isPlainObject(incoming.bloom.settings) ? incoming.bloom.settings : null,
             logs: isPlainObject(incoming.bloom.logsByDate)
               ? Object.entries(incoming.bloom.logsByDate)
-                  .filter(([dk, rec]) => /^\d{4}-\d{2}-\d{2}$/.test(dk) && isPlainObject(rec))
+                  .filter(([dk, rec]) => VALID_DATE_KEY_RE.test(dk) && isPlainObject(rec))
                   .map(([dk, rec]) => ({
                     dateKey: dk,
                     record: { ...rec, dateKey: dk },
@@ -2574,7 +2868,7 @@ const server = http.createServer(async (req, res) => {
                       m.id !== null &&
                       String(m.id).trim() !== '' &&
                       typeof m.dateKey === 'string' &&
-                      /^\d{4}-\d{2}-\d{2}$/.test(m.dateKey)
+                      VALID_DATE_KEY_RE.test(m.dateKey)
                   )
                   .map((m) => {
                     const id = String(m.id);
@@ -2620,7 +2914,7 @@ const server = http.createServer(async (req, res) => {
             settings: isPlainObject(incoming.floodgate.settings) ? incoming.floodgate.settings : null,
             logs: rawFgLogs
               ? Object.entries(rawFgLogs)
-                  .filter(([dk, rec]) => /^\d{4}-\d{2}-\d{2}$/.test(dk) && isPlainObject(rec))
+                  .filter(([dk, rec]) => VALID_DATE_KEY_RE.test(dk) && isPlainObject(rec))
                   .map(([dk, rec]) => ({
                     dateKey: dk,
                     record: { ...rec, date: dk },
@@ -2633,166 +2927,200 @@ const server = http.createServer(async (req, res) => {
       // DB-ARCH-4: Always write an atomic pre-restore VACUUM INTO safety snapshot first
       const snapshot = createPreRestoreSnapshot();
 
-      try {
-        runInTransaction(howardDb, () => {
-          let effectiveProfiles = getProfilesList();
+      runInTransaction(howardDb, () => {
+        let effectiveProfiles = getProfilesList();
 
-          if (howardPlan?.profiles) {
-            const incomingById = new Map(howardPlan.profiles.map((p) => [p.id, p]));
-            const candidateProfiles = (
-              Array.isArray(effectiveProfiles) ? effectiveProfiles : DEFAULT_PROFILES
-            ).map((prof) => {
-              if (prof.id !== 'partner1' && prof.id !== 'partner2') return prof;
-              const inc = incomingById.get(prof.id);
-              if (!inc) return prof;
-              const cleanedName = typeof inc.name === 'string' ? inc.name.trim() : '';
-              const lowerName = cleanedName.toLowerCase();
-              const validName =
-                cleanedName && lowerName !== 'both' && lowerName !== 'pets' ? cleanedName : prof.name;
-              const nextEmoji =
-                typeof inc.badgeEmoji === 'string' && inc.badgeEmoji.trim()
-                  ? inc.badgeEmoji.trim()
-                  : prof.badgeEmoji;
-              return {
-                ...prof,
-                name: validName,
-                caregiverName: validName,
-                badgeEmoji: nextEmoji
-              };
-            });
-            const seenNames = new Set();
-            const hasDuplicateNames = candidateProfiles.some((p) => {
-              const key = String(p.name || '').trim().toLowerCase();
-              if (seenNames.has(key)) return true;
-              seenNames.add(key);
-              return false;
-            });
-            if (!hasDuplicateNames) {
-              effectiveProfiles = candidateProfiles;
-              howardUpsertStmt.run('profiles', JSON.stringify(candidateProfiles), nowIso);
-            }
-          }
+        if (howardPlan?.profiles) {
+          effectiveProfiles = howardPlan.profiles;
+          howardUpsertStmt.run('profiles', JSON.stringify(howardPlan.profiles), nowIso);
+        }
 
-          if (howardPlan?.events) {
-            if (!isMerge) almanacClearAllStmt.run();
-            for (const item of howardPlan.events) {
-              const enriched = enrichAlmanacEvent(item.record, effectiveProfiles);
-              almanacUpsertStmt.run(
-                item.id,
-                item.dateKey,
-                JSON.stringify(enriched),
-                item.updatedAt
-              );
-            }
+        if (howardPlan?.events) {
+          if (!isMerge) almanacClearAllStmt.run();
+          for (const item of howardPlan.events) {
+            const enriched = enrichAlmanacEvent(item.record, effectiveProfiles);
+            almanacUpsertStmt.run(
+              item.id,
+              item.dateKey,
+              JSON.stringify(enriched),
+              item.updatedAt
+            );
           }
+        }
 
-          if (howardPlan?.ledger) {
-            writeLedgerDataInTx(howardPlan.ledger.normalized, {
-              nowIso,
-              clearExisting: !isMerge
-            });
-            if (isMerge && howardPlan.ledger.hasExplicitSplitRule) {
-              howardUpsertStmt.run(
-                'ledger_settings',
-                JSON.stringify({ splitRule: howardPlan.ledger.normalized.splitRule }),
-                nowIso
-              );
-            }
+        if (howardPlan?.ledger) {
+          writeLedgerDataInTx(howardPlan.ledger.normalized, {
+            nowIso,
+            clearExisting: !isMerge
+          });
+          if (isMerge && howardPlan.ledger.hasExplicitSplitRule) {
+            howardUpsertStmt.run(
+              'ledger_settings',
+              JSON.stringify({ splitRule: howardPlan.ledger.normalized.splitRule }),
+              nowIso
+            );
           }
+        }
 
-          if (howardPlan?.beacon) {
-            const nextBeacon = isMerge
-              ? mergeBeaconInfo(
-                  readHowardKey('beacon_info', DEFAULT_BEACON_INFO).data,
-                  howardPlan.beacon,
-                  effectiveProfiles
-                )
-              : normalizeBeaconInfo(howardPlan.beacon, { profilesList: effectiveProfiles });
-            howardUpsertStmt.run('beacon_info', JSON.stringify(nextBeacon), nowIso);
-          }
+        if (howardPlan?.beacon) {
+          const nextBeacon = isMerge
+            ? mergeBeaconInfo(
+                readHowardKey('beacon_info', DEFAULT_BEACON_INFO).data,
+                howardPlan.beacon,
+                effectiveProfiles,
+                { mergeContacts: true }
+              )
+            : normalizeBeaconInfo(howardPlan.beacon, { profilesList: effectiveProfiles });
+          howardUpsertStmt.run('beacon_info', JSON.stringify(nextBeacon), nowIso);
+        }
 
-          if (cadencePlan?.settings) {
-            const base = isMerge
-              ? readHowardKey('cadence_settings', createDefaultCadenceSettings()).data
-              : createDefaultCadenceSettings();
-            const merged = normalizeCadenceSettings(cadencePlan.settings, base);
-            const persisted = {
-              ...merged,
-              caregiverItems: buildCaregiverItems(merged.caregivers, effectiveProfiles)
-            };
-            howardUpsertStmt.run('cadence_settings', JSON.stringify(persisted), nowIso);
-          }
-          if (cadencePlan?.logs) {
-            if (!isMerge) cadenceClearLogsStmt.run();
-            for (const item of cadencePlan.logs) {
-              const enriched = enrichCadenceRecord(item.record, effectiveProfiles);
-              cadenceUpsertLogStmt.run(item.dateKey, JSON.stringify(enriched), item.updatedAt);
-            }
-          }
-
-          if (bloomPlan?.settings) {
-            const current = readHowardKey('bloom_settings', createDefaultBloomSettings()).data;
-            const merged = isMerge
-              ? normalizeBloomSettings({
-                  ...current,
-                  ...bloomPlan.settings,
-                  enclosureInfo: {
-                    ...current?.enclosureInfo,
-                    ...(isPlainObject(bloomPlan.settings.enclosureInfo)
-                      ? bloomPlan.settings.enclosureInfo
+        if (cadencePlan?.settings) {
+          const base = isMerge
+            ? readHowardKey('cadence_settings', createDefaultCadenceSettings()).data
+            : createDefaultCadenceSettings();
+          const merged = normalizeCadenceSettings(cadencePlan.settings, base, effectiveProfiles);
+          howardUpsertStmt.run('cadence_settings', JSON.stringify(merged), nowIso);
+        }
+        if (cadencePlan?.logs) {
+          if (!isMerge) cadenceClearLogsStmt.run();
+          for (const item of cadencePlan.logs) {
+            let nextRec = item.record;
+            if (isMerge) {
+              const existingRow = cadenceGetLogByDateStmt.get(item.dateKey);
+              if (existingRow) {
+                try {
+                  const currentDay = JSON.parse(existingRow.data);
+                  nextRec = {
+                    ...currentDay,
+                    ...item.record,
+                    dateKey: item.dateKey,
+                    ...(currentDay.morning !== undefined && !isPlainObject(item.record.morning)
+                      ? { morning: currentDay.morning }
+                      : {}),
+                    ...(currentDay.evening !== undefined && !isPlainObject(item.record.evening)
+                      ? { evening: currentDay.evening }
                       : {})
-                  }
-                })
-              : normalizeBloomSettings(bloomPlan.settings);
-            const persisted = {
-              ...merged,
-              caregiverItems: buildCaregiverItems(merged.caregivers, effectiveProfiles)
-            };
-            howardUpsertStmt.run('bloom_settings', JSON.stringify(persisted), nowIso);
-          }
-          if (bloomPlan?.logs) {
-            if (!isMerge) bloomClearLogsStmt.run();
-            for (const item of bloomPlan.logs) {
-              const enriched = enrichBloomCareRecord(item.record, effectiveProfiles);
-              bloomUpsertLogStmt.run(item.dateKey, JSON.stringify(enriched), item.updatedAt);
+                  };
+                } catch {
+                  // fall back to incoming record
+                }
+              }
             }
+            const enriched = enrichCadenceRecord(nextRec, effectiveProfiles);
+            cadenceUpsertLogStmt.run(item.dateKey, JSON.stringify(enriched), item.updatedAt);
           }
-          if (bloomPlan?.molts) {
-            if (!isMerge) bloomClearMoltsStmt.run();
-            for (const m of bloomPlan.molts) {
-              const enriched = enrichBloomMoltRecord(m.record, effectiveProfiles);
-              bloomUpsertMoltStmt.run(m.id, m.dateKey, JSON.stringify(enriched), m.updatedAt);
-            }
-          }
-          if (bloomPlan?.feeders) {
-            if (!isMerge) bloomClearFeedersStmt.run();
-            for (const f of bloomPlan.feeders) {
-              bloomUpsertFeederStmt.run(f.id, JSON.stringify(f.record), f.updatedAt);
-            }
-          }
+        }
 
-          if (floodgatePlan?.settings) {
-            const base = isMerge
-              ? readHowardKey('floodgate_settings', DEFAULT_FLOODGATE_SETTINGS).data
-              : DEFAULT_FLOODGATE_SETTINGS;
-            const merged = {
-              ...DEFAULT_FLOODGATE_SETTINGS,
-              ...base,
-              ...floodgatePlan.settings,
-              ownerProfileId: 'partner2'
-            };
-            howardUpsertStmt.run('floodgate_settings', JSON.stringify(merged), nowIso);
-          }
-          if (floodgatePlan?.logs) {
-            if (!isMerge) floodgateClearLogsStmt.run();
-            for (const item of floodgatePlan.logs) {
-              floodgateUpsertLogStmt.run(item.dateKey, JSON.stringify(item.record), item.updatedAt);
+        if (bloomPlan?.settings) {
+          const current = readHowardKey('bloom_settings', createDefaultBloomSettings()).data;
+          const merged = isMerge
+            ? normalizeBloomSettings(bloomPlan.settings, current, effectiveProfiles)
+            : normalizeBloomSettings(bloomPlan.settings, null, effectiveProfiles);
+          howardUpsertStmt.run('bloom_settings', JSON.stringify(merged), nowIso);
+        }
+        if (bloomPlan?.logs) {
+          if (!isMerge) bloomClearLogsStmt.run();
+          const mergeArrById = (baseArr, incArr) => {
+            const byId = new Map();
+            const unkeyed = [];
+            for (const entry of Array.isArray(baseArr) ? baseArr : []) {
+              if (isPlainObject(entry) && entry.id) byId.set(entry.id, entry);
+              else if (entry !== undefined) unkeyed.push(entry);
             }
+            for (const entry of Array.isArray(incArr) ? incArr : []) {
+              if (isPlainObject(entry) && entry.id) byId.set(entry.id, entry);
+              else if (entry !== undefined) unkeyed.push(entry);
+            }
+            return [...Array.from(byId.values()), ...unkeyed];
+          };
+          for (const item of bloomPlan.logs) {
+            let nextRec = item.record;
+            if (isMerge) {
+              const existingRow = bloomGetLogByDateStmt.get(item.dateKey);
+              if (existingRow) {
+                try {
+                  const cur = JSON.parse(existingRow.data);
+                  const curAbdAt = cur.abdomenUpdatedAt || '';
+                  const incAbdAt = item.record.abdomenUpdatedAt || '';
+                  const keepCurAbdomen =
+                    cur.abdomenStatus && (!item.record.abdomenStatus || (curAbdAt && curAbdAt > incAbdAt));
+                  nextRec = {
+                    ...cur,
+                    ...item.record,
+                    dateKey: item.dateKey,
+                    mists: mergeArrById(cur.mists, item.record.mists),
+                    feedings: mergeArrById(cur.feedings, item.record.feedings),
+                    climateChecks: mergeArrById(cur.climateChecks, item.record.climateChecks),
+                    behaviors: Array.from(
+                      new Set([
+                        ...(Array.isArray(cur.behaviors) ? cur.behaviors : []),
+                        ...(Array.isArray(item.record.behaviors) ? item.record.behaviors : [])
+                      ])
+                    ),
+                    abdomenStatus: keepCurAbdomen ? cur.abdomenStatus : item.record.abdomenStatus,
+                    abdomenUpdatedAt: keepCurAbdomen ? cur.abdomenUpdatedAt : item.record.abdomenUpdatedAt,
+                    journalNote:
+                      typeof item.record.journalNote === 'string' && item.record.journalNote.trim()
+                        ? item.record.journalNote
+                        : cur.journalNote || ''
+                  };
+                } catch {
+                  // fall back to incoming record
+                }
+              }
+            }
+            const enriched = enrichBloomCareRecord(nextRec, effectiveProfiles);
+            bloomUpsertLogStmt.run(item.dateKey, JSON.stringify(enriched), item.updatedAt);
           }
-        });
-      } finally {
-        bumpRevision('all');
-      }
+        }
+        if (bloomPlan?.molts) {
+          if (!isMerge) bloomClearMoltsStmt.run();
+          for (const m of bloomPlan.molts) {
+            const enriched = enrichBloomMoltRecord(m.record, effectiveProfiles);
+            bloomUpsertMoltStmt.run(m.id, m.dateKey, JSON.stringify(enriched), m.updatedAt);
+          }
+        }
+        if (bloomPlan?.feeders) {
+          if (!isMerge) bloomClearFeedersStmt.run();
+          for (const f of bloomPlan.feeders) {
+            bloomUpsertFeederStmt.run(f.id, JSON.stringify(f.record), f.updatedAt);
+          }
+        }
+
+        if (floodgatePlan?.settings) {
+          const base = isMerge
+            ? readHowardKey('floodgate_settings', DEFAULT_FLOODGATE_SETTINGS).data
+            : DEFAULT_FLOODGATE_SETTINGS;
+          const merged = {
+            ...DEFAULT_FLOODGATE_SETTINGS,
+            ...base,
+            ...floodgatePlan.settings,
+            ownerProfileId: 'partner2'
+          };
+          howardUpsertStmt.run('floodgate_settings', JSON.stringify(merged), nowIso);
+        }
+        if (floodgatePlan?.logs) {
+          if (!isMerge) floodgateClearLogsStmt.run();
+          for (const item of floodgatePlan.logs) {
+            if (isMerge) {
+              const existingRow = floodgateGetLogByDateStmt.get(item.dateKey);
+              if (existingRow) {
+                try {
+                  const cur = JSON.parse(existingRow.data);
+                  if (cur?.updatedAt && item.updatedAt && cur.updatedAt > item.updatedAt) {
+                    continue;
+                  }
+                } catch {
+                  // overwrite malformed row
+                }
+              }
+            }
+            floodgateUpsertLogStmt.run(item.dateKey, JSON.stringify(item.record), item.updatedAt);
+          }
+        }
+      });
+
+      bumpRevision('all');
 
       return sendJson(res, 200, {
         restored: true,
@@ -2813,7 +3141,22 @@ const server = http.createServer(async (req, res) => {
       const incoming = await parseJsonBody(req);
       const { data: rawCurrent } = readHowardKey('cadence_settings', createDefaultCadenceSettings());
       const nowIso = new Date().toISOString();
-      const updatedRaw = normalizeCadenceSettings(incoming, rawCurrent);
+      const base = isPlainObject(rawCurrent) ? rawCurrent : createDefaultCadenceSettings();
+      if (incoming.bottleShelfLifeDays !== undefined) {
+        const shelf = Number(incoming.bottleShelfLifeDays);
+        if (!Number.isFinite(shelf) || shelf < 7 || shelf > 365) {
+          return sendJson(res, 400, { error: 'Bottle shelf life must be 7 to 365 days' });
+        }
+      }
+      if (incoming.bottleOpenedDate !== undefined && !VALID_DATE_KEY_RE.test(incoming.bottleOpenedDate)) {
+        return sendJson(res, 400, { error: 'bottleOpenedDate must be YYYY-MM-DD' });
+      }
+      const profilesList = getProfilesList();
+      const patch = { ...incoming };
+      if (Array.isArray(incoming.caregivers) && !Array.isArray(incoming.caregiverItems)) {
+        patch.caregiverItems = buildCaregiverItems(incoming.caregivers, profilesList);
+      }
+      const updatedRaw = normalizeCadenceSettings(patch, base, profilesList);
       howardUpsertStmt.run('cadence_settings', JSON.stringify(updatedRaw), nowIso);
       bumpRevision('cadence');
       return sendJson(res, 200, { settings: readCadenceSettings().settings, updatedAt: nowIso });
@@ -2859,8 +3202,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ------------------------------------------------------------------------
-    // 3. FLOODGATE API ROUTES (/api/floodgate/*)
+    // 3. FLOODGATE API ROUTES (/api/floodgate/*) — Partner 2 Private Access
     // ------------------------------------------------------------------------
+    if (pathname === '/api/floodgate/state' || pathname === '/api/floodgate/settings' || pathname.startsWith('/api/floodgate/logs')) {
+      const fgCaller = String(
+        parsedUrl.searchParams.get('profile') || req.headers['x-howard-profile'] || 'caregiver'
+      );
+      if (fgCaller !== 'partner2') {
+        return sendJson(res, 403, { error: 'Floodgate routes are restricted to Partner 2' });
+      }
+    }
+
     if (pathname === '/api/floodgate/state' && req.method === 'GET') {
       return sendJson(res, 200, getCachedFloodgateState());
     }
@@ -2982,6 +3334,7 @@ const server = http.createServer(async (req, res) => {
       const { data: rawCurrent } = readHowardKey('bloom_settings', createDefaultBloomSettings());
       const base = isPlainObject(rawCurrent) ? rawCurrent : createDefaultBloomSettings();
       const nowIso = new Date().toISOString();
+      const profilesList = getProfilesList();
       const merged = {
         ...base,
         ...incoming,
@@ -2992,12 +3345,26 @@ const server = http.createServer(async (req, res) => {
             : {})
         }
       };
-      if (Array.isArray(incoming.caregivers)) {
-        merged.caregiverItems = buildCaregiverItems(incoming.caregivers, getProfilesList());
-      } else if (Array.isArray(base.caregiverItems)) {
-        merged.caregiverItems = base.caregiverItems;
+      const tMin = Number(merged.dayTempMinC);
+      const tMax = Number(merged.dayTempMaxC);
+      const hMin = Number(merged.humidityMinPct);
+      const hMax = Number(merged.humidityMaxPct);
+      if (!Number.isFinite(tMin) || !Number.isFinite(tMax) || tMin < 5 || tMax > 50 || tMin > tMax) {
+        return sendJson(res, 400, { error: 'Invalid Bloom temperature range (5-50C, min <= max)' });
       }
-      const updatedRaw = normalizeBloomSettings(merged);
+      if (!Number.isFinite(hMin) || !Number.isFinite(hMax) || hMin < 0 || hMax > 100 || hMin > hMax) {
+        return sendJson(res, 400, { error: 'Invalid Bloom humidity range (0-100%, min <= max)' });
+      }
+      const nextCaregiverItems = Array.isArray(incoming.caregivers)
+        ? buildCaregiverItems(incoming.caregivers, profilesList)
+        : Array.isArray(base.caregiverItems)
+          ? base.caregiverItems
+          : buildCaregiverItems(merged.caregivers, profilesList);
+      const updatedRaw = normalizeBloomSettings(
+        { ...merged, caregiverItems: nextCaregiverItems },
+        base,
+        profilesList
+      );
       howardUpsertStmt.run('bloom_settings', JSON.stringify(updatedRaw), nowIso);
       bumpRevision('bloom');
       return sendJson(res, 200, { settings: readBloomSettings().settings, updatedAt: nowIso });
@@ -3143,7 +3510,7 @@ const server = http.createServer(async (req, res) => {
           } else if (Array.isArray(base.caregiverItems)) {
             merged.caregiverItems = base.caregiverItems;
           }
-          nextSettings = normalizeBloomSettings(merged);
+          nextSettings = normalizeBloomSettings(merged, base, profilesList);
           howardUpsertStmt.run('bloom_settings', JSON.stringify(nextSettings), nowIso);
         }
 
@@ -3223,7 +3590,7 @@ const server = http.createServer(async (req, res) => {
               ...(moltRecord.lengthMm ? { currentBodyLengthMm: moltRecord.lengthMm } : {})
             },
             ...(Array.isArray(base.caregiverItems) ? { caregiverItems: base.caregiverItems } : {})
-          });
+          }, base, profilesList);
           howardUpsertStmt.run('bloom_settings', JSON.stringify(nextSettings), nowIso);
         }
       });
@@ -3241,26 +3608,58 @@ const server = http.createServer(async (req, res) => {
     if (pathname.startsWith('/api/bloom/molts/') && req.method === 'DELETE') {
       const moltId = safeDecodeUriSegment(pathname.slice('/api/bloom/molts/'.length));
       if (!moltId) return sendJson(res, 400, { error: 'Invalid or missing molt ID' });
-      bloomDeleteMoltStmt.run(moltId);
+      const nowIso = new Date().toISOString();
+      runInTransaction(howardDb, () => {
+        const beforeMolts = readBloomMolts().molts;
+        const deletedIndex = beforeMolts.findIndex((m) => m.id === moltId);
+        const deletedMolt = deletedIndex >= 0 ? beforeMolts[deletedIndex] : null;
+        bloomDeleteMoltStmt.run(moltId);
+        if (deletedMolt && deletedIndex === 0) {
+          const remaining = readBloomMolts().molts;
+          const { data: rawCurrent } = readHowardKey('bloom_settings', createDefaultBloomSettings());
+          const base = isPlainObject(rawCurrent) ? rawCurrent : createDefaultBloomSettings();
+          const revertedInstar = remaining[0]?.toInstar || deletedMolt.fromInstar || base.currentInstar;
+          const nextSettings = normalizeBloomSettings(
+            {
+              ...base,
+              currentInstar: revertedInstar,
+              ...(base.lifecycleStatus === 'hardening'
+                ? { lifecycleStatus: 'normal', hardeningUntil: null }
+                : {})
+            },
+            base
+          );
+          howardUpsertStmt.run('bloom_settings', JSON.stringify(nextSettings), nowIso);
+        }
+      });
       bumpRevision('bloom');
-      const { molts } = getCachedBloomState();
-      return sendJson(res, 200, { deleted: true, id: moltId, molts });
+      const { molts, settings } = getCachedBloomState();
+      return sendJson(res, 200, { deleted: true, id: moltId, molts, settings });
     }
 
     if (pathname.startsWith('/api/bloom/feeders/') && req.method === 'PUT') {
       const feederId = safeDecodeUriSegment(pathname.slice('/api/bloom/feeders/'.length));
       if (!feederId) return sendJson(res, 400, { error: 'Invalid or missing feeder ID' });
       const incoming = await parseJsonBody(req);
+      const nameTrimmed = String(incoming.name || '').trim();
+      if (!nameTrimmed) {
+        return sendJson(res, 400, { error: 'Feeder culture name cannot be empty' });
+      }
+      const shelfLife =
+        incoming.shelfLifeDays !== undefined ? Number(incoming.shelfLifeDays) : 28;
+      if (!Number.isFinite(shelfLife) || shelfLife < 1 || shelfLife > 365) {
+        return sendJson(res, 400, { error: 'Feeder shelf life must be between 1 and 365 days' });
+      }
+      if (incoming.startedDate !== undefined && !VALID_DATE_KEY_RE.test(incoming.startedDate)) {
+        return sendJson(res, 400, { error: 'Feeder startedDate must be YYYY-MM-DD' });
+      }
       const nowIso = new Date().toISOString();
       const feederRecord = {
         id: feederId,
-        name: String(incoming.name || 'Feeder Culture').trim(),
+        name: nameTrimmed,
         feederType: incoming.feederType || 'hydei',
-        startedDate:
-          incoming.startedDate && /^\d{4}-\d{2}-\d{2}$/.test(incoming.startedDate)
-            ? incoming.startedDate
-            : getLocalDateKey(new Date()),
-        shelfLifeDays: Number(incoming.shelfLifeDays) || 28,
+        startedDate: incoming.startedDate || getLocalDateKey(new Date()),
+        shelfLifeDays: Math.round(shelfLife),
         status: incoming.status || 'booming',
         storageNote: String(incoming.storageNote || '').trim(),
         active: incoming.active !== false,
@@ -3350,7 +3749,9 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🎩 Howard Household Hub listening on http://0.0.0.0:${PORT}`);
+  const addr = server.address();
+  const actualPort = addr && typeof addr === 'object' ? addr.port : PORT;
+  console.log(`🎩 Howard Household Hub listening on http://0.0.0.0:${actualPort}`);
   console.log(
     `💾 Unified SQLite Database: ${HOWARD_DB_PATH} (schema v${CURRENT_SCHEMA_VERSION}, ${activeJournalMode})`
   );

@@ -18,7 +18,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   Wifi,
-  X,
   KeyRound,
   ChevronRight,
   ChevronUp,
@@ -28,6 +27,7 @@ import {
 } from 'lucide-react';
 
 import FoyerApp from './apps/FoyerApp.jsx';
+import { ModalShell, getFieldClass, getOpenModalCount } from './components/HowardUI.jsx';
 import {
   getLocalDateKey,
   parseLocalDateKey,
@@ -62,8 +62,7 @@ const APP_REGISTRY = [
     name: 'Foyer',
     subtitle: 'Daily Briefing',
     icon: Home,
-    accent: 'bg-teal-600 text-white',
-    badgeClass: 'text-teal-600 dark:text-teal-400',
+    accent: 'bg-teal-700 text-white',
     activeCardClass: 'border-teal-500 ring-2 ring-teal-500/25'
   },
   {
@@ -72,7 +71,6 @@ const APP_REGISTRY = [
     subtitle: 'Pet Meds',
     icon: Cat,
     accent: 'bg-purple-600 text-white',
-    badgeClass: 'text-purple-600 dark:text-purple-400',
     activeCardClass: 'border-purple-500 ring-2 ring-purple-500/25'
   },
   {
@@ -80,9 +78,8 @@ const APP_REGISTRY = [
     name: 'Bloom',
     subtitle: 'Mantis Care',
     icon: Flower2,
-    accent: 'bg-lime-600 text-white',
-    badgeClass: 'text-lime-600 dark:text-lime-400',
-    activeCardClass: 'border-lime-500 ring-2 ring-lime-500/25'
+    accent: 'bg-emerald-700 text-white',
+    activeCardClass: 'border-emerald-500 ring-2 ring-emerald-500/25'
   },
   {
     id: 'almanac',
@@ -90,7 +87,6 @@ const APP_REGISTRY = [
     subtitle: 'Calendar',
     icon: Calendar,
     accent: 'bg-indigo-600 text-white',
-    badgeClass: 'text-indigo-600 dark:text-indigo-400',
     activeCardClass: 'border-indigo-500 ring-2 ring-indigo-500/25'
   },
   {
@@ -99,7 +95,6 @@ const APP_REGISTRY = [
     subtitle: 'Cycle & GP Log',
     icon: Heart,
     accent: 'bg-rose-600 text-white',
-    badgeClass: 'text-rose-600 dark:text-rose-400',
     activeCardClass: 'border-rose-500 ring-2 ring-rose-500/25',
     privateTo: 'partner2'
   },
@@ -108,8 +103,7 @@ const APP_REGISTRY = [
     name: 'Ledger',
     subtitle: 'Finances & Bills',
     icon: Wallet,
-    accent: 'bg-amber-600 text-white',
-    badgeClass: 'text-amber-600 dark:text-amber-400',
+    accent: 'bg-amber-700 text-white',
     activeCardClass: 'border-amber-500 ring-2 ring-amber-500/25'
   },
   {
@@ -117,8 +111,7 @@ const APP_REGISTRY = [
     name: 'Beacon',
     subtitle: 'House & Vet Guide',
     icon: ShieldAlert,
-    accent: 'bg-sky-600 text-white',
-    badgeClass: 'text-sky-600 dark:text-sky-400',
+    accent: 'bg-sky-700 text-white',
     activeCardClass: 'border-sky-500 ring-2 ring-sky-500/25'
   }
 ];
@@ -194,18 +187,18 @@ class ErrorBoundary extends React.Component {
             <p className="text-xs text-slate-500 dark:text-slate-400">
               If Howard was recently rebuilt or updated, reloading the page fetches the latest module bundle.
             </p>
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex flex-wrap items-center gap-2 pt-1">
               <button
                 type="button"
                 onClick={() => window.location.reload()}
-                className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold cursor-pointer"
+                className="min-h-[40px] px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold cursor-pointer transition active:scale-[0.98]"
               >
                 Reload Howard
               </button>
               <button
                 type="button"
                 onClick={() => this.setState({ hasError: false })}
-                className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold cursor-pointer"
+                className="min-h-[40px] px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-bold cursor-pointer transition active:scale-[0.98]"
               >
                 Try Again
               </button>
@@ -374,12 +367,14 @@ export default function App() {
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameDraft, setRenameDraft] = useState('');
 
+  const [quickActionPending, setQuickActionPending] = useState(false);
+  const quickActionRef = useRef(false);
   const [backupModalOpen, setBackupModalOpen] = useState(false);
   const [pendingRestore, setPendingRestore] = useState(null); // { bodyToSend, confirmPrompt, fileName }
   const [isRestoringBackup, setIsRestoringBackup] = useState(false);
   const [dbInfo, setDbInfo] = useState({
     file: 'data/howard.db',
-    schemaVersion: 4,
+    schemaVersion: 5,
     journalMode: 'WAL'
   });
 
@@ -418,38 +413,36 @@ export default function App() {
     setRenameDraft('');
   }, []);
 
+  const scrollTopSafe = useCallback(() => {
+    const reduce =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+  }, []);
+
   const handleNavigateModule = useCallback((targetAppId) => {
     setAlmanacIntentDate(null);
     setFloodgateIntent(null);
     setBloomIntent(null);
     setActiveAppId(targetAppId);
     setAppLauncherOpen(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+    scrollTopSafe();
+  }, [scrollTopSafe]);
 
-  // Global Ctrl+K / Cmd+K shortcut for Bento Module Switcher & Escape to close modals
+  // Global Ctrl+K / Cmd+K shortcut for Bento Module Switcher
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && (e.key || '').toLowerCase() === 'k') {
-        if (profileModalOpen || backupModalOpen || pendingRestore) return;
+        if (profileModalOpen || backupModalOpen || pendingRestore || (!appLauncherOpen && getOpenModalCount() > 0)) {
+          return;
+        }
         e.preventDefault();
         setAppLauncherOpen((prev) => !prev);
-      } else if (e.key === 'Escape') {
-        if (pendingRestore) {
-          setPendingRestore(null);
-        } else if (appLauncherOpen) {
-          setAppLauncherOpen(false);
-        } else if (profileModalOpen) {
-          setProfileModalOpen(false);
-          resetProfileSubforms();
-        } else if (backupModalOpen) {
-          setBackupModalOpen(false);
-        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [appLauncherOpen, profileModalOpen, backupModalOpen, pendingRestore, resetProfileSubforms]);
+  }, [appLauncherOpen, profileModalOpen, backupModalOpen, pendingRestore]);
 
   // Active profile object
   const activeProfile = useMemo(() => {
@@ -1055,6 +1048,9 @@ export default function App() {
   // SHARED API ACTIONS FOR FOYER / ALMANAC / LEDGER / BEACON
   // --------------------------------------------------------------------------
   const handleQuickRecordPetDose = async (slot, note = '') => {
+    if (quickActionRef.current) return;
+    quickActionRef.current = true;
+    setQuickActionPending(true);
     const todayKey = getLocalDateKey(new Date());
     const nowIso = new Date().toISOString();
     const caregiverName = activeProfile.caregiverName || activeProfile.name;
@@ -1065,8 +1061,7 @@ export default function App() {
       givenBy: caregiverName,
       givenByProfileId: activeProfile.id,
       dosage: cadenceSnapshot.settings?.dosageLabel || '2.5 mg / 0.5 ml',
-      note: note.trim(),
-      recordedByUid: `howard-${activeProfile.id}`
+      note: note.trim()
     };
 
     // Optimistic update (functional merge so sibling slots stay intact)
@@ -1101,10 +1096,16 @@ export default function App() {
       setCadenceSnapshot(prevCadence);
       fetchUnifiedSync({ force: true });
       showToast('Failed to save dose to server — reverted', 'error');
+    } finally {
+      quickActionRef.current = false;
+      setQuickActionPending(false);
     }
   };
 
   const handleQuickMistMantis = async () => {
+    if (quickActionRef.current) return;
+    quickActionRef.current = true;
+    setQuickActionPending(true);
     const todayKey = getLocalDateKey(new Date());
     const nowIso = new Date().toISOString();
     const caregiverName = activeProfile.caregiverName || activeProfile.name;
@@ -1155,10 +1156,16 @@ export default function App() {
       setBloomSnapshot(prevBloom);
       fetchUnifiedSync({ force: true });
       showToast('Failed to save mist log to server — reverted', 'error');
+    } finally {
+      quickActionRef.current = false;
+      setQuickActionPending(false);
     }
   };
 
   const handleClearMantisLivePrey = async () => {
+    if (quickActionRef.current) return;
+    quickActionRef.current = true;
+    setQuickActionPending(true);
     const mantisName = bloomSnapshot.settings?.mantisName || 'Mantis';
     const prevBloom = bloomSnapshot;
     setBloomSnapshot((prev) => ({
@@ -1166,14 +1173,21 @@ export default function App() {
       settings: {
         ...prev.settings,
         livePreyInside: false,
-        livePreyNote: ''
+        livePreyNote: '',
+        livePreyByProfileId: null,
+        livePreyAt: null
       }
     }));
     try {
       const res = await fetch('/api/bloom/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ livePreyInside: false, livePreyNote: '' })
+        body: JSON.stringify({
+          livePreyInside: false,
+          livePreyNote: '',
+          livePreyByProfileId: null,
+          livePreyAt: null
+        })
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       showToast(`Marked ${mantisName}'s enclosure clear of live prey`);
@@ -1182,6 +1196,9 @@ export default function App() {
       setBloomSnapshot(prevBloom);
       fetchUnifiedSync({ force: true });
       showToast('Failed to update Bloom enclosure status — reverted', 'error');
+    } finally {
+      quickActionRef.current = false;
+      setQuickActionPending(false);
     }
   };
 
@@ -1356,7 +1373,7 @@ export default function App() {
     setFloodgateIntent({ ...intent, timestamp: Date.now() });
     setActiveAppId('floodgate');
     setAppLauncherOpen(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollTopSafe();
   };
 
   const openBloomWithIntent = (intent = { tab: 'today' }) => {
@@ -1365,7 +1382,7 @@ export default function App() {
     setBloomIntent({ ...intent, timestamp: Date.now() });
     setActiveAppId('bloom');
     setAppLauncherOpen(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollTopSafe();
   };
 
   const openAlmanacOnDate = (dateStr) => {
@@ -1374,7 +1391,7 @@ export default function App() {
     setAlmanacIntentDate(dateStr);
     setActiveAppId('almanac');
     setAppLauncherOpen(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollTopSafe();
   };
 
   // --------------------------------------------------------------------------
@@ -1434,6 +1451,27 @@ export default function App() {
             };
             confirmPrompt =
               'Merge this standalone Floodgate backup into your current Floodgate logs?';
+          } else if (
+            !parsed.howard &&
+            (Array.isArray(parsed.molts) ||
+              Array.isArray(parsed.feeders) ||
+              parsed.settings?.mantisName !== undefined) &&
+            ((parsed.settings && typeof parsed.settings === 'object') ||
+              (parsed.logsByDate && typeof parsed.logsByDate === 'object') ||
+              Array.isArray(parsed.molts) ||
+              Array.isArray(parsed.feeders))
+          ) {
+            bodyToSend = {
+              mode: 'merge',
+              bloom: {
+                ...(parsed.settings ? { settings: parsed.settings } : {}),
+                ...(parsed.logsByDate ? { logsByDate: parsed.logsByDate } : {}),
+                ...(Array.isArray(parsed.molts) ? { molts: parsed.molts } : {}),
+                ...(Array.isArray(parsed.feeders) ? { feeders: parsed.feeders } : {})
+              }
+            };
+            confirmPrompt =
+              'Merge this standalone Bloom backup into your current Bloom care logs, molts & feeders?';
           } else if (
             !parsed.howard &&
             parsed.settings &&
@@ -1521,9 +1559,16 @@ export default function App() {
     >
       {/* FLOATING TOAST */}
       {toast && (
-        <div className="fixed top-4 right-4 z-[70] no-print animate-fade-in">
-          <div
-            className={`flex items-center gap-2.5 px-4 py-3 rounded-2xl shadow-xl border text-xs sm:text-sm font-semibold ${
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-[max(1rem,env(safe-area-inset-top))] right-4 max-w-[calc(100vw-2rem)] z-[70] no-print animate-fade-in"
+        >
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            title="Dismiss notification"
+            className={`w-full text-left flex items-center gap-2.5 px-4 py-3 rounded-2xl shadow-xl border text-xs sm:text-sm font-semibold cursor-pointer ${
               toast.type === 'error'
                 ? 'bg-rose-900 text-white border-rose-700'
                 : toast.type === 'info'
@@ -1538,8 +1583,8 @@ export default function App() {
             ) : (
               <CheckCircle2 className="w-4 h-4 text-teal-400 shrink-0" />
             )}
-            <span>{toast.text}</span>
-          </div>
+            <span className="min-w-0 break-words">{toast.text}</span>
+          </button>
         </div>
       )}
 
@@ -1553,28 +1598,28 @@ export default function App() {
             : 'bg-white/90 border-slate-200/90'
         }`}
       >
-        <div className="w-full px-3 sm:px-4 lg:px-6 h-16 flex items-center justify-between gap-2">
+        <div className="w-full px-2.5 sm:px-4 lg:px-6 h-16 flex items-center justify-between gap-1.5 sm:gap-2">
           {/* Brand Logo + Live Sync Status */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
               onClick={() => handleNavigateModule('foyer')}
-              className="flex items-center gap-2 lg:gap-2.5 text-left group cursor-pointer"
+              className="flex items-center gap-1.5 sm:gap-2 lg:gap-2.5 text-left group cursor-pointer shrink-0"
               title="Return to Foyer (Daily Briefing)"
             >
-              <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-2xl bg-gradient-to-br from-slate-900 to-teal-700 dark:from-teal-600 dark:to-cyan-700 flex items-center justify-center text-white shadow-sm group-hover:scale-105 transition shrink-0">
-                <Home className="w-5 h-5" />
+              <div className="w-8 h-8 sm:w-9 sm:h-9 lg:w-10 lg:h-10 rounded-xl sm:rounded-2xl bg-gradient-to-br from-slate-900 to-teal-700 dark:from-teal-600 dark:to-cyan-700 flex items-center justify-center text-white shadow-sm group-hover:scale-105 transition shrink-0">
+                <Home className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
               <div>
-                <div className="flex items-center gap-1.5">
-                  <span className="font-extrabold text-base lg:text-lg tracking-tight leading-none">
+                <div className="flex items-center gap-1 sm:gap-1.5">
+                  <span className="font-extrabold text-sm min-[360px]:text-base lg:text-lg tracking-tight leading-none whitespace-nowrap">
                     Howard
                   </span>
                   <span
-                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                    className={`inline-flex items-center gap-1 px-1 sm:px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider shrink-0 ${
                       isConnected
-                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                        : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                        ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
+                        : 'bg-amber-500/15 text-amber-800 dark:text-amber-300'
                     }`}
                     title={
                       lastSyncedAt
@@ -1590,7 +1635,7 @@ export default function App() {
                     <span className="hidden sm:inline">{isConnected ? 'Live' : 'Sync'}</span>
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block truncate">
                   Household Suite
                 </p>
               </div>
@@ -1610,15 +1655,17 @@ export default function App() {
               title={`Open Bento Module Switcher (${QUICK_JUMP_SHORTCUT})`}
             >
               <span className="flex items-center gap-2 min-w-0 truncate">
-                <LayoutGrid className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+                <LayoutGrid className="w-4 h-4 text-teal-700 dark:text-teal-400 shrink-0" />
                 <span className="truncate">
                   Jump to module...{' '}
-                  <span className="opacity-70 font-normal">({activeAppMeta.name})</span>
+                  <span className="text-slate-500 dark:text-slate-400 font-normal">
+                    ({activeAppMeta.name})
+                  </span>
                 </span>
               </span>
               <div className="flex items-center gap-1.5 shrink-0">
                 {urgentModuleCount > 0 && (
-                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                  <span className="px-1.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-500/20 text-amber-800 dark:text-amber-300">
                     {urgentModuleCount}
                   </span>
                 )}
@@ -1636,12 +1683,12 @@ export default function App() {
           </div>
 
           {/* Right Controls: Profile Switcher, Backups & Theme Toggle */}
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {/* Active Profile Pill (Opens Switcher / PIN Modal) */}
             <button
               type="button"
               onClick={() => setProfileModalOpen(true)}
-              className={`flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
+              className={`min-h-[40px] flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
                 activeProfile.id === 'partner2'
                   ? darkMode
                     ? 'bg-rose-950/60 border-rose-800 text-rose-200 hover:bg-rose-900/60'
@@ -1657,8 +1704,10 @@ export default function App() {
               title="Switch Household Profile or Configure PIN"
             >
               <span>{activeProfile.badgeEmoji}</span>
-              <span className="max-w-[96px] sm:max-w-[140px] truncate">{activeProfile.name}</span>
-              {activeProfile.pinEnabled && <Lock className="w-3 h-3 opacity-75" />}
+              <span className="max-w-[52px] min-[375px]:max-w-[88px] sm:max-w-[140px] truncate">{activeProfile.name}</span>
+              {activeProfile.pinEnabled && (
+                <Lock className="w-3 h-3 text-current shrink-0" />
+              )}
             </button>
 
             {/* Household Backup Button (Hidden in Caregiver mode) */}
@@ -1666,7 +1715,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setBackupModalOpen(true)}
-                className={`p-2 rounded-xl border transition cursor-pointer ${
+                className={`min-w-[40px] min-h-[40px] flex items-center justify-center p-2 sm:p-2.5 rounded-xl border transition cursor-pointer ${
                   darkMode
                     ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
                     : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
@@ -1682,7 +1731,7 @@ export default function App() {
             <button
               type="button"
               onClick={cycleThemeMode}
-              className={`px-2.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+              className={`min-w-[40px] min-h-[40px] px-2 sm:px-2.5 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
                 themeMode === 'dark'
                   ? 'bg-slate-800 border-slate-700 text-amber-300 hover:bg-slate-700'
                   : 'bg-[#E9DFC8] border-[#D5C7A9] text-[#4A3B2C] hover:bg-[#DFD3B8]'
@@ -1712,12 +1761,12 @@ export default function App() {
       {/* ====================================================================
           RESPONSIVE SHELL: TABLET/DESKTOP LEFT RAIL + MODULE VIEWPORT
       ==================================================================== */}
-      <div className="flex min-h-[calc(100vh-4rem)] print-block">
+      <div className="flex min-h-[calc(100dvh-4rem)] print-block">
         {/* Tablet Slim Icon Rail (md) & Collapsible Desktop Sidebar (lg) */}
         <aside
           aria-label="Howard Module Navigation"
-          className={`howard-rail hidden md:flex flex-col shrink-0 sticky top-16 h-[calc(100vh-4rem)] border-r backdrop-blur-md overflow-y-auto py-3 px-2 gap-1.5 transition-[width] duration-200 no-print w-20 ${
-            sidebarCollapsed ? 'lg:w-20' : 'lg:w-60'
+          className={`howard-rail hidden md:flex flex-col shrink-0 sticky top-16 h-[calc(100dvh-4rem)] border-r backdrop-blur-md overflow-y-auto py-3 px-2 gap-1.5 transition-[width] duration-200 no-print w-[88px] ${
+            sidebarCollapsed ? 'lg:w-[88px]' : 'lg:w-52 xl:w-60'
           } ${
             darkMode
               ? 'bg-slate-900/90 border-slate-800'
@@ -1731,14 +1780,14 @@ export default function App() {
             }`}
           >
             {!sidebarCollapsed && (
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              <span className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Modules ({allowedApps.length})
               </span>
             )}
             <button
               type="button"
               onClick={toggleSidebarCollapsed}
-              className={`p-1.5 rounded-xl border transition cursor-pointer ${
+              className={`min-w-[36px] min-h-[36px] flex items-center justify-center p-1.5 rounded-xl border transition cursor-pointer ${
                 darkMode
                   ? 'bg-slate-800/70 border-slate-700 text-slate-300 hover:bg-slate-700'
                   : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
@@ -1764,10 +1813,11 @@ export default function App() {
                 key={appItem.id}
                 type="button"
                 onClick={() => handleNavigateModule(appItem.id)}
+                aria-current={isActive ? 'page' : undefined}
                 title={`${appItem.name} • ${appItem.subtitle}${
                   statusInfo?.label ? ` (${statusInfo.label})` : ''
                 }`}
-                className={`relative w-full rounded-2xl transition-all cursor-pointer flex flex-col items-center justify-center gap-1 py-2.5 px-1.5 text-[11px] font-bold ${
+                className={`relative w-full rounded-2xl transition-all cursor-pointer flex flex-col items-center justify-center gap-1 py-2.5 px-1 text-[11px] font-bold ${
                   !sidebarCollapsed
                     ? 'lg:flex-row lg:justify-start lg:gap-2.5 lg:px-3 lg:py-2.5 lg:text-xs'
                     : ''
@@ -1785,14 +1835,14 @@ export default function App() {
                 {/* Desktop Expanded Status Chip */}
                 {!sidebarCollapsed && statusInfo?.label && appItem.id !== 'foyer' && (
                   <span
-                    className={`hidden lg:inline-flex ml-auto px-2 py-0.5 rounded-full text-[10px] font-extrabold whitespace-nowrap ${
+                    className={`hidden lg:inline-flex ml-auto px-2 py-0.5 rounded-full text-[11px] font-extrabold whitespace-nowrap ${
                       isActive
                         ? 'bg-white/20 text-white'
                         : statusInfo.urgent
-                          ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                          ? 'bg-amber-500/20 text-amber-800 dark:text-amber-300'
                           : darkMode
                             ? 'bg-slate-800 text-slate-300'
-                            : 'bg-slate-200/70 text-slate-600'
+                            : 'bg-slate-200/70 text-slate-700'
                     }`}
                   >
                     {statusInfo.label}
@@ -1802,9 +1852,9 @@ export default function App() {
                 {/* Slim Rail Urgent Indicator Dot (Tablet & Collapsed Desktop) */}
                 {statusInfo?.urgent && !isActive && (
                   <span
-                    className={`absolute top-2 right-2.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white dark:ring-slate-900 ${
-                      !sidebarCollapsed ? 'lg:hidden' : ''
-                    }`}
+                    className={`absolute top-2 right-2.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ${
+                      darkMode ? 'ring-slate-900' : 'ring-white'
+                    } ${!sidebarCollapsed ? 'lg:hidden' : ''}`}
                   />
                 )}
               </button>
@@ -1813,7 +1863,7 @@ export default function App() {
         </aside>
 
         {/* Active Module Viewport */}
-        <div className="flex-1 min-w-0 pb-24 md:pb-8">
+        <div className="flex-1 min-w-0 pb-[calc(6.5rem+env(safe-area-inset-bottom))] md:pb-8">
           {!isConnected && syncError && (
             <div className="max-w-6xl mx-auto px-3 sm:px-5 pt-3 no-print">
               <div className="rounded-2xl px-4 py-2.5 border bg-amber-500/15 border-amber-500/40 text-amber-900 dark:text-amber-200 text-xs font-bold flex items-center justify-between gap-2">
@@ -1824,7 +1874,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => fetchUnifiedSync({ force: true })}
-                  className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 cursor-pointer"
+                  className="min-h-[40px] px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 cursor-pointer shrink-0 transition"
                 >
                   Retry Now
                 </button>
@@ -1835,7 +1885,7 @@ export default function App() {
           <ErrorBoundary darkMode={darkMode} appName={activeAppMeta.name} resetKey={activeAppId}>
             <Suspense
               fallback={
-                <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4">
+                <div className="max-w-6xl mx-auto px-3 sm:px-5 pt-4" aria-busy="true">
                   <div
                     className={`rounded-2xl sm:rounded-3xl p-6 border shadow-xs text-xs font-semibold flex items-center gap-3 ${
                       darkMode
@@ -1846,7 +1896,7 @@ export default function App() {
                     <span className="w-2.5 h-2.5 rounded-full bg-teal-500 animate-pulse" />
                     <span>Loading {activeAppMeta.name}...</span>
                   </div>
-                </main>
+                </div>
               }
             >
               {activeAppId === 'foyer' && (
@@ -1870,6 +1920,7 @@ export default function App() {
                   onOpenBloom={openBloomWithIntent}
                   onOpenAlmanacDate={openAlmanacOnDate}
                   onOpenProfileModal={() => setProfileModalOpen(true)}
+                  quickActionPending={quickActionPending}
                 />
               )}
 
@@ -1980,9 +2031,9 @@ export default function App() {
           <button
             type="button"
             onClick={() => handleNavigateModule('foyer')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-xs sm:text-sm font-extrabold transition-all cursor-pointer active:scale-95 ${
+            className={`min-h-[40px] flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-extrabold transition-all cursor-pointer active:scale-95 ${
               activeAppId === 'foyer'
-                ? 'bg-teal-600 text-white shadow-sm'
+                ? 'bg-teal-700 text-white shadow-sm'
                 : darkMode
                   ? 'text-slate-200 hover:bg-slate-800'
                   : 'text-slate-700 hover:bg-slate-200/70'
@@ -2003,7 +2054,7 @@ export default function App() {
             type="button"
             onClick={() => setAppLauncherOpen((prev) => !prev)}
             aria-expanded={appLauncherOpen}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-xs sm:text-sm font-extrabold transition-all cursor-pointer active:scale-95 ${
+            className={`min-h-[40px] flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-extrabold transition-all cursor-pointer active:scale-95 ${
               activeAppId !== 'foyer'
                 ? `${activeAppMeta.accent} shadow-sm`
                 : darkMode
@@ -2012,7 +2063,7 @@ export default function App() {
             }`}
           >
             {activeAppId === 'foyer' ? (
-              <LayoutGrid className="w-4 h-4 shrink-0 text-teal-600 dark:text-teal-400" />
+              <LayoutGrid className="w-4 h-4 shrink-0 text-teal-700 dark:text-teal-400" />
             ) : (
               (() => {
                 const ActiveIcon = activeAppMeta.icon;
@@ -2022,17 +2073,17 @@ export default function App() {
             <span>{activeAppId === 'foyer' ? 'Apps' : activeAppMeta.name}</span>
             {activeAppId !== 'foyer' && (
               <ChevronUp
-                className={`w-3.5 h-3.5 opacity-85 transition-transform ${
+                className={`w-3.5 h-3.5 transition-transform ${
                   appLauncherOpen ? 'rotate-180' : ''
                 }`}
               />
             )}
             {urgentModuleCount > 0 && (
               <span
-                className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold leading-none ${
+                className={`px-1.5 py-0.5 rounded-full text-[11px] font-extrabold leading-none ${
                   activeAppId !== 'foyer'
-                    ? 'bg-white/25 text-white'
-                    : 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                    ? 'bg-black/20 text-white'
+                    : 'bg-amber-500/20 text-amber-800 dark:text-amber-300'
                 }`}
               >
                 {urgentModuleCount}
@@ -2045,625 +2096,509 @@ export default function App() {
       {/* ====================================================================
           BENTO MODULE SWITCHER (BOTTOM SHEET ON MOBILE / DIALOG ON DESKTOP)
       ==================================================================== */}
-      {appLauncherOpen && (
-        <div
-          onClick={() => setAppLauncherOpen(false)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center sm:p-4 no-print"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Howard Modules"
-            className={`w-full max-w-lg max-h-[85dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl p-4 sm:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl border space-y-4 ${
-              darkMode
-                ? 'bg-slate-900 border-slate-800 text-slate-100'
-                : 'bg-white border-slate-200 text-slate-800'
-            }`}
-          >
-            {/* Mobile Sheet Handle */}
-            <div className="sm:hidden w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700 mx-auto -mt-1" />
+      <ModalShell
+        isOpen={appLauncherOpen}
+        onClose={() => setAppLauncherOpen(false)}
+        variant="sheet"
+        title={`Household Modules (${allowedApps.length})`}
+        subtitle={`${activeProfile.badgeEmoji} ${activeProfile.name} • Tap any module to switch`}
+        icon={LayoutGrid}
+        accent="teal"
+        darkMode={darkMode}
+        maxWidthClass="max-w-lg"
+        ariaLabel="Howard Modules"
+      >
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+          {allowedApps.map((appItem) => {
+            const Icon = appItem.icon;
+            const isCurrent = activeAppId === appItem.id;
+            const statusInfo = moduleStatuses[appItem.id];
 
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-teal-500/15 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
-                  <LayoutGrid className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base sm:text-lg font-extrabold leading-tight">
-                    Household Modules ({allowedApps.length})
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {activeProfile.badgeEmoji} {activeProfile.name} • Tap any module to switch
-                  </p>
-                </div>
-              </div>
-
+            return (
               <button
+                key={appItem.id}
                 type="button"
-                onClick={() => setAppLauncherOpen(false)}
-                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
-                title="Close Module Switcher"
-                aria-label="Close Module Switcher"
+                onClick={() => handleNavigateModule(appItem.id)}
+                className={`p-3 sm:p-3.5 rounded-2xl border text-left transition-all flex flex-col justify-between gap-2.5 sm:gap-3 cursor-pointer active:scale-[0.99] min-w-0 overflow-hidden ${
+                  isCurrent
+                    ? `${appItem.activeCardClass} ${
+                        darkMode ? 'bg-slate-800/90' : 'bg-slate-50/90'
+                      }`
+                    : darkMode
+                      ? 'bg-slate-800/50 border-slate-700/80 hover:bg-slate-800'
+                      : 'bg-slate-50/80 border-slate-200/90 hover:bg-slate-100/80'
+                }`}
               >
-                <X className="w-4 h-4" />
+                <div className="flex flex-wrap items-center justify-between gap-1.5 w-full min-w-0">
+                  <div
+                    className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-xs shrink-0 ${appItem.accent}`}
+                  >
+                    <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </div>
+
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[11px] font-extrabold max-w-full truncate ${
+                      isCurrent
+                        ? `${appItem.accent}`
+                        : statusInfo?.urgent
+                          ? 'bg-amber-500/20 text-amber-800 dark:text-amber-300'
+                          : darkMode
+                            ? 'bg-slate-900/70 text-slate-300'
+                            : 'bg-white text-slate-700 border border-slate-200/70'
+                    }`}
+                  >
+                    {isCurrent ? '● Active' : statusInfo?.label || 'Open'}
+                  </span>
+                </div>
+
+                <div className="min-w-0">
+                  <div className="font-extrabold text-sm leading-tight truncate">
+                    {appItem.name}
+                  </div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                    {appItem.subtitle}
+                  </div>
+                </div>
               </button>
+            );
+          })}
+        </div>
+      </ModalShell>
+
+      {/* ====================================================================
+          MODAL 1: PROFILE SWITCHER & PIN SECURITY SETTINGS
+      ==================================================================== */}
+      <ModalShell
+        isOpen={profileModalOpen}
+        onClose={() => {
+          setProfileModalOpen(false);
+          resetProfileSubforms();
+        }}
+        title="Who's Using Howard?"
+        subtitle="Switch household profile or enter Caregiver mode"
+        icon={UserCheck}
+        accent="teal"
+        darkMode={darkMode}
+        maxWidthClass="max-w-md"
+        ariaLabel="Switch Household Profile"
+      >
+        {/* If entering a PIN to unlock target profile */}
+        {pinPromptTarget ? (
+          <form onSubmit={handleVerifyPinSubmit} className="space-y-4">
+            <div
+              className={`p-4 rounded-2xl border ${
+                darkMode ? 'bg-slate-800/70 border-slate-700' : 'bg-slate-50 border-slate-200'
+              }`}
+            >
+              <div className="flex items-center gap-2 text-sm font-bold mb-1">
+                <span>{pinPromptTarget.badgeEmoji}</span>
+                <span>Unlock {pinPromptTarget.name}&apos;s Profile</span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Enter {pinPromptTarget.name}&apos;s PIN to access personal apps.
+              </p>
             </div>
 
-            {/* 2-Column Bento Module Grid */}
-            <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
-              {allowedApps.map((appItem) => {
-                const Icon = appItem.icon;
-                const isCurrent = activeAppId === appItem.id;
-                const statusInfo = moduleStatuses[appItem.id];
+            <div>
+              <input
+                type="password"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                autoFocus
+                value={pinInput}
+                onChange={(e) => {
+                  setPinInput(e.target.value.replace(/\D/g, ''));
+                  setPinPromptError('');
+                }}
+                placeholder="Enter numeric PIN..."
+                maxLength={8}
+                className={getFieldClass('teal', 'text-center text-lg font-mono tracking-widest py-3')}
+              />
+              {pinPromptError && (
+                <p className="text-xs text-rose-600 dark:text-rose-400 font-semibold mt-1.5 text-center">
+                  {pinPromptError}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPinPromptTarget(null)}
+                className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+              >
+                Back
+              </button>
+              <button
+                type="submit"
+                className="min-h-[40px] px-5 py-2 rounded-xl text-xs font-bold bg-teal-700 hover:bg-teal-800 text-white transition active:scale-[0.98]"
+              >
+                Unlock Profile
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="space-y-4">
+            {/* Profile Selector List */}
+            <div className="space-y-2.5">
+              {profiles.map((prof) => {
+                const isCurrent = hasSavedProfile && prof.id === activeProfile.id;
+                const appNames = APP_REGISTRY.filter((a) =>
+                  (prof.allowedApps || []).includes(a.id)
+                )
+                  .map((a) => a.name)
+                  .join(', ');
 
                 return (
                   <button
-                    key={appItem.id}
+                    key={prof.id}
                     type="button"
-                    onClick={() => handleNavigateModule(appItem.id)}
-                    className={`p-3.5 rounded-2xl border text-left transition-all flex flex-col justify-between gap-3 cursor-pointer active:scale-[0.99] ${
+                    onClick={() => handleSelectProfile(prof)}
+                    className={`w-full p-3 sm:p-3.5 rounded-2xl border text-left transition flex items-start sm:items-center justify-between gap-2.5 sm:gap-3 cursor-pointer ${
                       isCurrent
-                        ? `${appItem.activeCardClass} ${
-                            darkMode ? 'bg-slate-800/90' : 'bg-slate-50/90'
-                          }`
+                        ? 'ring-2 ring-teal-500 border-teal-500 bg-teal-500/10'
                         : darkMode
-                          ? 'bg-slate-800/50 border-slate-700/80 hover:bg-slate-800'
-                          : 'bg-slate-50/80 border-slate-200/90 hover:bg-slate-100/80'
+                          ? 'bg-slate-800/60 border-slate-700/80 hover:bg-slate-800'
+                          : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100'
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-2 w-full">
-                      <div
-                        className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-xs shrink-0 ${appItem.accent}`}
-                      >
-                        <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
+                    <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+                      <div className="w-10 h-10 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-lg shrink-0">
+                        {prof.badgeEmoji}
                       </div>
-
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold whitespace-nowrap ${
-                          isCurrent
-                            ? `${appItem.accent}`
-                            : statusInfo?.urgent
-                              ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
-                              : darkMode
-                                ? 'bg-slate-900/70 text-slate-300'
-                                : 'bg-white text-slate-600 border border-slate-200/70'
-                        }`}
-                      >
-                        {isCurrent ? '● Active' : statusInfo?.label || 'Open'}
-                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                          <span className="font-bold text-sm leading-snug">{prof.name}</span>
+                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-200/70 dark:bg-slate-700 text-slate-700 dark:text-slate-200 sm:whitespace-nowrap leading-tight max-w-full">
+                            {prof.role}
+                          </span>
+                          {isCurrent && (
+                            <span className="text-[11px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-teal-700 text-white whitespace-nowrap shrink-0">
+                              Active
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                          Apps: {appNames}
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="min-w-0">
-                      <div className="font-extrabold text-sm leading-tight truncate">
-                        {appItem.name}
-                      </div>
-                      <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                        {appItem.subtitle}
-                      </div>
+                    <div className="flex items-center gap-1.5 shrink-0 pt-0.5 sm:pt-0">
+                      {prof.id === 'caregiver' ? (
+                        <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                          <Unlock className="w-3.5 h-3.5" /> Unlocked
+                        </span>
+                      ) : prof.pinEnabled ? (
+                        <span className="text-xs font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1">
+                          <Lock className="w-3.5 h-3.5" /> PIN
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-500 dark:text-slate-400">No PIN</span>
+                      )}
+                      <ChevronRight className="w-4 h-4 text-slate-400 dark:text-slate-500" />
                     </div>
                   </button>
                 );
               })}
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* ====================================================================
-          MODAL 1: PROFILE SWITCHER & PIN SECURITY SETTINGS
-      ==================================================================== */}
-      {profileModalOpen && (
-        <div
-          onClick={() => {
-            setProfileModalOpen(false);
-            resetProfileSubforms();
-          }}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Switch Household Profile"
-            className={`max-w-md w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-5 ${
-              darkMode
-                ? 'bg-slate-900 border-slate-800 text-slate-100'
-                : 'bg-white border-slate-200 text-slate-800'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-teal-500/15 text-teal-600 dark:text-teal-400 flex items-center justify-center">
-                  <UserCheck className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-extrabold">Who&apos;s Using Howard?</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Switch household profile or enter Caregiver mode
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setProfileModalOpen(false);
-                  resetProfileSubforms();
-                }}
-                aria-label="Close Profile Switcher"
-                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-800"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* If entering a PIN to unlock target profile */}
-            {pinPromptTarget ? (
-              <form onSubmit={handleVerifyPinSubmit} className="space-y-4 pt-2">
-                <div
-                  className={`p-4 rounded-2xl border ${
-                    darkMode ? 'bg-slate-800/70 border-slate-700' : 'bg-slate-50 border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 text-sm font-bold mb-1">
-                    <span>{pinPromptTarget.badgeEmoji}</span>
-                    <span>Unlock {pinPromptTarget.name}&apos;s Profile</span>
+            {/* Display Name & PIN Configuration Section for Active Profile */}
+            {activeProfile.id !== 'caregiver' && (
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-3">
+                {/* 1. Customize Display Name */}
+                {!renameOpen ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                      <span>{activeProfile.badgeEmoji}</span>
+                      <span>
+                        Display Name: <strong>{activeProfile.name}</strong>
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRenameDraft(activeProfile.name);
+                        setRenameOpen(true);
+                      }}
+                      className="min-h-[36px] px-2 text-xs font-bold text-teal-700 dark:text-teal-400 hover:underline cursor-pointer"
+                    >
+                      Change Name
+                    </button>
                   </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Enter {pinPromptTarget.name}&apos;s PIN to access personal apps.
-                  </p>
-                </div>
-
-                <div>
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    autoFocus
-                    value={pinInput}
-                    onChange={(e) => {
-                      setPinInput(e.target.value.replace(/\D/g, ''));
-                      setPinPromptError('');
-                    }}
-                    placeholder="Enter numeric PIN..."
-                    maxLength={8}
-                    className={`w-full px-4 py-3 rounded-2xl text-center text-lg font-mono tracking-widest border ${
-                      darkMode
-                        ? 'bg-slate-950 border-slate-700 text-white'
-                        : 'bg-white border-slate-300 text-slate-900'
+                ) : (
+                  <form
+                    onSubmit={handleSaveProfileName}
+                    className={`p-3 rounded-2xl border flex flex-wrap sm:flex-nowrap items-center gap-2 ${
+                      darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
                     }`}
-                  />
-                  {pinPromptError && (
-                    <p className="text-xs text-rose-500 font-semibold mt-1.5 text-center">
-                      {pinPromptError}
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPinPromptTarget(null)}
-                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
                   >
-                    Back
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2.5 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white"
-                  >
-                    Unlock Profile
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <>
-                {/* Profile Selector List */}
-                <div className="space-y-2.5">
-                  {profiles.map((prof) => {
-                    const isCurrent = hasSavedProfile && prof.id === activeProfile.id;
-                    const appNames = APP_REGISTRY.filter((a) =>
-                      (prof.allowedApps || []).includes(a.id)
-                    )
-                      .map((a) => a.name)
-                      .join(', ');
-
-                    return (
+                    <input
+                      type="text"
+                      value={renameDraft}
+                      onChange={(e) => setRenameDraft(e.target.value)}
+                      placeholder="Enter display name..."
+                      maxLength={24}
+                      autoFocus
+                      className={getFieldClass('teal', 'flex-1 min-w-0 font-bold py-2')}
+                    />
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <button
-                        key={prof.id}
                         type="button"
-                        onClick={() => handleSelectProfile(prof)}
-                        className={`w-full p-3.5 rounded-2xl border text-left transition flex items-center justify-between gap-3 cursor-pointer ${
-                          isCurrent
-                            ? 'ring-2 ring-teal-500 border-teal-500 bg-teal-500/10'
-                            : darkMode
-                              ? 'bg-slate-800/60 border-slate-700/80 hover:bg-slate-800'
-                              : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100'
-                        }`}
+                        onClick={() => setRenameOpen(false)}
+                        className="min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition"
                       >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-10 h-10 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-lg shrink-0">
-                            {prof.badgeEmoji}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-sm">{prof.name}</span>
-                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-200/70 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
-                                {prof.role}
-                              </span>
-                              {isCurrent && (
-                                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-teal-600 text-white">
-                                  Active
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                              Apps: {appNames}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {prof.id === 'caregiver' ? (
-                            <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                              <Unlock className="w-3.5 h-3.5" /> Unlocked
-                            </span>
-                          ) : prof.pinEnabled ? (
-                            <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                              <Lock className="w-3.5 h-3.5" /> PIN
-                            </span>
-                          ) : (
-                            <span className="text-[10px] opacity-60">No PIN</span>
-                          )}
-                          <ChevronRight className="w-4 h-4 opacity-50" />
-                        </div>
+                        Cancel
                       </button>
-                    );
-                  })}
-                </div>
-
-                {/* Display Name & PIN Configuration Section for Active Profile */}
-                {activeProfile.id !== 'caregiver' && (
-                  <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-3">
-                    {/* 1. Customize Display Name */}
-                    {!renameOpen ? (
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                          <span>{activeProfile.badgeEmoji}</span>
-                          <span>
-                            Display Name: <strong>{activeProfile.name}</strong>
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRenameDraft(activeProfile.name);
-                            setRenameOpen(true);
-                          }}
-                          className="text-xs font-bold text-teal-600 dark:text-teal-400 hover:underline cursor-pointer"
-                        >
-                          Change Name
-                        </button>
-                      </div>
-                    ) : (
-                      <form
-                        onSubmit={handleSaveProfileName}
-                        className={`p-3 rounded-2xl border flex items-center gap-2 ${
-                          darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
-                        }`}
+                      <button
+                        type="submit"
+                        className="min-h-[40px] px-3.5 py-1.5 rounded-xl text-xs font-bold bg-teal-700 hover:bg-teal-800 text-white cursor-pointer transition active:scale-[0.98]"
                       >
-                        <input
-                          type="text"
-                          value={renameDraft}
-                          onChange={(e) => setRenameDraft(e.target.value)}
-                          placeholder="Enter display name..."
-                          maxLength={24}
-                          autoFocus
-                          className="flex-1 min-w-0 px-3 py-1.5 rounded-xl text-xs font-bold border bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setRenameOpen(false)}
-                          className="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-500"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="submit"
-                          className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-teal-600 text-white hover:bg-teal-700 cursor-pointer"
-                        >
-                          Save
-                        </button>
-                      </form>
-                    )}
-
-                    {/* 2. PIN Lock Settings */}
-                    {!pinManageOpen ? (
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                          <KeyRound className="w-3.5 h-3.5 text-teal-600" />
-                          <span>
-                            {activeProfile.name}&apos;s PIN Lock:{' '}
-                            <strong>{activeProfile.pinEnabled ? 'Enabled' : 'Disabled'}</strong>
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPinManageOpen(true);
-                            setPinManageError('');
-                          }}
-                          className="text-xs font-bold text-teal-600 dark:text-teal-400 hover:underline cursor-pointer"
-                        >
-                          {activeProfile.pinEnabled ? 'Change / Disable PIN' : 'Set a PIN'}
-                        </button>
-                      </div>
-                    ) : (
-                      <form
-                        onSubmit={(e) => handleSavePinSettings(e, true)}
-                        className={`p-3.5 rounded-2xl border space-y-3 ${
-                          darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold">
-                            Configure PIN for {activeProfile.name}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setPinManageOpen(false)}
-                            className="text-xs text-slate-400 hover:text-slate-600"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-
-                        {activeProfile.pinEnabled && (
-                          <input
-                            type="password"
-                            inputMode="numeric"
-                            value={pinManageCurrent}
-                            onChange={(e) => setPinManageCurrent(e.target.value.replace(/\D/g, ''))}
-                            placeholder="Current PIN"
-                            maxLength={8}
-                            className="w-full px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
-                          />
-                        )}
-
-                        <div className="grid grid-cols-2 gap-2">
-                          <input
-                            type="password"
-                            inputMode="numeric"
-                            value={pinManageNew}
-                            onChange={(e) => setPinManageNew(e.target.value.replace(/\D/g, ''))}
-                            placeholder="New PIN (4-8 digits)"
-                            maxLength={8}
-                            className="w-full px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
-                          />
-                          <input
-                            type="password"
-                            inputMode="numeric"
-                            value={pinManageConfirm}
-                            onChange={(e) => setPinManageConfirm(e.target.value.replace(/\D/g, ''))}
-                            placeholder="Confirm New PIN"
-                            maxLength={8}
-                            className="w-full px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
-                          />
-                        </div>
-
-                        {pinManageError && (
-                          <p className="text-xs text-rose-500 font-semibold">{pinManageError}</p>
-                        )}
-
-                        <div className="flex items-center justify-between gap-2">
-                          {activeProfile.pinEnabled ? (
-                            <button
-                              type="button"
-                              onClick={(e) => handleSavePinSettings(e, false)}
-                              className="px-3 py-2 rounded-xl text-xs font-bold bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300"
-                            >
-                              Disable PIN
-                            </button>
-                          ) : (
-                            <div />
-                          )}
-                          <button
-                            type="submit"
-                            className="px-4 py-2 rounded-xl text-xs font-bold bg-teal-600 text-white hover:bg-teal-700"
-                          >
-                            Save PIN
-                          </button>
-                        </div>
-                      </form>
-                    )}
-                  </div>
+                        Save
+                      </button>
+                    </div>
+                  </form>
                 )}
-              </>
+
+                {/* 2. PIN Lock Settings */}
+                {!pinManageOpen ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                      <KeyRound className="w-3.5 h-3.5 text-teal-700 dark:text-teal-400" />
+                      <span>
+                        {activeProfile.name}&apos;s PIN Lock:{' '}
+                        <strong>{activeProfile.pinEnabled ? 'Enabled' : 'Disabled'}</strong>
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPinManageOpen(true);
+                        setPinManageError('');
+                      }}
+                      className="min-h-[40px] px-2 text-xs font-bold text-teal-700 dark:text-teal-400 hover:underline cursor-pointer"
+                    >
+                      {activeProfile.pinEnabled ? 'Change / Disable PIN' : 'Set a PIN'}
+                    </button>
+                  </div>
+                ) : (
+                  <form
+                    onSubmit={(e) => handleSavePinSettings(e, true)}
+                    className={`p-3.5 rounded-2xl border space-y-3 ${
+                      darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold">
+                        Configure PIN for {activeProfile.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPinManageOpen(false)}
+                        className="min-h-[40px] px-3 rounded-xl text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+
+                    {activeProfile.pinEnabled && (
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        value={pinManageCurrent}
+                        onChange={(e) => setPinManageCurrent(e.target.value.replace(/\D/g, ''))}
+                        placeholder="Current PIN"
+                        maxLength={8}
+                        className={getFieldClass('teal')}
+                      />
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        value={pinManageNew}
+                        onChange={(e) => setPinManageNew(e.target.value.replace(/\D/g, ''))}
+                        placeholder="New PIN (4-8 digits)"
+                        maxLength={8}
+                        className={getFieldClass('teal')}
+                      />
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        value={pinManageConfirm}
+                        onChange={(e) => setPinManageConfirm(e.target.value.replace(/\D/g, ''))}
+                        placeholder="Confirm New PIN"
+                        maxLength={8}
+                        className={getFieldClass('teal')}
+                      />
+                    </div>
+
+                    {pinManageError && (
+                      <p className="text-xs text-rose-600 dark:text-rose-400 font-semibold">
+                        {pinManageError}
+                      </p>
+                    )}
+
+                    <div className="flex items-center justify-between gap-2">
+                      {activeProfile.pinEnabled ? (
+                        <button
+                          type="button"
+                          onClick={(e) => handleSavePinSettings(e, false)}
+                          className="min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 transition"
+                        >
+                          Disable PIN
+                        </button>
+                      ) : (
+                        <div />
+                      )}
+                      <button
+                        type="submit"
+                        className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold bg-teal-700 text-white hover:bg-teal-800 transition active:scale-[0.98]"
+                      >
+                        Save PIN
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </ModalShell>
 
       {/* ====================================================================
           MODAL 2: UNIFIED HOUSEHOLD BACKUP & DATABASE STATUS ("BACKSTAGE")
       ==================================================================== */}
-      {backupModalOpen && (
+      <ModalShell
+        isOpen={backupModalOpen}
+        onClose={() => setBackupModalOpen(false)}
+        title="Howard Household Backstage"
+        subtitle="Unified SQLite database & household backup tools"
+        icon={Database}
+        accent="emerald"
+        darkMode={darkMode}
+        maxWidthClass="max-w-lg"
+        ariaLabel="Howard Household Backstage"
+      >
         <div
-          onClick={() => setBackupModalOpen(false)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
+          className={`p-4 rounded-2xl border text-xs space-y-2.5 ${
+            darkMode ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'
+          }`}
         >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Howard Household Backstage"
-            className={`max-w-lg w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-5 ${
-              darkMode
-                ? 'bg-slate-900 border-slate-800 text-slate-100'
-                : 'bg-white border-slate-200 text-slate-800'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-                  <Database className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-extrabold">Howard Household Backstage</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Unified SQLite database &amp; household backup tools
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setBackupModalOpen(false)}
-                aria-label="Close Household Backstage"
-                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div
-              className={`p-4 rounded-2xl border text-xs space-y-2 ${
-                darkMode ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'
-              }`}
+          <div className="flex flex-wrap items-center justify-between gap-1.5">
+            <span className="font-semibold">Live Household Sync:</span>
+            <span
+              className={`${
+                isConnected
+                  ? 'text-emerald-700 dark:text-emerald-400'
+                  : 'text-amber-700 dark:text-amber-400'
+              } font-bold flex items-center gap-1`}
             >
-              <div className="flex flex-wrap items-center justify-between gap-1.5">
-                <span className="font-semibold">Live Household Sync:</span>
-                <span
-                  className={`${
-                    isConnected
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-amber-600 dark:text-amber-400'
-                  } font-bold flex items-center gap-1`}
-                >
-                  <Wifi className="w-3.5 h-3.5" />{' '}
-                  {syncTransport === 'sse'
-                    ? `SSE Push (${isConnected ? 'Connected' : 'Reconnecting'})`
-                    : `Polling Fallback 3s (${isConnected ? 'Connected' : 'Offline'})`}
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-1.5">
-                <span className="font-semibold">Unified SQLite DB:</span>
-                <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono">
-                  {dbInfo.file} ({dbInfo.journalMode} &bull; Schema v{dbInfo.schemaVersion})
-                </code>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-1.5">
-                <span className="font-semibold">Almanac &amp; Ledger:</span>
-                <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono">
-                  {almanacEvents.length} events, {(ledgerData?.recurring || []).length} bills,{' '}
-                  {(ledgerData?.expenses || []).length} expenses
-                </code>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-1.5">
-                <span className="font-semibold">
-                  Cadence ({cadenceSnapshot.settings?.catName || 'Pet'}):
-                </span>
-                <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono">
-                  {Object.keys(cadenceSnapshot.logsByDate || {}).length} days logged
-                </code>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-1.5">
-                <span className="font-semibold">
-                  Bloom ({bloomSnapshot.settings?.mantisName || 'Mantis'}):
-                </span>
-                <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono">
-                  {Object.keys(bloomSnapshot.logsByDate || {}).length} days,{' '}
-                  {(bloomSnapshot.molts || []).length} molts &bull;{' '}
-                  {bloomSnapshot.settings?.currentInstar || 'L2'}
-                </code>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-1.5">
-                <span className="font-semibold">Floodgate:</span>
-                <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono">
-                  {activeProfile.id === 'partner2'
-                    ? `${Object.keys(floodgateSnapshot.logsByDate || {}).length} days logged`
-                    : 'Included in full database export'}
-                </code>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <button
-                type="button"
-                onClick={handleDownloadFullBackup}
-                className="w-full py-3 px-4 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm cursor-pointer"
-              >
-                <Download className="w-4 h-4" />
-                <span>Download Full Database Backup (Entire DB incl. Floodgate)</span>
-              </button>
-
-              {activeProfile.id === 'partner1' && (
-                <>
-                  <label className="w-full py-3 px-4 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60">
-                    <Upload className="w-4 h-4 text-teal-600" />
-                    <span>Restore / Merge from Howard or Standalone Backup JSON</span>
-                    <input
-                      type="file"
-                      accept=".json"
-                      onChange={handleRestoreFullBackup}
-                      className="hidden"
-                    />
-                  </label>
-                  <p className="text-[11px] text-center text-slate-500 dark:text-slate-400">
-                    Every restore automatically saves a pre-restore SQLite safety snapshot first.
-                  </p>
-                </>
-              )}
-            </div>
+              <Wifi className="w-3.5 h-3.5" />{' '}
+              {syncTransport === 'sse'
+                ? `SSE Push (${isConnected ? 'Connected' : 'Reconnecting'})`
+                : `Polling Fallback 3s (${isConnected ? 'Connected' : 'Offline'})`}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-1.5">
+            <span className="font-semibold">Unified SQLite DB:</span>
+            <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono break-all sm:break-normal">
+              {dbInfo.file} ({dbInfo.journalMode} &bull; Schema v{dbInfo.schemaVersion})
+            </code>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-1.5">
+            <span className="font-semibold">Almanac &amp; Ledger:</span>
+            <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono break-all sm:break-normal">
+              {almanacEvents.length} events, {(ledgerData?.recurring || []).length} bills,{' '}
+              {(ledgerData?.expenses || []).length} expenses
+            </code>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-1.5">
+            <span className="font-semibold">
+              Cadence ({cadenceSnapshot.settings?.catName || 'Pet'}):
+            </span>
+            <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono break-all sm:break-normal">
+              {Object.keys(cadenceSnapshot.logsByDate || {}).length} days logged
+            </code>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-1.5">
+            <span className="font-semibold">
+              Bloom ({bloomSnapshot.settings?.mantisName || 'Mantis'}):
+            </span>
+            <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono break-all sm:break-normal">
+              {Object.keys(bloomSnapshot.logsByDate || {}).length} days,{' '}
+              {(bloomSnapshot.molts || []).length} molts &bull;{' '}
+              {bloomSnapshot.settings?.currentInstar || 'L2'}
+            </code>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-1.5">
+            <span className="font-semibold">Floodgate:</span>
+            <code className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 font-mono break-all sm:break-normal">
+              {activeProfile.id === 'partner2'
+                ? `${Object.keys(floodgateSnapshot.logsByDate || {}).length} days logged`
+                : 'Included in full database export'}
+            </code>
           </div>
         </div>
-      )}
+
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={handleDownloadFullBackup}
+            className="w-full min-h-[44px] py-3 px-4 rounded-2xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm cursor-pointer transition active:scale-[0.98]"
+          >
+            <Download className="w-4 h-4 shrink-0" />
+            <span>Download Full Database Backup (Entire DB incl. Floodgate)</span>
+          </button>
+
+          {activeProfile.id === 'partner1' && (
+            <>
+              <label className="w-full min-h-[44px] py-3 px-4 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60 transition">
+                <Upload className="w-4 h-4 text-teal-700 dark:text-teal-400 shrink-0" />
+                <span>Restore / Merge from Howard or Standalone Backup JSON</span>
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={handleRestoreFullBackup}
+                  className="hidden"
+                />
+              </label>
+              <p className="text-xs text-center text-slate-500 dark:text-slate-400">
+                Every restore automatically saves a pre-restore SQLite safety snapshot first.
+              </p>
+            </>
+          )}
+        </div>
+      </ModalShell>
 
       {/* ====================================================================
           MODAL 3: BACKUP RESTORE CONFIRMATION MODAL
       ==================================================================== */}
       {pendingRestore && activeProfile.id === 'partner1' && (
-        <div
-          onClick={() => !isRestoringBackup && setPendingRestore(null)}
-          className="fixed inset-0 z-[60] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Confirm Backup Restore"
-            className={`max-w-md w-full rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${
-              darkMode
-                ? 'bg-slate-900 border-slate-800 text-slate-100'
-                : 'bg-white border-slate-200 text-slate-800'
-            }`}
-          >
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-                <Upload className="w-5 h-5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="text-base font-extrabold">
-                  {pendingRestore.bodyToSend.mode === 'merge'
-                    ? 'Merge Standalone Backup?'
-                    : 'Restore Household Snapshot?'}
-                </h3>
-                {pendingRestore.fileName && (
-                  <p className="text-xs font-mono text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                    {pendingRestore.fileName}
-                  </p>
-                )}
-                <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 leading-relaxed">
-                  {pendingRestore.confirmPrompt}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-1">
+        <ModalShell
+          isOpen={true}
+          onClose={() => !isRestoringBackup && setPendingRestore(null)}
+          disableBackdropClose={isRestoringBackup}
+          title={
+            pendingRestore.bodyToSend.mode === 'merge'
+              ? 'Merge Standalone Backup?'
+              : 'Restore Household Snapshot?'
+          }
+          subtitle={pendingRestore.fileName || 'Review database restore action'}
+          icon={Upload}
+          accent="amber"
+          darkMode={darkMode}
+          maxWidthClass="max-w-md"
+          zIndexClass="z-[60]"
+          ariaLabel="Confirm Backup Restore"
+          footer={
+            <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
                 disabled={isRestoringBackup}
                 onClick={() => setPendingRestore(null)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 disabled:opacity-50"
+                className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -2671,7 +2606,7 @@ export default function App() {
                 type="button"
                 disabled={isRestoringBackup}
                 onClick={handleConfirmRestore}
-                className="px-4 py-2 rounded-xl text-xs font-extrabold bg-teal-600 hover:bg-teal-700 text-white disabled:opacity-50"
+                className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-extrabold bg-teal-700 hover:bg-teal-800 text-white transition active:scale-[0.98] disabled:opacity-50"
               >
                 {isRestoringBackup
                   ? 'Restoring...'
@@ -2680,8 +2615,12 @@ export default function App() {
                     : 'Restore Snapshot'}
               </button>
             </div>
-          </div>
-        </div>
+          }
+        >
+          <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+            {pendingRestore.confirmPrompt}
+          </p>
+        </ModalShell>
       )}
     </div>
   );

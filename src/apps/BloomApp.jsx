@@ -12,7 +12,6 @@ import {
   Plus,
   Settings,
   Trash2,
-  X,
   Check,
   Info,
   Activity,
@@ -22,6 +21,13 @@ import {
   Calendar,
   Edit3
 } from 'lucide-react';
+import {
+  ModuleHeader,
+  SegmentedTabs,
+  ModalShell,
+  EmptyStateCard,
+  getFieldClass
+} from '../components/HowardUI.jsx';
 import {
   getLocalDateKey,
   parseLocalDateKey,
@@ -118,29 +124,29 @@ export const ABDOMEN_LEVELS = [
     id: 'flat',
     label: 'Flat / Thin',
     hint: 'Hungry — feed soon',
-    pillClass: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30',
+    pillClass: 'bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/30',
     activeClass: 'bg-amber-500 text-slate-950 border-amber-600'
   },
   {
     id: 'ready',
     label: 'Ready',
     hint: 'Good hunting appetite',
-    pillClass: 'bg-lime-500/15 text-lime-700 dark:text-lime-300 border-lime-500/30',
-    activeClass: 'bg-lime-600 text-white border-lime-700'
+    pillClass: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/25',
+    activeClass: 'bg-emerald-700 text-white border-emerald-800'
   },
   {
     id: 'plump',
     label: 'Plump',
     hint: 'Ideal fullness',
-    pillClass: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
-    activeClass: 'bg-emerald-600 text-white border-emerald-700'
+    pillClass: 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-200 border-emerald-500/40',
+    activeClass: 'bg-emerald-700 text-white border-emerald-800'
   },
   {
     id: 'stuffed',
     label: 'Stuffed',
     hint: 'Rest & digest',
-    pillClass: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30',
-    activeClass: 'bg-indigo-600 text-white border-indigo-700'
+    pillClass: 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30',
+    activeClass: 'bg-purple-600 text-white border-purple-700'
   }
 ];
 
@@ -232,6 +238,14 @@ export default function BloomApp({
   const [feedNoteInput, setFeedNoteInput] = useState('');
   const [overrideFeedLockout, setOverrideFeedLockout] = useState(false);
   const [refusalPremoltPrompt, setRefusalPremoltPrompt] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+
+  useEffect(() => {
+    if (!canConfigure) {
+      setOverrideFeedLockout(false);
+    }
+  }, [canConfigure]);
 
   const [tempInput, setTempInput] = useState('');
   const [humidityInput, setHumidityInput] = useState('');
@@ -301,7 +315,7 @@ export default function BloomApp({
   // --------------------------------------------------------------------------
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [settingsForm, setSettingsForm] = useState(settings);
-  const [confirmDeleteModal, setConfirmDeleteModal] = useState(null); // { kind: 'molt'|'feeder', id, label }
+  const [confirmDeleteModal, setConfirmDeleteModal] = useState(null); // { kind: 'mist'|'feeding'|'climate'|'molt'|'feeder', id, label, dateKey? }
 
   const [backfillDate, setBackfillDate] = useState(null);
   const [bfMistTime, setBfMistTime] = useState('09:00');
@@ -329,20 +343,6 @@ export default function BloomApp({
     setBfJournal(rec.journalNote || '');
     setBackfillDate(dateKey);
   };
-
-  useEffect(() => {
-    if (!moltModalOpen && !settingsModalOpen && !confirmDeleteModal && !backfillDate) return;
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        if (confirmDeleteModal) setConfirmDeleteModal(null);
-        else if (backfillDate) setBackfillDate(null);
-        else if (moltModalOpen) setMoltModalOpen(false);
-        else if (settingsModalOpen) setSettingsModalOpen(false);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [moltModalOpen, settingsModalOpen, confirmDeleteModal, backfillDate]);
 
   // --------------------------------------------------------------------------
   // API MUTATION HELPERS
@@ -469,39 +469,47 @@ export default function BloomApp({
   // --------------------------------------------------------------------------
   const handleLogMist = async (e, targetDate = todayKey, overrides = null) => {
     if (e) e.preventDefault();
-    const nowIso = new Date().toISOString();
-    const tsIso = overrides?.timestamp || nowIso;
-    const drank = overrides ? Boolean(overrides.drank) : mistDrinkObserved;
-    const noteText = overrides ? String(overrides.note || '').trim() : mistNoteInput.trim();
-    const newMist = {
-      id: `mist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      timestamp: tsIso,
-      by: activeCaregiver,
-      ...(activeProfile?.id ? { byProfileId: activeProfile.id } : {}),
-      dropletDrinkObserved: drank,
-      note: noteText
-    };
+    if (submittingRef.current) return false;
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const tsIso = overrides?.timestamp || nowIso;
+      const drank = overrides ? Boolean(overrides.drank) : mistDrinkObserved;
+      const noteText = overrides ? String(overrides.note || '').trim() : mistNoteInput.trim();
+      const newMist = {
+        id: `mist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        timestamp: tsIso,
+        by: activeCaregiver,
+        ...(activeProfile?.id ? { byProfileId: activeProfile.id } : {}),
+        dropletDrinkObserved: drank,
+        note: noteText
+      };
 
-    if (!overrides) {
-      setMistDrinkObserved(false);
-      setMistNoteInput('');
+      if (!overrides) {
+        setMistDrinkObserved(false);
+        setMistNoteInput('');
+      }
+      return await saveDayLog(
+        targetDate,
+        { appendMist: newMist, updatedAt: nowIso },
+        (day) => ({
+          ...day,
+          mists: [...(day.mists || []), newMist],
+          ...(drank
+            ? {
+                behaviors: Array.from(new Set([...(day.behaviors || []), 'Drank Droplets']))
+              }
+            : {}),
+          updatedAt: nowIso
+        }),
+        null,
+        `Logged ${settings.mantisName}'s enclosure mist (${activeCaregiver})`
+      );
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
     }
-    await saveDayLog(
-      targetDate,
-      { appendMist: newMist, updatedAt: nowIso },
-      (day) => ({
-        ...day,
-        mists: [...(day.mists || []), newMist],
-        ...(drank
-          ? {
-              behaviors: Array.from(new Set([...(day.behaviors || []), 'Drank Droplets']))
-            }
-          : {}),
-        updatedAt: nowIso
-      }),
-      null,
-      `Logged ${settings.mantisName}'s enclosure mist (${activeCaregiver})`
-    );
   };
 
   const handleDeleteMist = async (mistId, targetDate = todayKey) => {
@@ -520,63 +528,73 @@ export default function BloomApp({
   };
 
   const handleLogFeeding = async (outcome = 'eaten', targetDate = todayKey, overrides = null) => {
-    const nowIso = new Date().toISOString();
-    const tsIso = overrides?.timestamp || nowIso;
-    const preyId = overrides?.preyId || selectedPrey;
-    const countVal = overrides?.count ?? preyCount;
-    const abdVal = overrides?.abdomenAfter || selectedAbdomen;
-    const noteText = overrides ? String(overrides.note || '').trim() : feedNoteInput.trim();
-    const preyMeta = PREY_OPTIONS.find((p) => p.id === preyId) || PREY_OPTIONS[1];
-    const entry = {
-      id: `feed-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      timestamp: tsIso,
-      by: activeCaregiver,
-      ...(activeProfile?.id ? { byProfileId: activeProfile.id } : {}),
-      outcome, // 'eaten' | 'refused'
-      preyId,
-      preyLabel: preyMeta.label,
-      count: outcome === 'refused' ? 0 : Math.max(1, Number(countVal) || 1),
-      abdomenAfter: abdVal,
-      note: noteText
-    };
+    if (submittingRef.current) return false;
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const tsIso = overrides?.timestamp || nowIso;
+      const preyId = overrides?.preyId || selectedPrey;
+      const countVal = overrides?.count ?? preyCount;
+      const abdVal = overrides?.abdomenAfter || selectedAbdomen;
+      const noteText = overrides ? String(overrides.note || '').trim() : feedNoteInput.trim();
+      const preyMeta = PREY_OPTIONS.find((p) => p.id === preyId) || PREY_OPTIONS[1];
+      const entry = {
+        id: `feed-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        timestamp: tsIso,
+        by: activeCaregiver,
+        ...(activeProfile?.id ? { byProfileId: activeProfile.id } : {}),
+        outcome, // 'eaten' | 'refused'
+        preyId,
+        preyLabel: preyMeta.label,
+        count: outcome === 'refused' ? 0 : Math.max(1, Number(countVal) || 1),
+        abdomenAfter: abdVal,
+        note: noteText
+      };
 
-    const settingsPatch =
-      !overrides && targetDate === todayKey && leavePreyWarning
-        ? {
-            livePreyInside: true,
-            livePreyNote: `${preyMeta.label} offered at ${formatTimeDisplay(tsIso)} by ${activeCaregiver}`
-          }
-        : null;
+      const settingsPatch =
+        !overrides && targetDate === todayKey && leavePreyWarning
+          ? {
+              livePreyInside: true,
+              livePreyByProfileId: activeProfile?.id || null,
+              livePreyAt: formatTimeDisplay(nowIso),
+              livePreyNote: `${preyMeta.label} offered at ${formatTimeDisplay(tsIso)} by ${activeCaregiver}`
+            }
+          : null;
 
-    if (!overrides) {
-      setFeedNoteInput('');
-      setLeavePreyWarning(false);
-      setOverrideFeedLockout(false);
-      if (outcome === 'refused' && summary.effectiveStatus === 'normal' && canConfigure) {
-        setRefusalPremoltPrompt(true);
+      if (!overrides) {
+        setFeedNoteInput('');
+        setLeavePreyWarning(false);
+        setOverrideFeedLockout(false);
+        if (outcome === 'refused' && summary.effectiveStatus === 'normal' && canConfigure) {
+          setRefusalPremoltPrompt(true);
+        }
       }
-    }
 
-    await saveDayLog(
-      targetDate,
-      {
-        appendFeeding: entry,
-        abdomenStatus: abdVal,
-        abdomenUpdatedAt: tsIso,
-        updatedAt: nowIso
-      },
-      (day) => ({
-        ...day,
-        feedings: [...(day.feedings || []), entry],
-        abdomenStatus: abdVal,
-        abdomenUpdatedAt: tsIso,
-        updatedAt: nowIso
-      }),
-      settingsPatch,
-      outcome === 'refused'
-        ? `Logged refused meal for ${settings.mantisName}`
-        : `Logged ${entry.count}× ${preyMeta.label.split(' (')[0]} for ${settings.mantisName}`
-    );
+      return await saveDayLog(
+        targetDate,
+        {
+          appendFeeding: entry,
+          abdomenStatus: abdVal,
+          abdomenUpdatedAt: tsIso,
+          updatedAt: nowIso
+        },
+        (day) => ({
+          ...day,
+          feedings: [...(day.feedings || []), entry],
+          abdomenStatus: abdVal,
+          abdomenUpdatedAt: tsIso,
+          updatedAt: nowIso
+        }),
+        settingsPatch,
+        outcome === 'refused'
+          ? `Logged refused meal for ${settings.mantisName}`
+          : `Logged ${entry.count}× ${preyMeta.label.split(' (')[0]} for ${settings.mantisName}`
+      );
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
+    }
   };
 
   const handleUpdateAbdomenOnly = async (levelId, targetDate = todayKey) => {
@@ -617,34 +635,45 @@ export default function BloomApp({
 
   const handleLogClimate = async (e, targetDate = todayKey, overrides = null) => {
     if (e) e.preventDefault();
+    if (submittingRef.current) return false;
     const tVal = overrides ? overrides.temp : tempInput;
     const hVal = overrides ? overrides.humidity : humidityInput;
-    if (tVal === '' && hVal === '') return;
-    const nowIso = new Date().toISOString();
-    const tsIso = buildTimestampForDate(targetDate, '12:00');
-    const check = {
-      id: `clim-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-      timestamp: tsIso,
-      by: activeCaregiver,
-      ...(activeProfile?.id ? { byProfileId: activeProfile.id } : {}),
-      tempC: tVal !== '' ? Number(tVal) : null,
-      humidityPct: hVal !== '' ? Number(hVal) : null
-    };
-    if (!overrides) {
-      setTempInput('');
-      setHumidityInput('');
+    if (String(tVal ?? '').trim() === '' && String(hVal ?? '').trim() === '') {
+      notify('Enter a temperature or humidity reading first', 'error');
+      return false;
     }
-    await saveDayLog(
-      targetDate,
-      { appendClimateCheck: check, updatedAt: nowIso },
-      (day) => ({
-        ...day,
-        climateChecks: [...(day.climateChecks || []), check],
-        updatedAt: nowIso
-      }),
-      null,
-      'Logged enclosure temperature & humidity'
-    );
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const tsIso = buildTimestampForDate(targetDate, '12:00');
+      const check = {
+        id: `clim-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        timestamp: tsIso,
+        by: activeCaregiver,
+        ...(activeProfile?.id ? { byProfileId: activeProfile.id } : {}),
+        tempC: String(tVal ?? '').trim() !== '' ? Number(tVal) : null,
+        humidityPct: String(hVal ?? '').trim() !== '' ? Number(hVal) : null
+      };
+      if (!overrides) {
+        setTempInput('');
+        setHumidityInput('');
+      }
+      return await saveDayLog(
+        targetDate,
+        { appendClimateCheck: check, updatedAt: nowIso },
+        (day) => ({
+          ...day,
+          climateChecks: [...(day.climateChecks || []), check],
+          updatedAt: nowIso
+        }),
+        null,
+        'Logged enclosure temperature & humidity'
+      );
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
+    }
   };
 
   const handleDeleteClimateCheck = async (checkId, targetDate = todayKey) => {
@@ -726,7 +755,9 @@ export default function BloomApp({
 
   const handleSubmitMolt = async (e) => {
     e.preventDefault();
-    if (!canConfigure) return;
+    if (!canConfigure || submittingRef.current) return;
+    submittingRef.current = true;
+    setIsSubmitting(true);
     const targetDate = moltDateInput || todayKey;
     const isTodayMolt = targetDate === todayKey;
     const isLatestMolt = !summary.molts[0]?.dateKey || targetDate >= summary.molts[0].dateKey;
@@ -773,6 +804,9 @@ export default function BloomApp({
       if (onGlobalSync) onGlobalSync();
     } catch (err) {
       notify(err?.message || 'Could not save molt milestone', 'error');
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
     }
   };
 
@@ -786,7 +820,8 @@ export default function BloomApp({
       const data = await res.json();
       setLocalSnapshot((prev) => ({
         ...prev,
-        molts: data.molts || []
+        molts: data.molts || [],
+        ...(data.settings ? { settings: data.settings } : {})
       }));
       notify('Removed molt record');
       if (onGlobalSync) onGlobalSync();
@@ -800,7 +835,13 @@ export default function BloomApp({
   // --------------------------------------------------------------------------
   const handleAddFeederCulture = async (e) => {
     e.preventDefault();
-    if (!canConfigure || !feederNameInput.trim()) return;
+    if (!canConfigure || submittingRef.current) return;
+    if (!feederNameInput.trim()) {
+      notify('Please enter a feeder culture name', 'error');
+      return;
+    }
+    submittingRef.current = true;
+    setIsSubmitting(true);
     const id = `feeder-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     try {
       const res = await fetch(`/api/bloom/feeders/${encodeURIComponent(id)}`, {
@@ -825,6 +866,9 @@ export default function BloomApp({
       if (onGlobalSync) onGlobalSync();
     } catch {
       notify('Could not save feeder culture', 'error');
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
     }
   };
 
@@ -1013,162 +1057,121 @@ export default function BloomApp({
     if (st === 'L3' || st === 'L4') {
       return 'Nymph L3–L4: D. hydei fruit flies, pinhead/hatchling locusts, or first small curly-wing flies.';
     }
-    return 'Older Nymph / Adult (L5+): Curly-wing flies, greenbottle/bluebottle flies, and small waxmoths—Spiny Flower Mantises thrive on flying prey!';
-  }, [settings.currentInstar]);
+    return `Older Nymph / Adult (L5+): Curly-wing flies, greenbottle/bluebottle flies, and small waxmoths—${
+      settings.commonName ? `${settings.commonName} thrives` : 'flower mantises thrive'
+    } on flying prey!`;
+  }, [settings.currentInstar, settings.commonName]);
 
   return (
     <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4 space-y-4 sm:space-y-5">
       {/* ====================================================================
           1. BLOOM HERO HEADER & SUB-VIEW NAVIGATION
       ==================================================================== */}
-      <section
-        className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${
-          darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
-        }`}
-      >
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5">
-          <div className="flex items-start sm:items-center gap-3 min-w-0">
-            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-lime-500 via-emerald-600 to-teal-700 text-white flex items-center justify-center shadow-xs shrink-0">
-              <Flower2 className="w-6 h-6" />
-            </div>
-            <div className="min-w-0 space-y-0.5">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <h1 className="text-lg sm:text-xl font-extrabold tracking-tight">
-                  Bloom • {settings.mantisName}
-                </h1>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-lime-500/15 text-lime-700 dark:text-lime-300 border border-lime-500/30">
-                  {settings.currentInstar} {summary.isAdult ? 'Winged Adult' : 'Nymph'}
-                </span>
-                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                  {settings.sex === 'Male' ? '♂ Male' : settings.sex === 'Female' ? '♀ Female' : 'Unsexed'}
-                </span>
-                {summary.effectiveStatus === 'premolt' && (
-                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase bg-amber-500 text-slate-950">
-                    ⚠️ Premolt Watch
-                  </span>
-                )}
-                {summary.effectiveStatus === 'hardening' && (
-                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase bg-fuchsia-600 text-white">
-                    🛡️ Hardening ({summary.hardeningRemainingLabel})
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {settings.commonName} (<em className="italic">{settings.scientificName}</em>)
-                {settings.currentColorMorph ? ` • ${settings.currentColorMorph}` : ''}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Internal Sub-Tabs */}
-            <div
-              className={`inline-flex items-center p-1 rounded-2xl border max-w-full overflow-x-auto ${
-                darkMode
-                  ? 'bg-slate-950/70 border-slate-800'
-                  : 'bg-slate-100/90 border-slate-200/80'
-              }`}
-            >
-              {[
-                { id: 'today', label: 'Habitat & Today', icon: Droplets },
-                {
-                  id: 'growth',
-                  label: 'Growth & Molts',
-                  icon: Sparkles,
-                  badge: summary.molts.length || null
-                },
-                {
-                  id: 'habitat',
-                  label: 'Feeders & Enclosure',
-                  icon: Bug,
-                  alert: (canConfigure && summary.feederAlerts.length > 0) || summary.clearance.isEnclosureTight
-                }
-              ].map((t) => {
-                const Icon = t.icon;
-                const active = activeTab === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => setActiveTab(t.id)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer ${
-                      active
-                        ? 'bg-lime-600 text-white shadow-xs'
-                        : darkMode
-                          ? 'text-slate-300 hover:bg-slate-800'
-                          : 'text-slate-600 hover:bg-white'
-                    }`}
-                  >
-                    <Icon className="w-3.5 h-3.5 shrink-0" />
-                    <span>{t.label}</span>
-                    {t.badge && (
-                      <span
-                        className={`px-1.5 py-0.5 rounded-full text-[10px] ${
-                          active ? 'bg-white/25 text-white' : 'bg-slate-200 dark:bg-slate-700'
-                        }`}
-                      >
-                        {t.badge}
-                      </span>
-                    )}
-                    {t.alert && (
-                      <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" title="Needs attention" />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {canConfigure && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSettingsForm(settings);
-                  setSettingsModalOpen(true);
-                }}
-                className={`p-2 sm:px-3 sm:py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
-                  darkMode
-                    ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
-                    : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
-                }`}
-                title={`Configure ${settings.mantisName}'s Species & Care Settings`}
-                aria-label={`Configure ${settings.mantisName}'s Species & Care Settings`}
-              >
-                <Settings className="w-4 h-4" />
-                <span className="hidden sm:inline">Settings</span>
-              </button>
+      <ModuleHeader
+        accent="emerald"
+        icon={Flower2}
+        title={`Bloom • ${settings.mantisName}`}
+        subtitle={
+          <>
+            {settings.commonName} (<em className="italic">{settings.scientificName}</em>)
+            {settings.currentColorMorph ? ` • ${settings.currentColorMorph}` : ''}
+          </>
+        }
+        darkMode={darkMode}
+        compactActions
+        badges={
+          <>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30">
+              {settings.currentInstar} {summary.isAdult ? 'Winged Adult' : 'Nymph'}
+            </span>
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+              {settings.sex === 'Male' ? '♂ Male' : settings.sex === 'Female' ? '♀ Female' : 'Unsexed'}
+            </span>
+            {summary.effectiveStatus === 'premolt' && (
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase bg-amber-500 text-slate-950">
+                ⚠️ Premolt Watch
+              </span>
             )}
-          </div>
-        </div>
-
-        {/* Caregiver Quick Instruction Strip */}
-        {settings.careNote && (
-          <div
-            className={`p-3 rounded-2xl border text-xs flex items-start gap-2.5 ${
-              darkMode
-                ? 'bg-slate-800/40 border-slate-800 text-slate-300'
-                : 'bg-lime-50/60 border-lime-200/80 text-slate-700'
-            }`}
-          >
-            <Info className="w-4 h-4 text-lime-600 dark:text-lime-400 shrink-0 mt-0.5" />
-            <p className="leading-relaxed">{settings.careNote}</p>
-          </div>
-        )}
-      </section>
+            {summary.effectiveStatus === 'hardening' && (
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase bg-rose-600 text-white">
+                🛡️ Hardening ({summary.hardeningRemainingLabel})
+              </span>
+            )}
+          </>
+        }
+        actions={
+          canConfigure ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSettingsForm(settings);
+                setSettingsModalOpen(true);
+              }}
+              className={`min-h-[40px] min-w-[40px] px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 active:scale-[0.98] transition cursor-pointer ${
+                darkMode
+                  ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+                  : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+              }`}
+              title={`Configure ${settings.mantisName}'s Species & Care Settings`}
+              aria-label={`Configure ${settings.mantisName}'s Species & Care Settings`}
+            >
+              <Settings className="w-4 h-4" />
+              <span className="hidden sm:inline">Settings</span>
+            </button>
+          ) : null
+        }
+        footer={
+          <SegmentedTabs
+            accent="emerald"
+            darkMode={darkMode}
+            activeId={activeTab}
+            onChange={setActiveTab}
+            tabs={[
+              {
+                id: 'today',
+                label: 'Habitat & Today',
+                shortLabel: 'Today',
+                icon: Droplets
+              },
+              {
+                id: 'growth',
+                label: 'Growth & Molts',
+                shortLabel: 'Growth',
+                icon: Sparkles,
+                badge: summary.molts.length || null
+              },
+              {
+                id: 'habitat',
+                label: 'Feeders & Enclosure',
+                shortLabel: 'Habitat',
+                icon: Bug,
+                badge:
+                  (canConfigure && summary.feederAlerts.length > 0) ||
+                  summary.clearance.isEnclosureTight
+                    ? canConfigure && summary.feederAlerts.length > 0
+                      ? summary.feederAlerts.length
+                      : '!'
+                    : null
+              }
+            ]}
+          />
+        }
+      />
 
       {/* ====================================================================
           2. CRITICAL SAFETY BANNERS (UNEATEN PREY, PREMOLT, POST-MOLT HARDENING)
       ==================================================================== */}
       {settings.livePreyInside && (
         <section className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border bg-rose-500/10 border-rose-500/40 text-rose-950 dark:text-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-start sm:items-center gap-3">
+          <div className="flex items-start sm:items-center gap-3 min-w-0">
             <div className="w-10 h-10 rounded-2xl bg-rose-600 text-white flex items-center justify-center shrink-0">
               <ShieldAlert className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h2 className="text-sm font-extrabold">
                 Uneaten Live Prey Still Inside {settings.mantisName}&apos;s Enclosure
               </h2>
-              <p className="text-xs opacity-90">
+              <p className="text-xs text-rose-900 dark:text-rose-200 leading-relaxed break-words">
                 {settings.livePreyNote || 'Live feeder left inside.'} Remove roaming locusts/flies before lights-out or if {settings.mantisName} hangs to molt.
               </p>
             </div>
@@ -1177,11 +1180,16 @@ export default function BloomApp({
             type="button"
             onClick={() =>
               patchSettings(
-                { livePreyInside: false, livePreyNote: '' },
+                {
+                  livePreyInside: false,
+                  livePreyNote: '',
+                  livePreyByProfileId: null,
+                  livePreyAt: null
+                },
                 `Marked ${settings.mantisName}'s enclosure clear of live prey`
               )
             }
-            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold shrink-0 cursor-pointer"
+            className="min-h-[40px] px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold shrink-0 active:scale-[0.98] transition cursor-pointer"
           >
             ✓ Prey Eaten / Removed
           </button>
@@ -1198,7 +1206,7 @@ export default function BloomApp({
               <h2 className="text-sm sm:text-base font-extrabold">
                 Premolt Watch Active — Do NOT Offer Live Prey
               </h2>
-              <p className="text-xs opacity-90 leading-relaxed">
+              <p className="text-xs text-amber-900 dark:text-amber-100 leading-relaxed">
                 {settings.mantisName} is preparing to shed {settings.currentInstar}. Remove any remaining feeders, mist the side wall lightly to maintain ~60–68% RH, and avoid bumping or opening the mesh lid while hanging.
               </p>
             </div>
@@ -1208,7 +1216,7 @@ export default function BloomApp({
               <button
                 type="button"
                 onClick={openLogMoltModal}
-                className="px-4 py-2.5 rounded-xl bg-lime-600 hover:bg-lime-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer"
+                className="min-h-[40px] px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs active:scale-[0.98] transition cursor-pointer"
               >
                 <Sparkles className="w-4 h-4" />
                 <span>🎉 {settings.mantisName} Molted!</span>
@@ -1216,7 +1224,7 @@ export default function BloomApp({
               <button
                 type="button"
                 onClick={() => handleTogglePremolt(false)}
-                className="px-3 py-2.5 rounded-xl bg-white/70 dark:bg-slate-800 text-xs font-bold border border-amber-500/40 cursor-pointer"
+                className="min-h-[40px] px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-800 text-xs font-bold border border-amber-500/40 active:scale-[0.98] transition cursor-pointer"
               >
                 Exit Premolt
               </button>
@@ -1226,16 +1234,16 @@ export default function BloomApp({
       )}
 
       {summary.effectiveStatus === 'hardening' && (
-        <section className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border bg-fuchsia-500/10 border-fuchsia-500/40 text-fuchsia-950 dark:text-fuchsia-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <section className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border bg-rose-500/10 border-rose-500/40 text-rose-950 dark:text-rose-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-fuchsia-600 text-white flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-2xl bg-rose-600 text-white flex items-center justify-center shrink-0">
               <Sparkles className="w-5 h-5" />
             </div>
             <div className="space-y-1">
               <h2 className="text-sm sm:text-base font-extrabold">
                 Post-Molt Exoskeleton Hardening ({summary.hardeningRemainingLabel} remaining)
               </h2>
-              <p className="text-xs opacity-90 leading-relaxed">
+              <p className="text-xs text-rose-900 dark:text-rose-200 leading-relaxed">
                 {settings.mantisName}&apos;s fresh {settings.currentInstar} cuticle and raptorial forelegs are still soft. Hold off on live feeders until the cooldown finishes—gentle wall misting for drinking water is safe.
               </p>
             </div>
@@ -1249,7 +1257,7 @@ export default function BloomApp({
                   `Ended post-molt cooldown for ${settings.mantisName}`
                 )
               }
-              className="px-3.5 py-2 rounded-xl bg-fuchsia-600/20 hover:bg-fuchsia-600/30 border border-fuchsia-500/40 text-xs font-bold shrink-0 cursor-pointer"
+              className="min-h-[40px] px-3.5 py-2 rounded-xl bg-rose-600/15 hover:bg-rose-600/25 border border-rose-500/40 text-rose-900 dark:text-rose-100 text-xs font-bold shrink-0 active:scale-[0.98] transition cursor-pointer"
             >
               Mark Ready Early
             </button>
@@ -1258,16 +1266,16 @@ export default function BloomApp({
       )}
 
       {summary.effectiveStatus === 'hardened_ready' && (
-        <section className="rounded-2xl sm:rounded-3xl p-4 border bg-emerald-500/10 border-emerald-500/40 text-emerald-950 dark:text-emerald-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <section className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border bg-emerald-500/10 border-emerald-500/40 text-emerald-950 dark:text-emerald-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-emerald-700 text-white flex items-center justify-center shrink-0">
               <CheckCircle2 className="w-5 h-5" />
             </div>
             <div className="text-xs">
               <div className="font-extrabold text-sm">
                 ✨ {settings.mantisName}&apos;s {settings.currentInstar} Exoskeleton Has Hardened!
               </div>
-              <p className="opacity-85">
+              <p className="text-emerald-900 dark:text-emerald-200">
                 Post-molt cooldown is complete—safe to offer {settings.mantisName} {pronounPossessive} first {settings.currentInstar} meal.
               </p>
             </div>
@@ -1281,7 +1289,7 @@ export default function BloomApp({
                   `${settings.mantisName} is back in active hunting mode`
                 )
               }
-              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shrink-0 cursor-pointer"
+              className="min-h-[40px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shrink-0 active:scale-[0.98] transition cursor-pointer"
             >
               Resume Hunting Mode
             </button>
@@ -1292,20 +1300,21 @@ export default function BloomApp({
       {refusalPremoltPrompt && summary.effectiveStatus === 'normal' && canConfigure && (
         <section className="rounded-2xl p-3.5 border bg-amber-500/10 border-amber-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
           <div>
-            <strong>{settings.mantisName} refused prey!</strong> Refusing food is the #1 early sign of Premolt in Spiny Flower nymphs. Switch on Premolt Watch?
+            <strong>{settings.mantisName} refused prey!</strong> Refusing food is the #1 early sign of Premolt in{' '}
+            {settings.commonName || 'your mantis'}. Switch on Premolt Watch?
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => handleTogglePremolt(true)}
-              className="px-3 py-1.5 rounded-xl bg-amber-500 text-slate-950 font-extrabold cursor-pointer"
+              className="min-h-[40px] px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold active:scale-[0.98] transition cursor-pointer"
             >
               Enable Premolt Watch
             </button>
             <button
               type="button"
               onClick={() => setRefusalPremoltPrompt(false)}
-              className="px-2.5 py-1.5 rounded-xl bg-slate-200/70 dark:bg-slate-800 font-semibold cursor-pointer"
+              className="min-h-[40px] px-3 py-2 rounded-xl bg-slate-200/70 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 font-semibold active:scale-[0.98] transition cursor-pointer"
             >
               Not Yet
             </button>
@@ -1318,6 +1327,19 @@ export default function BloomApp({
       ==================================================================== */}
       {activeTab === 'today' && (
         <div className="space-y-4 sm:space-y-5">
+          {settings.careNote && (
+            <div
+              className={`p-3.5 rounded-2xl border text-xs flex items-start gap-2.5 shadow-xs ${
+                darkMode
+                  ? 'bg-slate-900 border-slate-800 text-slate-200'
+                  : 'bg-emerald-50/80 border-emerald-200/80 text-slate-700'
+              }`}
+            >
+              <Info className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" />
+              <p className="leading-relaxed">{settings.careNote}</p>
+            </div>
+          )}
+
           {/* Quick Status Metrics Strip */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div
@@ -1325,13 +1347,13 @@ export default function BloomApp({
                 darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}
             >
-              <div className="text-[11px] font-bold uppercase tracking-wider opacity-60">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Stage &amp; Molt Clock
               </div>
-              <div className="text-base font-extrabold mt-0.5 text-lime-600 dark:text-lime-400">
+              <div className="text-base font-extrabold mt-0.5 text-emerald-700 dark:text-emerald-400">
                 {settings.currentInstar} • Day {summary.daysInCurrentInstar}
               </div>
-              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {summary.isAdult
                   ? 'Winged Adult (final molt complete)'
                   : `Est. molt ~${formatFriendlyDate(summary.projectedNextMoltDateStr, todayKey)}`}
@@ -1343,13 +1365,13 @@ export default function BloomApp({
                 darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}
             >
-              <div className="text-[11px] font-bold uppercase tracking-wider opacity-60">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Hydration / Mist
               </div>
-              <div className="text-base font-extrabold mt-0.5 text-sky-600 dark:text-sky-400">
+              <div className="text-base font-extrabold mt-0.5 text-emerald-700 dark:text-emerald-400">
                 {summary.lastMist ? summary.lastMist.timeAgoLabel : 'No mists yet'}
               </div>
-              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {summary.lastMist
                   ? `By ${summary.lastMist.by} (${summary.todayMistCount} today)`
                   : `Target: every ~${settings.mistTargetHours}h`}
@@ -1361,13 +1383,13 @@ export default function BloomApp({
                 darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}
             >
-              <div className="text-[11px] font-bold uppercase tracking-wider opacity-60">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Feeding &amp; Abdomen
               </div>
-              <div className="text-base font-extrabold mt-0.5 text-emerald-600 dark:text-emerald-400">
+              <div className="text-base font-extrabold mt-0.5 text-emerald-700 dark:text-emerald-400">
                 {summary.lastMeal ? summary.lastMeal.friendlyWhen : 'Not logged yet'}
               </div>
-              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 capitalize">
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 capitalize">
                 Abdomen: {summary.latestAbdomen || 'Unchecked'}
               </div>
             </div>
@@ -1377,16 +1399,22 @@ export default function BloomApp({
                 darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}
             >
-              <div className="text-[11px] font-bold uppercase tracking-wider opacity-60">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Lifecycle Mode
               </div>
               {canConfigure ? (
-                <div className="flex items-center gap-1.5 pt-1.5">
+                <div
+                  className={`grid gap-1.5 pt-1.5 ${
+                    summary.effectiveStatus !== 'premolt' && !summary.isAdult
+                      ? 'grid-cols-1 sm:grid-cols-2'
+                      : 'grid-cols-1'
+                  }`}
+                >
                   {summary.effectiveStatus !== 'premolt' && !summary.isAdult && (
                     <button
                       type="button"
                       onClick={() => handleTogglePremolt(true)}
-                      className="flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 cursor-pointer"
+                      className="h-full min-h-[44px] flex flex-col justify-center items-center text-center py-2 px-2.5 rounded-xl text-xs font-bold bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 active:scale-[0.98] transition cursor-pointer"
                     >
                       Premolt
                     </button>
@@ -1394,7 +1422,7 @@ export default function BloomApp({
                   <button
                     type="button"
                     onClick={openLogMoltModal}
-                    className="flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold bg-lime-600 hover:bg-lime-700 text-white cursor-pointer"
+                    className="h-full min-h-[44px] flex flex-col justify-center items-center text-center py-2 px-2.5 rounded-xl text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white active:scale-[0.98] transition cursor-pointer"
                   >
                     + Log Molt
                   </button>
@@ -1420,12 +1448,12 @@ export default function BloomApp({
               }`}
             >
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-10 h-10 rounded-2xl bg-sky-500/15 text-sky-600 dark:text-sky-400 flex items-center justify-center">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0">
                       <Droplets className="w-5 h-5" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <h2 className="text-base font-extrabold">Misting &amp; Drinking Droplets</h2>
                       <p className="text-xs text-slate-500 dark:text-slate-400">
                         Mist wall lightly (~{settings.humidityMinPct}–{settings.humidityMaxPct}% RH) &amp; let dry between sprays
@@ -1433,10 +1461,10 @@ export default function BloomApp({
                     </div>
                   </div>
                   <span
-                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0 ${
                       summary.isMistDue
-                        ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
-                        : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                        ? 'bg-amber-500/20 text-amber-800 dark:text-amber-300'
+                        : 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
                     }`}
                   >
                     {summary.isMistDue ? 'Mist Due' : 'Misted Recently'}
@@ -1456,13 +1484,13 @@ export default function BloomApp({
                   }`}
                 >
                   {summary.lastMist ? (
-                    <div className="flex items-center justify-between gap-2">
-                      <span>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="min-w-0 break-words">
                         Last misted <strong>{summary.lastMist.timeAgoLabel}</strong> by{' '}
                         <strong>{summary.lastMist.by}</strong>
                         {summary.lastMist.dropletDrinkObserved ? ' • 💧 Drank droplets!' : ''}
                       </span>
-                      <span className="font-mono text-[11px] opacity-75">
+                      <span className="font-mono text-xs text-slate-600 dark:text-slate-300 shrink-0">
                         {formatTimeDisplay(summary.lastMist.timestamp)}
                       </span>
                     </div>
@@ -1472,12 +1500,12 @@ export default function BloomApp({
                 </div>
 
                 <form onSubmit={handleLogMist} className="space-y-3">
-                  <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer select-none">
+                  <label className="min-h-[40px] flex items-center gap-2 text-xs font-semibold cursor-pointer select-none">
                     <input
                       type="checkbox"
                       checked={mistDrinkObserved}
                       onChange={(e) => setMistDrinkObserved(e.target.checked)}
-                      className="rounded accent-sky-600 w-4 h-4"
+                      className="rounded accent-emerald-600 w-4 h-4 shrink-0"
                     />
                     <span>💧 Spotted {settings.mantisName} drinking wall droplets</span>
                   </label>
@@ -1487,12 +1515,13 @@ export default function BloomApp({
                     value={mistNoteInput}
                     onChange={(e) => setMistNoteInput(e.target.value)}
                     placeholder="Optional mist note (e.g., extra wall spray for premolt)..."
-                    className="w-full px-3.5 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                    className={getFieldClass('emerald')}
                   />
 
                   <button
                     type="submit"
-                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-sky-600 to-teal-600 hover:from-sky-700 hover:to-teal-700 text-white font-extrabold text-xs sm:text-sm shadow-sm flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] transition"
+                    disabled={isSubmitting}
+                    className="w-full min-h-[44px] py-3 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs sm:text-sm shadow-sm flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer active:scale-[0.98] transition"
                   >
                     <Droplets className="w-4 h-4" />
                     <span>Log Enclosure Mist ({activeCaregiver})</span>
@@ -1503,27 +1532,34 @@ export default function BloomApp({
               {/* Today's mists list */}
               {(summary.todayLog.mists || []).length > 0 && (
                 <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-1.5">
-                  <div className="text-[11px] font-bold uppercase opacity-60">
+                  <div className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
                     Today&apos;s Mists ({summary.todayLog.mists.length})
                   </div>
                   {summary.todayLog.mists.map((m) => (
                     <div
                       key={m.id}
-                      className="flex items-center justify-between text-xs py-1 px-2.5 rounded-xl bg-slate-100/70 dark:bg-slate-800/50"
+                      className="flex flex-wrap items-center justify-between gap-2 text-xs py-1.5 px-3 rounded-xl bg-slate-100/70 dark:bg-slate-800/50"
                     >
-                      <span>
+                      <span className="min-w-0 flex-1 break-words">
                         <strong>{formatTimeDisplay(m.timestamp)}</strong> • {m.by}
                         {m.dropletDrinkObserved ? ' • 💧 Drank' : ''}
                         {m.note ? ` — "${m.note}"` : ''}
                       </span>
                       <button
                         type="button"
-                        onClick={() => handleDeleteMist(m.id)}
-                        className="text-slate-400 hover:text-rose-500 p-1 cursor-pointer"
+                        onClick={() =>
+                          setConfirmDeleteModal({
+                            kind: 'mist',
+                            id: m.id,
+                            dateKey: todayKey,
+                            label: `mist at ${formatTimeDisplay(m.timestamp)} (${m.by})`
+                          })
+                        }
+                        className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 active:scale-[0.98] transition cursor-pointer shrink-0"
                         title="Undo mist log"
                         aria-label="Undo mist log"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   ))}
@@ -1539,11 +1575,11 @@ export default function BloomApp({
             >
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-10 h-10 rounded-2xl bg-lime-500/15 text-lime-600 dark:text-lime-400 flex items-center justify-center">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0">
                       <Bug className="w-5 h-5" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <h2 className="text-base font-extrabold">Feeding &amp; Abdomen Plumpness</h2>
                       <p className="text-xs text-slate-500 dark:text-slate-400">
                         Feed by abdomen roundness rather than a rigid clock
@@ -1554,19 +1590,19 @@ export default function BloomApp({
 
                 {/* 4-Step Abdomen Gauge */}
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold opacity-75">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="font-bold text-slate-700 dark:text-slate-200 min-w-0">
                       {settings.mantisName}&apos;s Abdomen Plumpness Check:
                     </span>
                     <button
                       type="button"
                       onClick={() => handleUpdateAbdomenOnly(selectedAbdomen)}
-                      className="text-[11px] font-bold text-lime-600 dark:text-lime-400 hover:underline cursor-pointer"
+                      className="min-h-[40px] px-2.5 rounded-xl text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 hover:underline active:scale-[0.98] transition cursor-pointer shrink-0"
                     >
                       Save Check Only
                     </button>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  <div className="grid grid-cols-2 gap-2">
                     {ABDOMEN_LEVELS.map((lvl) => {
                       const isSel = selectedAbdomen === lvl.id;
                       return (
@@ -1574,15 +1610,15 @@ export default function BloomApp({
                           key={lvl.id}
                           type="button"
                           onClick={() => setSelectedAbdomen(lvl.id)}
-                          className={`p-2 rounded-xl border text-left transition cursor-pointer ${
+                          className={`min-h-[44px] p-2.5 rounded-xl border text-left active:scale-[0.98] transition cursor-pointer overflow-hidden ${
                             isSel ? lvl.activeClass : lvl.pillClass
                           }`}
                         >
-                          <div className="flex items-center justify-between gap-1">
+                          <div className="flex flex-wrap items-center justify-between gap-1">
                             <span className="text-xs font-extrabold">{lvl.label}</span>
                             {summary.latestAbdomen === lvl.id && (
                               <span
-                                className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full shrink-0 ${
+                                className={`text-[11px] font-extrabold uppercase px-1.5 py-0.5 rounded-full shrink-0 ${
                                   isSel
                                     ? lvl.id === 'flat'
                                       ? 'bg-slate-950/15'
@@ -1594,7 +1630,7 @@ export default function BloomApp({
                               </span>
                             )}
                           </div>
-                          <div className="text-[10px] opacity-85 truncate">{lvl.hint}</div>
+                          <div className="text-xs mt-0.5 leading-snug">{lvl.hint}</div>
                         </button>
                       );
                     })}
@@ -1602,36 +1638,38 @@ export default function BloomApp({
                 </div>
 
                 {/* Safety lockout guard during Premolt / Post-Molt Hardening */}
-                {summary.isNoFeedLockout && !overrideFeedLockout ? (
-                  <div className="p-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 space-y-2.5 text-xs">
+                {summary.isNoFeedLockout && !(canConfigure && overrideFeedLockout) ? (
+                  <div className="p-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 space-y-2 text-xs">
                     <div className="font-extrabold flex items-center gap-1.5 text-amber-800 dark:text-amber-200">
                       <ShieldAlert className="w-4 h-4 shrink-0" />
                       <span>
                         Feeding Locked ({summary.effectiveStatus === 'premolt' ? 'Premolt Watch' : 'Post-Molt Hardening'})
                       </span>
                     </div>
-                    <p className="opacity-85 leading-relaxed">
+                    <p className="text-slate-700 dark:text-slate-200 leading-relaxed">
                       Live feeders can disturb a molting nymph or injure soft new raptorial legs. Wait until hardening completes before offering prey.
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => setOverrideFeedLockout(true)}
-                      className="text-[11px] font-bold underline opacity-75 hover:opacity-100 cursor-pointer"
-                    >
-                      Override &amp; log a feeding anyway
-                    </button>
+                    {canConfigure && (
+                      <button
+                        type="button"
+                        onClick={() => setOverrideFeedLockout(true)}
+                        className="min-h-[40px] px-2.5 rounded-xl text-xs font-bold underline text-amber-800 dark:text-amber-300 hover:bg-amber-500/15 active:scale-[0.98] transition cursor-pointer"
+                      >
+                        Override &amp; log a feeding anyway
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <div className="sm:col-span-2">
-                        <label className="block text-[11px] font-bold uppercase opacity-60 mb-1">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3 gap-2.5">
+                      <div className="sm:col-span-2 lg:col-span-1 xl:col-span-2 min-w-0">
+                        <label className="block text-xs font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">
                           Feeder Prey
                         </label>
                         <select
                           value={selectedPrey}
                           onChange={(e) => setSelectedPrey(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl text-xs font-semibold border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                          className={getFieldClass('emerald', 'font-semibold min-w-0')}
                         >
                           {PREY_OPTIONS.map((p) => (
                             <option key={p.id} value={p.id}>
@@ -1641,16 +1679,16 @@ export default function BloomApp({
                         </select>
                       </div>
 
-                      <div>
-                        <label className="block text-[11px] font-bold uppercase opacity-60 mb-1">
+                      <div className="min-w-0">
+                        <label className="block text-xs font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">
                           Count
                         </label>
-                        <div className="flex items-center rounded-xl border border-slate-300 dark:border-slate-700 overflow-hidden">
+                        <div className="flex items-center rounded-xl border border-slate-300 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-950">
                           <button
                             type="button"
                             onClick={() => setPreyCount((c) => Math.max(1, c - 1))}
                             aria-label="Decrease prey count"
-                            className="px-2.5 py-2 text-xs font-extrabold bg-slate-100 dark:bg-slate-800 cursor-pointer"
+                            className="min-w-[40px] min-h-[40px] flex items-center justify-center text-sm font-extrabold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.98] transition cursor-pointer"
                           >
                             -
                           </button>
@@ -1661,7 +1699,7 @@ export default function BloomApp({
                             type="button"
                             onClick={() => setPreyCount((c) => Math.min(25, c + 1))}
                             aria-label="Increase prey count"
-                            className="px-2.5 py-2 text-xs font-extrabold bg-slate-100 dark:bg-slate-800 cursor-pointer"
+                            className="min-w-[40px] min-h-[40px] flex items-center justify-center text-sm font-extrabold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.98] transition cursor-pointer"
                           >
                             +
                           </button>
@@ -1669,12 +1707,12 @@ export default function BloomApp({
                       </div>
                     </div>
 
-                    <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer select-none">
+                    <label className="min-h-[40px] flex items-center gap-2 text-xs font-semibold cursor-pointer select-none">
                       <input
                         type="checkbox"
                         checked={leavePreyWarning}
                         onChange={(e) => setLeavePreyWarning(e.target.checked)}
-                        className="rounded accent-rose-600 w-4 h-4"
+                        className="rounded accent-rose-600 w-4 h-4 shrink-0"
                       />
                       <span>Uneaten live prey still inside enclosure (set removal reminder)</span>
                     </label>
@@ -1684,22 +1722,24 @@ export default function BloomApp({
                       value={feedNoteInput}
                       onChange={(e) => setFeedNoteInput(e.target.value)}
                       placeholder="Optional feeding note (e.g., tong-fed, struck mid-air!)..."
-                      className="w-full px-3.5 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                      className={getFieldClass('emerald')}
                     />
 
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <button
                         type="button"
+                        disabled={isSubmitting}
                         onClick={() => handleLogFeeding('eaten')}
-                        className="col-span-2 py-3 px-3 rounded-xl bg-gradient-to-r from-lime-600 to-emerald-600 hover:from-lime-700 hover:to-emerald-700 text-white font-extrabold text-xs sm:text-sm shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="sm:col-span-2 min-h-[44px] py-3 px-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs sm:text-sm shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer"
                       >
                         <CheckCircle2 className="w-4 h-4" />
                         <span>Log Meal Eaten</span>
                       </button>
                       <button
                         type="button"
+                        disabled={isSubmitting}
                         onClick={() => handleLogFeeding('refused')}
-                        className={`py-3 px-2.5 rounded-xl border font-bold text-xs cursor-pointer ${
+                        className={`min-h-[44px] py-3 px-3 rounded-xl border font-bold text-xs disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer ${
                           darkMode
                             ? 'bg-slate-800 border-slate-700 text-amber-300 hover:bg-slate-700'
                             : 'bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100'
@@ -1716,18 +1756,18 @@ export default function BloomApp({
               {/* Today's feedings list */}
               {(summary.todayLog.feedings || []).length > 0 && (
                 <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-1.5">
-                  <div className="text-[11px] font-bold uppercase opacity-60">
+                  <div className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
                     Today&apos;s Feedings ({summary.todayLog.feedings.length})
                   </div>
                   {summary.todayLog.feedings.map((f) => (
                     <div
                       key={f.id}
-                      className="flex items-center justify-between text-xs py-1 px-2.5 rounded-xl bg-slate-100/70 dark:bg-slate-800/50"
+                      className="flex flex-wrap items-center justify-between gap-2 text-xs py-1.5 px-3 rounded-xl bg-slate-100/70 dark:bg-slate-800/50"
                     >
-                      <span>
+                      <span className="min-w-0 flex-1 break-words">
                         <strong>{formatTimeDisplay(f.timestamp)}</strong> •{' '}
                         {f.outcome === 'refused' ? (
-                          <span className="text-amber-600 dark:text-amber-400 font-bold">
+                          <span className="text-amber-700 dark:text-amber-300 font-bold">
                             Refused {f.preyLabel?.split(' (')[0]}
                           </span>
                         ) : (
@@ -1739,12 +1779,22 @@ export default function BloomApp({
                       </span>
                       <button
                         type="button"
-                        onClick={() => handleDeleteFeeding(f.id)}
-                        className="text-slate-400 hover:text-rose-500 p-1 cursor-pointer"
+                        onClick={() =>
+                          setConfirmDeleteModal({
+                            kind: 'feeding',
+                            id: f.id,
+                            dateKey: todayKey,
+                            label:
+                              f.outcome === 'refused'
+                                ? `refused ${f.preyLabel?.split(' (')[0]} at ${formatTimeDisplay(f.timestamp)}`
+                                : `${f.count}× ${f.preyLabel?.split(' (')[0]} at ${formatTimeDisplay(f.timestamp)}`
+                          })
+                        }
+                        className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 active:scale-[0.98] transition cursor-pointer shrink-0"
                         title="Remove feeding log"
                         aria-label="Remove feeding log"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   ))}
@@ -1762,13 +1812,13 @@ export default function BloomApp({
               }`}
             >
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-2xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-2xl bg-amber-500/15 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
                     <Thermometer className="w-4 h-4" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <h3 className="text-sm font-extrabold">Enclosure Temp &amp; Humidity</h3>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
                       Target: {settings.dayTempMinC}–{settings.dayTempMaxC}°C day •{' '}
                       {settings.humidityMinPct}–{settings.humidityMaxPct}% RH
                     </p>
@@ -1778,7 +1828,7 @@ export default function BloomApp({
 
               {summary.latestClimate && (
                 <div
-                  className={`p-3 rounded-2xl border text-xs flex items-center justify-between ${
+                  className={`p-3 rounded-2xl border text-xs flex flex-wrap items-center justify-between gap-2 ${
                     darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
                   }`}
                 >
@@ -1791,14 +1841,14 @@ export default function BloomApp({
                       <strong>• {summary.latestClimate.humidityPct}% RH</strong>
                     )}
                   </span>
-                  <span className="text-[11px] opacity-70">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
                     {formatFriendlyDate(summary.latestClimate.dateKey, todayKey)}{' '}
                     {formatTimeDisplay(summary.latestClimate.timestamp)}
                   </span>
                 </div>
               )}
 
-              <form onSubmit={handleLogClimate} className="grid grid-cols-3 gap-2">
+              <form onSubmit={handleLogClimate} className="grid grid-cols-2 gap-2">
                 <input
                   type="number"
                   step="0.1"
@@ -1807,7 +1857,7 @@ export default function BloomApp({
                   value={tempInput}
                   onChange={(e) => setTempInput(e.target.value)}
                   placeholder="Temp °C"
-                  className="w-full min-w-0 px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                  className={getFieldClass('emerald', 'min-w-0')}
                 />
                 <input
                   type="number"
@@ -1817,11 +1867,12 @@ export default function BloomApp({
                   value={humidityInput}
                   onChange={(e) => setHumidityInput(e.target.value)}
                   placeholder="RH %"
-                  className="w-full min-w-0 px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                  className={getFieldClass('emerald', 'min-w-0')}
                 />
                 <button
                   type="submit"
-                  className="px-3 py-2 rounded-xl bg-slate-900 dark:bg-lime-600 text-white text-xs font-bold cursor-pointer"
+                  disabled={isSubmitting}
+                  className="col-span-2 min-h-[40px] px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer"
                 >
                   Log Check
                 </button>
@@ -1829,15 +1880,15 @@ export default function BloomApp({
 
               {(summary.todayLog.climateChecks || []).length > 0 && (
                 <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-1.5">
-                  <div className="text-[11px] font-bold uppercase opacity-60">
+                  <div className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
                     Today&apos;s Climate Checks ({summary.todayLog.climateChecks.length})
                   </div>
                   {summary.todayLog.climateChecks.map((c) => (
                     <div
                       key={c.id}
-                      className="flex items-center justify-between text-xs py-1 px-2.5 rounded-xl bg-slate-100/70 dark:bg-slate-800/50"
+                      className="flex flex-wrap items-center justify-between gap-2 text-xs py-1.5 px-3 rounded-xl bg-slate-100/70 dark:bg-slate-800/50"
                     >
-                      <span>
+                      <span className="min-w-0 flex-1 break-words">
                         <strong>{formatTimeDisplay(c.timestamp)}</strong> •{' '}
                         {c.tempC != null ? `${c.tempC}°C` : '—'}
                         {c.humidityPct != null ? ` • ${c.humidityPct}% RH` : ''}
@@ -1845,12 +1896,19 @@ export default function BloomApp({
                       </span>
                       <button
                         type="button"
-                        onClick={() => handleDeleteClimateCheck(c.id)}
-                        className="text-slate-400 hover:text-rose-500 p-1 cursor-pointer"
+                        onClick={() =>
+                          setConfirmDeleteModal({
+                            kind: 'climate',
+                            id: c.id,
+                            dateKey: todayKey,
+                            label: `climate check at ${formatTimeDisplay(c.timestamp)}`
+                          })
+                        }
+                        className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 active:scale-[0.98] transition cursor-pointer shrink-0"
                         title="Undo climate check"
                         aria-label="Undo climate check"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   ))}
@@ -1865,7 +1923,7 @@ export default function BloomApp({
               }`}
             >
               <div className="flex items-center gap-2">
-                <Activity className="w-4 h-4 text-lime-600 dark:text-lime-400" />
+                <Activity className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
                 <h3 className="text-sm font-extrabold">
                   {settings.mantisName}&apos;s Behaviours &amp; Daily Observation
                 </h3>
@@ -1879,9 +1937,9 @@ export default function BloomApp({
                       key={tag}
                       type="button"
                       onClick={() => handleToggleBehavior(tag)}
-                      className={`px-2.5 py-1 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                      className={`min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold border active:scale-[0.98] transition cursor-pointer ${
                         active
-                          ? 'bg-lime-600 text-white border-lime-700'
+                          ? 'bg-emerald-700 text-white border-emerald-800'
                           : darkMode
                             ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
                             : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
@@ -1893,17 +1951,17 @@ export default function BloomApp({
                 })}
               </div>
 
-              <form onSubmit={handleSaveJournalNote} className="flex gap-2">
+              <form onSubmit={handleSaveJournalNote} className="flex flex-col sm:flex-row gap-2">
                 <input
                   type="text"
                   value={journalDraft}
                   onChange={(e) => setJournalDraft(e.target.value)}
                   placeholder={`Quick observation about ${settings.mantisName} today...`}
-                  className="flex-1 min-w-0 px-3.5 py-2 rounded-xl text-xs border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                  className={getFieldClass('emerald', 'flex-1 min-w-0')}
                 />
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-lime-600 hover:bg-lime-700 text-white text-xs font-bold cursor-pointer shrink-0"
+                  className="min-h-[40px] px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold active:scale-[0.98] transition cursor-pointer shrink-0"
                 >
                   Save Note
                 </button>
@@ -1919,11 +1977,11 @@ export default function BloomApp({
             }`}
           >
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2.5 min-w-0">
                 <div className="w-10 h-10 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
-                  <History className="w-5 h-5 text-lime-600 dark:text-lime-400" />
+                  <History className="w-5 h-5 text-emerald-700 dark:text-emerald-400" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h3 className="font-extrabold text-sm sm:text-base">Weekly Care History</h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     Browse by week (Mon–Sun) to spot misting or feeding gaps
@@ -1932,10 +1990,10 @@ export default function BloomApp({
               </div>
 
               <div
-                className={`inline-flex flex-wrap items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold w-fit ${
+                className={`inline-flex flex-wrap items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold w-fit max-w-full ${
                   weekStats.gapDays > 0
                     ? 'bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-300'
-                    : 'bg-lime-500/15 border-lime-500/30 text-lime-700 dark:text-lime-300'
+                    : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-800 dark:text-emerald-300'
                 }`}
               >
                 <span>
@@ -1951,28 +2009,28 @@ export default function BloomApp({
             </div>
 
             <div
-              className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-2xl border ${
+              className={`flex flex-col lg:flex-row lg:items-center flex-wrap justify-between gap-3 p-3 rounded-2xl border ${
                 darkMode
                   ? 'bg-slate-800/50 border-slate-700'
                   : 'bg-slate-50 border-slate-200/80'
               }`}
             >
-              <div className="flex items-center justify-between sm:justify-start gap-2">
+              <div className="flex flex-wrap items-center justify-between sm:justify-start gap-2 min-w-0">
                 <button
                   type="button"
                   onClick={() => setSelectedWeekMonday(shiftDateKey(activeWeekMonday, -7))}
-                  className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                  className="min-w-[40px] min-h-[40px] p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center active:scale-[0.98] transition cursor-pointer"
                   title="Previous Week"
                   aria-label="Previous Week"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
 
-                <div className="flex items-center gap-2 px-2">
-                  <Calendar className="w-4 h-4 text-lime-600 dark:text-lime-400 shrink-0" />
+                <div className="flex flex-wrap items-center gap-2 px-2 min-w-0">
+                  <Calendar className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
                   <span className="text-xs sm:text-sm font-bold">{weekRangeLabel}</span>
                   {isCurrentWeek && (
-                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-lime-500/20 text-lime-700 dark:text-lime-300">
+                    <span className="text-[11px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-800 dark:text-emerald-300">
                       This Week
                     </span>
                   )}
@@ -1987,10 +2045,10 @@ export default function BloomApp({
                       nextMonday > currentWeekMonday ? currentWeekMonday : nextMonday
                     );
                   }}
-                  className={`p-2 rounded-xl border transition ${
+                  className={`min-w-[40px] min-h-[40px] p-2 rounded-xl border flex items-center justify-center transition ${
                     isCurrentWeek
                       ? 'opacity-40 cursor-not-allowed border-slate-200 dark:border-slate-800'
-                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 cursor-pointer'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-[0.98] cursor-pointer'
                   }`}
                   title="Next Week"
                   aria-label="Next Week"
@@ -2002,31 +2060,33 @@ export default function BloomApp({
                   <button
                     type="button"
                     onClick={() => setSelectedWeekMonday(currentWeekMonday)}
-                    className="px-2.5 py-1.5 rounded-xl bg-lime-600 hover:bg-lime-700 text-white text-xs font-semibold transition cursor-pointer"
+                    className="min-h-[40px] px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold active:scale-[0.98] transition cursor-pointer"
                   >
                     This Week
                   </button>
                 )}
               </div>
 
-              <div className="flex items-center gap-2 self-end sm:self-auto">
+              <div className="flex flex-wrap items-center gap-2 self-stretch sm:self-end lg:self-auto">
                 <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
                   Jump to date:
                 </label>
-                <input
-                  type="date"
-                  max={todayKey}
-                  value={isCurrentWeek ? todayKey : activeWeekMonday}
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      const targetMon = getMondayOfWeek(e.target.value);
-                      setSelectedWeekMonday(
-                        targetMon > currentWeekMonday ? currentWeekMonday : targetMon
-                      );
-                    }
-                  }}
-                  className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-semibold"
-                />
+                <div className="w-40 sm:w-44 min-w-0">
+                  <input
+                    type="date"
+                    max={todayKey}
+                    value={isCurrentWeek ? todayKey : activeWeekMonday}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        const targetMon = getMondayOfWeek(e.target.value);
+                        setSelectedWeekMonday(
+                          targetMon > currentWeekMonday ? currentWeekMonday : targetMon
+                        );
+                      }
+                    }}
+                    className={getFieldClass('emerald', 'font-semibold')}
+                  />
+                </div>
               </div>
             </div>
 
@@ -2055,7 +2115,7 @@ export default function BloomApp({
                     key={dateKey}
                     className={`p-3 rounded-2xl border space-y-1.5 ${
                       isToday
-                        ? 'bg-lime-500/10 border-lime-500/30'
+                        ? 'bg-emerald-500/10 border-emerald-500/30'
                         : isGapDay
                           ? 'border-dashed border-rose-300/80 dark:border-rose-900/60 bg-rose-500/5'
                           : darkMode
@@ -2064,11 +2124,11 @@ export default function BloomApp({
                     }`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 font-bold">
+                      <div className="flex flex-wrap items-center gap-2 font-bold">
                         <span
                           className={`w-2.5 h-2.5 rounded-full shrink-0 ${
                             mists.length > 0
-                              ? 'bg-lime-500'
+                              ? 'bg-emerald-500'
                               : isNoMistDay
                                 ? 'bg-amber-400'
                                 : isGapDay
@@ -2077,19 +2137,21 @@ export default function BloomApp({
                           }`}
                         />
                         <span>{formatFriendlyDate(dateKey, todayKey)}</span>
-                        <span className="text-[10px] font-mono opacity-60">{dateKey}</span>
+                        <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
+                          {dateKey}
+                        </span>
                         {isToday && (
-                          <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-lime-500/20 text-lime-700 dark:text-lime-300">
+                          <span className="text-[11px] font-extrabold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-800 dark:text-emerald-300">
                             Active
                           </span>
                         )}
                         {isGapDay && (
-                          <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-700 dark:text-rose-300">
+                          <span className="text-[11px] font-extrabold uppercase px-2 py-0.5 rounded bg-rose-500/15 text-rose-700 dark:text-rose-300">
                             No care logged
                           </span>
                         )}
                         {isNoMistDay && (
-                          <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300">
+                          <span className="text-[11px] font-extrabold uppercase px-2 py-0.5 rounded bg-amber-500/15 text-amber-800 dark:text-amber-300">
                             No mist logged
                           </span>
                         )}
@@ -2099,7 +2161,7 @@ export default function BloomApp({
                         <button
                           type="button"
                           onClick={() => openBackfillModal(dateKey)}
-                          className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border flex items-center gap-1 cursor-pointer transition ${
+                          className={`min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 active:scale-[0.98] transition cursor-pointer ${
                             !hasActivity
                               ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-700'
                               : darkMode
@@ -2107,7 +2169,7 @@ export default function BloomApp({
                                 : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
                           }`}
                         >
-                          <Edit3 className="w-3 h-3" />
+                          <Edit3 className="w-3.5 h-3.5" />
                           <span>{!hasActivity ? '+ Backfill' : 'Edit'}</span>
                         </button>
                       )}
@@ -2116,7 +2178,7 @@ export default function BloomApp({
                     {hasActivity && (
                       <div className="flex flex-wrap gap-1.5 pt-0.5">
                         {mists.length > 0 && (
-                          <span className="px-2 py-0.5 rounded-md bg-sky-500/15 text-sky-700 dark:text-sky-300 font-semibold">
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 font-semibold">
                             💧 {mists.length} mist{mists.length > 1 ? 's' : ''}
                           </span>
                         )}
@@ -2125,8 +2187,8 @@ export default function BloomApp({
                             key={f.id}
                             className={`px-2 py-0.5 rounded-md font-semibold ${
                               f.outcome === 'refused'
-                                ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
-                                : 'bg-lime-500/15 text-lime-700 dark:text-lime-300'
+                                ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300'
+                                : 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
                             }`}
                           >
                             {f.outcome === 'refused'
@@ -2142,7 +2204,7 @@ export default function BloomApp({
                         {climateChecks.map((c) => (
                           <span
                             key={c.id}
-                            className="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold"
+                            className="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-800 dark:text-amber-300 font-semibold"
                           >
                             🌡️ {c.tempC != null ? `${c.tempC}°C` : '—'}
                             {c.humidityPct != null ? ` / ${c.humidityPct}%` : ''}
@@ -2151,7 +2213,7 @@ export default function BloomApp({
                         {dayMolts.map((m) => (
                           <span
                             key={m.id}
-                            className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold"
+                            className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 font-semibold"
                           >
                             ✨ {m.fromInstar} → {m.toInstar}
                           </span>
@@ -2168,7 +2230,7 @@ export default function BloomApp({
                     )}
 
                     {rec.journalNote && (
-                      <p className="text-[11px] opacity-80 italic pt-0.5">
+                      <p className="text-xs text-slate-600 dark:text-slate-300 italic pt-0.5">
                         &ldquo;{rec.journalNote}&rdquo;
                       </p>
                     )}
@@ -2207,7 +2269,7 @@ export default function BloomApp({
                 <button
                   type="button"
                   onClick={openLogMoltModal}
-                  className="px-4 py-2.5 rounded-xl bg-lime-600 hover:bg-lime-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0"
+                  className="min-h-[40px] px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs active:scale-[0.98] transition cursor-pointer shrink-0"
                 >
                   <Sparkles className="w-4 h-4" />
                   <span>Log New Molt</span>
@@ -2215,7 +2277,7 @@ export default function BloomApp({
               )}
             </div>
 
-            <div className="grid grid-cols-3 sm:grid-cols-9 gap-1.5">
+            <div className="grid grid-cols-3 sm:grid-cols-5 xl:grid-cols-9 gap-1.5">
               {INSTAR_STAGES.map((stage, idx) => {
                 const currentIdx = INSTAR_STAGES.indexOf(settings.currentInstar);
                 const isCurrent = stage === settings.currentInstar;
@@ -2223,20 +2285,28 @@ export default function BloomApp({
                 return (
                   <div
                     key={stage}
-                    className={`p-2.5 rounded-2xl border text-center transition ${
+                    className={`p-2 sm:p-2.5 rounded-2xl border text-center transition ${
                       isCurrent
-                        ? 'bg-lime-600 text-white border-lime-700 ring-2 ring-lime-500/40 font-extrabold'
+                        ? 'bg-emerald-700 text-white border-emerald-800 ring-2 ring-emerald-500/40 font-extrabold'
                         : isPassed
                           ? darkMode
                             ? 'bg-emerald-950/40 border-emerald-800 text-emerald-300 font-bold'
                             : 'bg-emerald-50 border-emerald-200 text-emerald-800 font-bold'
                           : darkMode
-                            ? 'bg-slate-800/40 border-slate-800 text-slate-500'
-                            : 'bg-slate-50 border-slate-200/70 text-slate-400'
+                            ? 'bg-slate-800/40 border-slate-800 text-slate-400'
+                            : 'bg-slate-50 border-slate-200/70 text-slate-500'
                     }`}
                   >
                     <div className="text-xs">{stage}</div>
-                    <div className="text-[10px] opacity-80 mt-0.5">
+                    <div
+                      className={`text-xs mt-0.5 ${
+                        isCurrent
+                          ? 'text-emerald-100'
+                          : isPassed
+                            ? 'text-emerald-700 dark:text-emerald-300'
+                            : 'text-slate-500 dark:text-slate-400'
+                      }`}
+                    >
                       {isCurrent ? 'Current' : isPassed ? '✓ Shed' : stage === 'Adult' ? 'Winged' : 'Upcoming'}
                     </div>
                   </div>
@@ -2257,41 +2327,54 @@ export default function BloomApp({
               </h3>
 
               {summary.molts.length === 0 ? (
-                <div className="py-8 text-center space-y-2 text-xs text-slate-500">
-                  <p>No molts logged yet for {settings.mantisName}.</p>
-                  <p>
-                    When {settings.mantisName} sheds {pronounPossessive} exuvia, click <strong>Log New Molt</strong> to advance {pronounPossessive} instar and start the post-molt hardening timer!
-                  </p>
-                </div>
+                <EmptyStateCard
+                  accent="emerald"
+                  darkMode={darkMode}
+                  icon={Sparkles}
+                  title={`No molts logged yet for ${settings.mantisName}`}
+                  description={`When ${settings.mantisName} sheds ${pronounPossessive} exuvia, log the molt milestone to advance ${pronounPossessive} instar and start the post-molt hardening timer.`}
+                  action={
+                    canConfigure ? (
+                      <button
+                        type="button"
+                        onClick={openLogMoltModal}
+                        className="min-h-[40px] px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold inline-flex items-center gap-1.5 active:scale-[0.98] transition cursor-pointer"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        <span>Log First Molt</span>
+                      </button>
+                    ) : null
+                  }
+                />
               ) : (
                 <div className="space-y-2.5">
                   {summary.molts.map((m) => (
                     <div
                       key={m.id}
-                      className={`p-3.5 rounded-2xl border flex items-start justify-between gap-3 ${
+                      className={`p-3.5 rounded-2xl border flex flex-wrap items-start justify-between gap-3 ${
                         darkMode
                           ? 'bg-slate-800/50 border-slate-700'
                           : 'bg-slate-50 border-slate-200'
                       }`}
                     >
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-lime-600 text-white">
+                      <div className="space-y-1 min-w-0 flex-1 break-words">
+                        <div className="flex flex-wrap items-center gap-2 min-w-0">
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-emerald-700 text-white">
                             {m.fromInstar} &rarr; {m.toInstar}
                           </span>
                           <span className="text-xs font-bold">
                             {formatFriendlyDate(m.dateKey, todayKey)} ({m.dateKey})
                           </span>
                           {m.lengthMm && (
-                            <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-teal-500/15 text-teal-700 dark:text-teal-300">
+                            <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-500/15 text-emerald-800 dark:text-emerald-300">
                               📏 {m.lengthMm} mm
                             </span>
                           )}
                           <span
-                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
+                            className={`px-2 py-0.5 rounded-md text-[11px] font-bold uppercase ${
                               m.quality === 'clean'
-                                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                                : 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                                ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
+                                : 'bg-amber-500/20 text-amber-800 dark:text-amber-300'
                             }`}
                           >
                             {m.quality === 'clean'
@@ -2302,12 +2385,16 @@ export default function BloomApp({
                           </span>
                         </div>
                         {m.colorShift && (
-                          <div className="text-xs text-fuchsia-700 dark:text-fuchsia-300 font-semibold">
+                          <div className="text-xs text-purple-700 dark:text-purple-300 font-semibold">
                             🎨 Colour/Pattern: {m.colorShift}
                           </div>
                         )}
-                        {m.note && <p className="text-xs opacity-80">{m.note}</p>}
-                        <div className="text-[11px] opacity-60">Logged by {m.loggedBy}</div>
+                        {m.note && (
+                          <p className="text-xs text-slate-600 dark:text-slate-300">{m.note}</p>
+                        )}
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                          Logged by {m.loggedBy}
+                        </div>
                       </div>
 
                       {canConfigure && (
@@ -2320,7 +2407,7 @@ export default function BloomApp({
                               label: `${m.fromInstar} → ${m.toInstar} molt on ${m.dateKey}`
                             })
                           }
-                          className="p-1.5 text-slate-400 hover:text-rose-500 cursor-pointer"
+                          className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 active:scale-[0.98] transition cursor-pointer shrink-0"
                           title="Delete molt record"
                           aria-label="Delete molt record"
                         >
@@ -2333,19 +2420,22 @@ export default function BloomApp({
               )}
             </section>
 
-            {/* Spiny Flower Reference Card (4 cols) */}
+            {/* Species Reference Card (4 cols) */}
             <section
               className={`lg:col-span-4 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-3 text-xs ${
                 darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
               }`}
             >
-              <div className="font-extrabold text-sm flex items-center gap-1.5 text-lime-600 dark:text-lime-400">
-                <Flower2 className="w-4 h-4" />
-                <span>Spiny Flower Keeper Notes</span>
+              <div className="font-extrabold text-sm flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
+                <Flower2 className="w-4 h-4 shrink-0" />
+                <span>{settings.commonName || 'Mantis'} Keeper Notes</span>
               </div>
-              <div className="space-y-2.5 leading-relaxed opacity-90">
+              <div className="space-y-2.5 leading-relaxed text-slate-600 dark:text-slate-300">
                 <p>
-                  <strong>Male Growth Path:</strong> Male <em>P. wahlbergii</em> typically mature in <strong>6–7 molts</strong> (one molt quicker than females), developing long antennae, agile flight wings, and the signature orange/black/white spiral &ldquo;9&rdquo; eye-spot!
+                  <strong>Male Growth Path:</strong> Male{' '}
+                  <em>{settings.scientificName || settings.commonName || 'your mantis'}</em>{' '}
+                  typically mature in <strong>6–7 molts</strong> (one molt quicker than females),
+                  developing long antennae, agile flight wings, and characteristic adult markings!
                 </p>
                 <p>
                   <strong>Counting Segments (L4+):</strong> Males show <strong>8</strong> underside abdominal segments (ending in a slimmer terminal segment), whereas females show <strong>6</strong> broader segments and a larger spiny sub-adult pronotum.
@@ -2370,7 +2460,7 @@ export default function BloomApp({
               darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
             }`}
           >
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-base font-extrabold">Live Feeder Stash &amp; Cultures</h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -2384,7 +2474,7 @@ export default function BloomApp({
                     setFeederStartedInput(todayKey);
                     setNewFeederOpen(!newFeederOpen);
                   }}
-                  className="px-3 py-2 rounded-xl bg-lime-600 hover:bg-lime-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer shrink-0"
+                  className="min-h-[40px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold flex items-center gap-1.5 active:scale-[0.98] transition cursor-pointer shrink-0"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Add Culture</span>
@@ -2395,8 +2485,8 @@ export default function BloomApp({
             <div
               className={`p-3 rounded-2xl border text-xs ${
                 darkMode
-                  ? 'bg-slate-800/50 border-slate-700 text-lime-200'
-                  : 'bg-lime-50/70 border-lime-200 text-lime-950'
+                  ? 'bg-slate-800/50 border-slate-700 text-emerald-200'
+                  : 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
               }`}
             >
               <strong>{settings.currentInstar} Sizing Tip:</strong> {instarFeederTip}
@@ -2422,7 +2512,7 @@ export default function BloomApp({
                         setFeederShelfDaysInput(preset.defaultDays);
                       }
                     }}
-                    className="px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
+                    className={getFieldClass('emerald', 'min-w-0')}
                   >
                     {FEEDER_CULTURE_TYPES.map((t) => (
                       <option key={t.id} value={t.id}>
@@ -2432,24 +2522,25 @@ export default function BloomApp({
                   </select>
                   <input
                     type="text"
+                    required
                     value={feederNameInput}
                     onChange={(e) => setFeederNameInput(e.target.value)}
                     placeholder="Label (e.g., Hydei Pot #2)"
-                    className="px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
+                    className={getFieldClass('emerald', 'min-w-0')}
                   />
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase opacity-60 mb-0.5">
+                  <div className="min-w-0">
+                    <label className="block text-xs font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">
                       Started / Arrived Date
                     </label>
                     <input
                       type="date"
                       value={feederStartedInput}
                       onChange={(e) => setFeederStartedInput(e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-xl text-xs border bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
+                      className={getFieldClass('emerald', 'min-w-0')}
                     />
                   </div>
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase opacity-60 mb-0.5">
+                  <div className="min-w-0">
+                    <label className="block text-xs font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">
                       Est. Lifespan (Days)
                     </label>
                     <input
@@ -2458,7 +2549,7 @@ export default function BloomApp({
                       max="90"
                       value={feederShelfDaysInput}
                       onChange={(e) => setFeederShelfDaysInput(e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-xl text-xs border bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
+                      className={getFieldClass('emerald', 'min-w-0')}
                     />
                   </div>
                 </div>
@@ -2466,7 +2557,7 @@ export default function BloomApp({
                   <select
                     value={feederStatusInput}
                     onChange={(e) => setFeederStatusInput(e.target.value)}
-                    className="px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
+                    className={getFieldClass('emerald', 'min-w-0')}
                   >
                     <option value="warming_up">Status: Warming Up (Fresh)</option>
                     <option value="booming">Status: Booming</option>
@@ -2477,20 +2568,21 @@ export default function BloomApp({
                     value={feederNoteInput}
                     onChange={(e) => setFeederNoteInput(e.target.value)}
                     placeholder="Storage note (e.g., Top shelf)..."
-                    className="px-3 py-2 rounded-xl text-xs border bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
+                    className={getFieldClass('emerald', 'min-w-0')}
                   />
                 </div>
                 <div className="flex justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => setNewFeederOpen(false)}
-                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-200/70 dark:bg-slate-800 cursor-pointer"
+                    className="min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-200/70 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.98] transition cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-1.5 rounded-xl text-xs font-bold bg-lime-600 text-white cursor-pointer"
+                    disabled={isSubmitting}
+                    className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer"
                   >
                     Save Culture
                   </button>
@@ -2499,9 +2591,28 @@ export default function BloomApp({
             )}
 
             {summary.feeders.length === 0 ? (
-              <p className="text-xs text-slate-500 py-6 text-center">
-                No active feeder cultures tracked yet. Add your fruit fly pots or fly casters above!
-              </p>
+              <EmptyStateCard
+                accent="emerald"
+                darkMode={darkMode}
+                icon={Bug}
+                title="No active feeder cultures tracked yet"
+                description="Add your fruit fly pots, curly-wing tubs, or casters so you never get caught by a culture crash."
+                action={
+                  canConfigure ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFeederStartedInput(todayKey);
+                        setNewFeederOpen(true);
+                      }}
+                      className="min-h-[40px] px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold inline-flex items-center gap-1.5 active:scale-[0.98] transition cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Add First Culture</span>
+                    </button>
+                  ) : null
+                }
+              />
             ) : (
               <div className="space-y-3">
                 {summary.feeders.map((f) => {
@@ -2520,7 +2631,7 @@ export default function BloomApp({
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <div className="font-extrabold text-sm">{f.name}</div>
-                          <div className="text-[11px] opacity-75">
+                          <div className="text-xs text-slate-600 dark:text-slate-300">
                             Day {f.ageDays} of ~{f.shelfLifeDays}d ({f.daysRemaining <= 0 ? 'Past cycle window' : `${f.daysRemaining}d left`})
                             {f.storageNote ? ` • ${f.storageNote}` : ''}
                           </div>
@@ -2535,7 +2646,7 @@ export default function BloomApp({
                                 label: f.name
                               })
                             }
-                            className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
+                            className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 active:scale-[0.98] transition cursor-pointer shrink-0"
                             title="Remove culture"
                             aria-label="Remove culture"
                           >
@@ -2547,7 +2658,7 @@ export default function BloomApp({
                       <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
                         <div
                           className={`h-full rounded-full ${
-                            f.isAlert ? 'bg-amber-500' : 'bg-lime-600'
+                            f.isAlert ? 'bg-amber-500' : 'bg-emerald-600'
                           }`}
                           style={{ width: `${pct}%` }}
                         />
@@ -2565,16 +2676,16 @@ export default function BloomApp({
                             type="button"
                             disabled={!canConfigure}
                             onClick={() => handleUpdateFeederStatus(f, st.id)}
-                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border ${
-                              canConfigure ? 'cursor-pointer' : 'cursor-default'
+                            className={`min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold border transition ${
+                              canConfigure ? 'active:scale-[0.98] cursor-pointer' : 'cursor-default'
                             } ${
                               f.status === st.id
                                 ? st.id === 'low' || st.id === 'crashed'
                                   ? 'bg-amber-500 text-slate-950 border-amber-600'
-                                  : 'bg-lime-600 text-white border-lime-700'
+                                  : 'bg-emerald-700 text-white border-emerald-800'
                                 : darkMode
-                                  ? 'bg-slate-900 border-slate-700 opacity-70'
-                                  : 'bg-white border-slate-200 opacity-75'
+                                  ? 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
                             }`}
                           >
                             {st.label}
@@ -2594,14 +2705,14 @@ export default function BloomApp({
               darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
             }`}
           >
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-2xl bg-teal-500/15 text-teal-600 dark:text-teal-400 flex items-center justify-center">
+                <div className="w-9 h-9 rounded-2xl bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0">
                   <Ruler className="w-4 h-4" />
                 </div>
                 <div>
                   <h2 className="text-base font-extrabold">Enclosure &amp; Clearance</h2>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     3× height &amp; 2× width molting rule
                   </p>
                 </div>
@@ -2613,7 +2724,7 @@ export default function BloomApp({
                     setEnclosureDraft(settings.enclosureInfo);
                     setEditingEnclosure(!editingEnclosure);
                   }}
-                  className="text-xs font-bold text-lime-600 dark:text-lime-400 hover:underline cursor-pointer"
+                  className="min-h-[40px] px-2.5 rounded-xl text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 hover:underline active:scale-[0.98] transition cursor-pointer shrink-0"
                 >
                   {editingEnclosure ? 'Cancel' : 'Edit Specs'}
                 </button>
@@ -2633,7 +2744,13 @@ export default function BloomApp({
                   ? `⚠️ Upsize Soon — Enclosure Getting Snug for ${summary.clearance.bodyLen}mm`
                   : `✓ Safe Molting Clearance (${summary.clearance.encH}mm H × ${summary.clearance.encW}mm W)`}
               </div>
-              <p className="opacity-85">
+              <p
+                className={
+                  summary.clearance.isEnclosureTight
+                    ? 'text-amber-900 dark:text-amber-100'
+                    : 'text-emerald-900 dark:text-emerald-100'
+                }
+              >
                 At {summary.clearance.bodyLen}mm body length, {settings.mantisName} needs at least{' '}
                 <strong>{summary.clearance.minSafeHeightMm}mm</strong> vertical height and{' '}
                 <strong>{summary.clearance.minSafeWidthMm}mm</strong> width.
@@ -2641,9 +2758,9 @@ export default function BloomApp({
             </div>
 
             {editingEnclosure && canConfigure ? (
-              <form onSubmit={handleSaveEnclosure} className="space-y-2.5 text-xs">
+              <form onSubmit={handleSaveEnclosure} className="space-y-3 text-xs">
                 <div>
-                  <label className="block text-[10px] font-bold uppercase opacity-60 mb-0.5">
+                  <label className="block text-xs font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">
                     Enclosure Label
                   </label>
                   <input
@@ -2652,12 +2769,12 @@ export default function BloomApp({
                     onChange={(e) =>
                       setEnclosureDraft({ ...enclosureDraft, currentSizeLabel: e.target.value })
                     }
-                    className="w-full px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                    className={getFieldClass('emerald')}
                   />
                 </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase opacity-60 mb-0.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3 gap-2">
+                  <div className="min-w-0">
+                    <label className="block text-xs font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">
                       Mantis (mm)
                     </label>
                     <input
@@ -2670,11 +2787,11 @@ export default function BloomApp({
                           currentBodyLengthMm: e.target.value
                         })
                       }
-                      className="w-full px-2.5 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                      className={getFieldClass('emerald', 'min-w-0')}
                     />
                   </div>
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase opacity-60 mb-0.5">
+                  <div className="min-w-0">
+                    <label className="block text-xs font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">
                       Height (mm)
                     </label>
                     <input
@@ -2684,11 +2801,11 @@ export default function BloomApp({
                       onChange={(e) =>
                         setEnclosureDraft({ ...enclosureDraft, enclosureHeightMm: e.target.value })
                       }
-                      className="w-full px-2.5 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                      className={getFieldClass('emerald', 'min-w-0')}
                     />
                   </div>
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase opacity-60 mb-0.5">
+                  <div className="min-w-0">
+                    <label className="block text-xs font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">
                       Width (mm)
                     </label>
                     <input
@@ -2698,12 +2815,12 @@ export default function BloomApp({
                       onChange={(e) =>
                         setEnclosureDraft({ ...enclosureDraft, enclosureWidthMm: e.target.value })
                       }
-                      className="w-full px-2.5 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                      className={getFieldClass('emerald', 'min-w-0')}
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold uppercase opacity-60 mb-0.5">
+                  <label className="block text-xs font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">
                     Ceiling Mesh Type (Avoid bare metal mesh!)
                   </label>
                   <input
@@ -2712,11 +2829,11 @@ export default function BloomApp({
                     onChange={(e) =>
                       setEnclosureDraft({ ...enclosureDraft, meshType: e.target.value })
                     }
-                    className="w-full px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                    className={getFieldClass('emerald')}
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold uppercase opacity-60 mb-0.5">
+                  <label className="block text-xs font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">
                     Substrate &amp; Perches
                   </label>
                   <input
@@ -2725,12 +2842,12 @@ export default function BloomApp({
                     onChange={(e) =>
                       setEnclosureDraft({ ...enclosureDraft, substrate: e.target.value })
                     }
-                    className="w-full px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                    className={getFieldClass('emerald')}
                   />
                 </div>
                 <button
                   type="submit"
-                  className="w-full py-2 rounded-xl bg-lime-600 text-white font-bold cursor-pointer"
+                  className="w-full min-h-[40px] py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold active:scale-[0.98] transition cursor-pointer"
                 >
                   Save Habitat Specs
                 </button>
@@ -2739,19 +2856,19 @@ export default function BloomApp({
               <div className="space-y-2.5 text-xs">
                 <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 space-y-1.5">
                   <div>
-                    <span className="opacity-65">Housing:</span>{' '}
+                    <span className="text-slate-500 dark:text-slate-400">Housing:</span>{' '}
                     <strong>{settings.enclosureInfo.currentSizeLabel}</strong>
                   </div>
                   <div>
-                    <span className="opacity-65">Ceiling Grip:</span>{' '}
+                    <span className="text-slate-500 dark:text-slate-400">Ceiling Grip:</span>{' '}
                     <strong>{settings.enclosureInfo.meshType}</strong>
                   </div>
                   <div>
-                    <span className="opacity-65">Substrate:</span>{' '}
+                    <span className="text-slate-500 dark:text-slate-400">Substrate:</span>{' '}
                     <strong>{settings.enclosureInfo.substrate}</strong>
                   </div>
                   <div>
-                    <span className="opacity-65">Last Substrate Tidy / Clean:</span>{' '}
+                    <span className="text-slate-500 dark:text-slate-400">Last Substrate Tidy / Clean:</span>{' '}
                     <strong>
                       {settings.enclosureInfo.lastDeepCleanDate
                         ? formatFriendlyDate(settings.enclosureInfo.lastDeepCleanDate, todayKey)
@@ -2773,7 +2890,7 @@ export default function BloomApp({
                         `Logged enclosure substrate clean for ${settings.mantisName}`
                       )
                     }
-                    className={`w-full py-2.5 rounded-xl border text-xs font-bold cursor-pointer ${
+                    className={`w-full min-h-[40px] py-2.5 px-3 rounded-xl border text-xs font-bold active:scale-[0.98] transition cursor-pointer ${
                       darkMode
                         ? 'border-slate-700 hover:bg-slate-800'
                         : 'border-slate-200 hover:bg-slate-50'
@@ -2791,517 +2908,491 @@ export default function BloomApp({
       {/* ====================================================================
           MODAL A: LOG A NEW MOLT MILESTONE
       ==================================================================== */}
-      {moltModalOpen && canConfigure && (
-        <div
-          onClick={() => setMoltModalOpen(false)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Log Molt Milestone"
-            className={`max-w-md w-full max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${
-              darkMode
-                ? 'bg-slate-900 border-slate-800 text-slate-100'
-                : 'bg-white border-slate-200 text-slate-800'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-lime-500/15 text-lime-600 dark:text-lime-400 flex items-center justify-center">
-                  <Sparkles className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-extrabold">
-                    Log {settings.mantisName}&apos;s Molt!
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {isLatestMoltModal
-                      ? 'Record exuvia shed & advance instar stage'
-                      : 'Add a historical exuvia shed to growth history'}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setMoltModalOpen(false)}
-                aria-label="Close Log Molt Modal"
-                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {!isLatestMoltModal && (
-              <div className="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-700 dark:text-sky-300 flex items-start gap-2 text-[11px] font-semibold">
-                <Info className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>
-                  This date precedes the latest recorded molt ({summary.molts[0]?.dateKey}), so it
-                  will be added as a historical milestone without changing {settings.mantisName}
-                  &apos;s current instar ({settings.currentInstar}).
-                </span>
-              </div>
-            )}
-
-            <form onSubmit={handleSubmitMolt} className="space-y-3.5 text-xs">
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block font-bold uppercase opacity-70 mb-1">From Stage</label>
-                  <select
-                    value={moltFromInput}
-                    onChange={(e) => setMoltFromInput(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700 font-bold"
-                  >
-                    {INSTAR_STAGES.map((st) => (
-                      <option key={st} value={st}>
-                        {st}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold uppercase opacity-70 mb-1">New Stage</label>
-                  <select
-                    value={moltToInput}
-                    onChange={(e) => setMoltToInput(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700 font-bold"
-                  >
-                    {INSTAR_STAGES.map((st) => (
-                      <option key={st} value={st}>
-                        {st}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block font-bold uppercase opacity-70 mb-1">Molt Date</label>
-                  <input
-                    type="date"
-                    value={moltDateInput}
-                    onChange={(e) => setMoltDateInput(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold uppercase opacity-70 mb-1">
-                    Est. Body Length (mm)
-                  </label>
-                  <input
-                    type="number"
-                    min="0.1"
-                    step="0.1"
-                    placeholder="e.g. 15"
-                    value={moltLengthInput}
-                    onChange={(e) => setMoltLengthInput(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold uppercase opacity-70 mb-1">
-                  New Colour / Pattern Shift
-                </label>
-                <input
-                  type="text"
-                  value={moltColorInput}
-                  onChange={(e) => setMoltColorInput(e.target.value)}
-                  placeholder="e.g., Brighter lime bands & pink tibial lobes..."
-                  className="w-full px-3 py-2 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold uppercase opacity-70 mb-1">Molt Quality</label>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {[
-                    { id: 'clean', label: 'Clean Shed' },
-                    { id: 'minor_issue', label: 'Minor Snag' },
-                    { id: 'mismolt', label: 'Mismolt' }
-                  ].map((q) => (
-                    <button
-                      key={q.id}
-                      type="button"
-                      onClick={() => setMoltQualityInput(q.id)}
-                      className={`py-2 rounded-xl border font-bold cursor-pointer ${
-                        moltQualityInput === q.id
-                          ? 'bg-lime-600 text-white border-lime-700'
-                          : darkMode
-                            ? 'bg-slate-800 border-slate-700'
-                            : 'bg-slate-50 border-slate-200'
-                      }`}
-                    >
-                      {q.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold uppercase opacity-70 mb-1">Notes</label>
-                <input
-                  type="text"
-                  value={moltNoteInput}
-                  onChange={(e) => setMoltNoteInput(e.target.value)}
-                  placeholder="Hung from ceiling mesh overnight, all 6 tarsi gripping well..."
-                  className="w-full px-3 py-2 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                />
-              </div>
-
-              {isLatestMoltModal && moltDateInput === todayKey && hardeningHours > 0 && (
-                <label className="flex items-center gap-2 p-3 rounded-2xl bg-fuchsia-500/10 border border-fuchsia-500/30 font-semibold cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={moltStartHardening}
-                    onChange={(e) => setMoltStartHardening(e.target.checked)}
-                    className="rounded accent-fuchsia-600 w-4 h-4"
-                  />
-                  <span>
-                    Start {hardeningHours}h Post-Molt No-Feed Hardening Timer
-                  </span>
-                </label>
-              )}
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setMoltModalOpen(false)}
-                  className="px-4 py-2.5 rounded-xl font-bold bg-slate-100 dark:bg-slate-800 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 rounded-xl font-extrabold bg-lime-600 hover:bg-lime-700 text-white cursor-pointer"
-                >
-                  Save Molt Milestone
-                </button>
-              </div>
-            </form>
+      <ModalShell
+        isOpen={Boolean(moltModalOpen && canConfigure)}
+        onClose={() => setMoltModalOpen(false)}
+        title={`Log ${settings.mantisName}'s Molt!`}
+        subtitle={
+          isLatestMoltModal
+            ? 'Record exuvia shed & advance instar stage'
+            : 'Add a historical exuvia shed to growth history'
+        }
+        icon={Sparkles}
+        accent="emerald"
+        darkMode={darkMode}
+        maxWidthClass="max-w-md"
+        ariaLabel="Log Molt Milestone"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setMoltModalOpen(false)}
+              className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.98] transition cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="bloom-molt-form"
+              disabled={isSubmitting}
+              className="min-h-[40px] px-5 py-2 rounded-xl text-xs font-extrabold bg-emerald-700 hover:bg-emerald-800 text-white disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer"
+            >
+              {isSubmitting ? 'Saving...' : 'Save Molt Milestone'}
+            </button>
           </div>
-        </div>
-      )}
+        }
+      >
+        {!isLatestMoltModal && (
+          <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 flex items-start gap-2 text-xs font-semibold">
+            <Info className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>
+              This date precedes the latest recorded molt ({summary.molts[0]?.dateKey}), so it
+              will be added as a historical milestone without changing {settings.mantisName}
+              &apos;s current instar ({settings.currentInstar}).
+            </span>
+          </div>
+        )}
+
+        <form id="bloom-molt-form" onSubmit={handleSubmitMolt} className="space-y-3.5 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="min-w-0">
+              <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                From Stage
+              </label>
+              <select
+                value={moltFromInput}
+                onChange={(e) => setMoltFromInput(e.target.value)}
+                className={getFieldClass('emerald', 'font-bold min-w-0')}
+              >
+                {INSTAR_STAGES.map((st) => (
+                  <option key={st} value={st}>
+                    {st}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="min-w-0">
+              <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                New Stage
+              </label>
+              <select
+                value={moltToInput}
+                onChange={(e) => setMoltToInput(e.target.value)}
+                className={getFieldClass('emerald', 'font-bold min-w-0')}
+              >
+                {INSTAR_STAGES.map((st) => (
+                  <option key={st} value={st}>
+                    {st}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="min-w-0">
+              <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                Molt Date
+              </label>
+              <input
+                type="date"
+                value={moltDateInput}
+                onChange={(e) => setMoltDateInput(e.target.value)}
+                className={getFieldClass('emerald', 'min-w-0')}
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                Est. Body Length (mm)
+              </label>
+              <input
+                type="number"
+                min="0.1"
+                step="0.1"
+                placeholder="e.g. 15"
+                value={moltLengthInput}
+                onChange={(e) => setMoltLengthInput(e.target.value)}
+                className={getFieldClass('emerald', 'min-w-0')}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+              New Colour / Pattern Shift
+            </label>
+            <input
+              type="text"
+              value={moltColorInput}
+              onChange={(e) => setMoltColorInput(e.target.value)}
+              placeholder="e.g., Brighter lime bands & pink tibial lobes..."
+              className={getFieldClass('emerald')}
+            />
+          </div>
+
+          <div>
+            <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+              Molt Quality
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {[
+                { id: 'clean', label: 'Clean Shed' },
+                { id: 'minor_issue', label: 'Minor Snag' },
+                { id: 'mismolt', label: 'Mismolt' }
+              ].map((q) => (
+                <button
+                  key={q.id}
+                  type="button"
+                  onClick={() => setMoltQualityInput(q.id)}
+                  className={`min-h-[40px] py-2 px-3 rounded-xl border font-bold active:scale-[0.98] transition cursor-pointer ${
+                    moltQualityInput === q.id
+                      ? 'bg-emerald-700 text-white border-emerald-800'
+                      : darkMode
+                        ? 'bg-slate-800 border-slate-700 hover:bg-slate-700'
+                        : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {q.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+              Notes
+            </label>
+            <input
+              type="text"
+              value={moltNoteInput}
+              onChange={(e) => setMoltNoteInput(e.target.value)}
+              placeholder="Hung from ceiling mesh overnight, all 6 tarsi gripping well..."
+              className={getFieldClass('emerald')}
+            />
+          </div>
+
+          {isLatestMoltModal && moltDateInput === todayKey && hardeningHours > 0 && (
+            <label className="flex items-center gap-2 p-3 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-900 dark:text-rose-200 font-semibold cursor-pointer">
+              <input
+                type="checkbox"
+                checked={moltStartHardening}
+                onChange={(e) => setMoltStartHardening(e.target.checked)}
+                className="rounded accent-rose-600 w-4 h-4"
+              />
+              <span>
+                Start {hardeningHours}h Post-Molt No-Feed Hardening Timer
+              </span>
+            </label>
+          )}
+        </form>
+      </ModalShell>
 
       {/* ====================================================================
           MODAL B: BLOOM SPECIMEN & HABITAT SETTINGS
       ==================================================================== */}
-      {settingsModalOpen && canConfigure && (
-        <div
-          onClick={() => setSettingsModalOpen(false)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Bloom Mantis and Care Settings"
-            className={`max-w-lg w-full max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${
-              darkMode
-                ? 'bg-slate-900 border-slate-800 text-slate-100'
-                : 'bg-white border-slate-200 text-slate-800'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold">Bloom • Mantis &amp; Care Settings</h3>
-              <button
-                type="button"
-                onClick={() => setSettingsModalOpen(false)}
-                aria-label="Close Bloom Settings Modal"
-                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveFullSettings} className="space-y-3.5 text-xs">
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block font-bold uppercase opacity-70 mb-1">Mantis Name</label>
-                  <input
-                    type="text"
-                    value={settingsForm.mantisName || ''}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, mantisName: e.target.value })
-                    }
-                    className="w-full px-3 py-2 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700 font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold uppercase opacity-70 mb-1">
-                    Species Preset
-                  </label>
-                  <select
-                    value={settingsForm.speciesPreset || 'spiny_flower'}
-                    onChange={(e) => {
-                      const preset = SPECIES_PRESETS.find((p) => p.id === e.target.value);
-                      if (preset) {
-                        setSettingsForm({
-                          ...settingsForm,
-                          speciesPreset: preset.id,
-                          commonName: preset.commonName,
-                          scientificName: preset.scientificName,
-                          dayTempMinC: preset.dayTempMinC,
-                          dayTempMaxC: preset.dayTempMaxC,
-                          nightTempMinC: preset.nightTempMinC,
-                          humidityMinPct: preset.humidityMinPct,
-                          humidityMaxPct: preset.humidityMaxPct,
-                          mistTargetHours: preset.mistTargetHours
-                        });
-                      }
-                    }}
-                    className="w-full px-3 py-2 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  >
-                    {SPECIES_PRESETS.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.commonName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                <div>
-                  <label className="block font-bold uppercase opacity-70 mb-1">Sex</label>
-                  <select
-                    value={settingsForm.sex || 'Unsexed'}
-                    onChange={(e) => setSettingsForm({ ...settingsForm, sex: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  >
-                    <option value="Male">♂ Male</option>
-                    <option value="Female">♀ Female</option>
-                    <option value="Unsexed">Unsexed Nymph</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold uppercase opacity-70 mb-1">
-                    Current Instar
-                  </label>
-                  <select
-                    value={settingsForm.currentInstar || 'L2'}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, currentInstar: e.target.value })
-                    }
-                    className="w-full px-3 py-2 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700 font-bold"
-                  >
-                    {INSTAR_STAGES.map((st) => (
-                      <option key={st} value={st}>
-                        {st}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold uppercase opacity-70 mb-1">Arrival Date</label>
-                  <input
-                    type="date"
-                    value={settingsForm.arrivalDate || ''}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, arrivalDate: e.target.value })
-                    }
-                    className="w-full px-3 py-2 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold uppercase opacity-70 mb-1">
-                  Current Colour / Morph Description
-                </label>
-                <input
-                  type="text"
-                  value={settingsForm.currentColorMorph || ''}
-                  onChange={(e) =>
-                    setSettingsForm({ ...settingsForm, currentColorMorph: e.target.value })
-                  }
-                  className="w-full px-3 py-2 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                />
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <label className="block font-bold uppercase opacity-70 mb-1">
-                    Mist Every (h)
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="168"
-                    value={settingsForm.mistTargetHours ?? ''}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, mistTargetHours: e.target.value })
-                    }
-                    className="w-full px-3 py-2 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold uppercase opacity-70 mb-1">
-                    Post-Molt Lock (h)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="168"
-                    value={settingsForm.hardeningHours ?? ''}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, hardeningHours: e.target.value })
-                    }
-                    className="w-full px-3 py-2 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold uppercase opacity-70 mb-1">
-                    Est. Molt Cycle (d)
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="180"
-                    value={settingsForm.typicalInterMoltDays ?? ''}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, typicalInterMoltDays: e.target.value })
-                    }
-                    className="w-full px-3 py-2 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <div>
-                  <label className="block font-bold uppercase opacity-70 mb-1">Min °C</label>
-                  <input
-                    type="number"
-                    min="10"
-                    max="45"
-                    value={settingsForm.dayTempMinC ?? ''}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, dayTempMinC: e.target.value })
-                    }
-                    className="w-full px-2.5 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold uppercase opacity-70 mb-1">Max °C</label>
-                  <input
-                    type="number"
-                    min="10"
-                    max="50"
-                    value={settingsForm.dayTempMaxC ?? ''}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, dayTempMaxC: e.target.value })
-                    }
-                    className="w-full px-2.5 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold uppercase opacity-70 mb-1">Min RH%</label>
-                  <input
-                    type="number"
-                    min="10"
-                    max="100"
-                    value={settingsForm.humidityMinPct ?? ''}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, humidityMinPct: e.target.value })
-                    }
-                    className="w-full px-2.5 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold uppercase opacity-70 mb-1">Max RH%</label>
-                  <input
-                    type="number"
-                    min="10"
-                    max="100"
-                    value={settingsForm.humidityMaxPct ?? ''}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, humidityMaxPct: e.target.value })
-                    }
-                    className="w-full px-2.5 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold uppercase opacity-70 mb-1">
-                  Household &amp; Pet Sitter Care Note
-                </label>
-                <textarea
-                  rows={3}
-                  value={settingsForm.careNote || ''}
-                  onChange={(e) =>
-                    setSettingsForm({ ...settingsForm, careNote: e.target.value })
-                  }
-                  className="w-full px-3 py-2 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setSettingsModalOpen(false)}
-                  className="px-4 py-2 rounded-xl font-bold bg-slate-100 dark:bg-slate-800 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl font-extrabold bg-lime-600 hover:bg-lime-700 text-white flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Check className="w-4 h-4" />
-                  <span>Save Settings</span>
-                </button>
-              </div>
-            </form>
+      <ModalShell
+        isOpen={Boolean(settingsModalOpen && canConfigure)}
+        onClose={() => setSettingsModalOpen(false)}
+        title="Bloom • Mantis & Care Settings"
+        subtitle={`${settings.mantisName} • ${settings.commonName}`}
+        icon={Settings}
+        accent="emerald"
+        darkMode={darkMode}
+        maxWidthClass="max-w-lg"
+        ariaLabel="Bloom Mantis and Care Settings"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setSettingsModalOpen(false)}
+              className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.98] transition cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="bloom-settings-form"
+              className="min-h-[40px] px-5 py-2 rounded-xl text-xs font-extrabold bg-emerald-700 hover:bg-emerald-800 text-white flex items-center gap-1.5 active:scale-[0.98] transition cursor-pointer"
+            >
+              <Check className="w-4 h-4" />
+              <span>Save Settings</span>
+            </button>
           </div>
-        </div>
-      )}
+        }
+      >
+        <form id="bloom-settings-form" onSubmit={handleSaveFullSettings} className="space-y-3.5 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="min-w-0">
+              <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                Mantis Name
+              </label>
+              <input
+                type="text"
+                value={settingsForm.mantisName || ''}
+                onChange={(e) =>
+                  setSettingsForm({ ...settingsForm, mantisName: e.target.value })
+                }
+                className={getFieldClass('emerald', 'font-bold min-w-0')}
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                Species Preset
+              </label>
+              <select
+                value={settingsForm.speciesPreset || 'spiny_flower'}
+                onChange={(e) => {
+                  const preset = SPECIES_PRESETS.find((p) => p.id === e.target.value);
+                  if (preset) {
+                    setSettingsForm({
+                      ...settingsForm,
+                      speciesPreset: preset.id,
+                      commonName: preset.commonName,
+                      scientificName: preset.scientificName,
+                      dayTempMinC: preset.dayTempMinC,
+                      dayTempMaxC: preset.dayTempMaxC,
+                      nightTempMinC: preset.nightTempMinC,
+                      humidityMinPct: preset.humidityMinPct,
+                      humidityMaxPct: preset.humidityMaxPct,
+                      mistTargetHours: preset.mistTargetHours
+                    });
+                  }
+                }}
+                className={getFieldClass('emerald', 'min-w-0')}
+              >
+                {SPECIES_PRESETS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.commonName}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div className="min-w-0">
+              <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                Sex
+              </label>
+              <select
+                value={settingsForm.sex || 'Unsexed'}
+                onChange={(e) => setSettingsForm({ ...settingsForm, sex: e.target.value })}
+                className={getFieldClass('emerald', 'min-w-0')}
+              >
+                <option value="Male">♂ Male</option>
+                <option value="Female">♀ Female</option>
+                <option value="Unsexed">Unsexed Nymph</option>
+              </select>
+            </div>
+            <div className="min-w-0">
+              <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                Current Instar
+              </label>
+              <select
+                value={settingsForm.currentInstar || 'L2'}
+                onChange={(e) =>
+                  setSettingsForm({ ...settingsForm, currentInstar: e.target.value })
+                }
+                className={getFieldClass('emerald', 'font-bold min-w-0')}
+              >
+                {INSTAR_STAGES.map((st) => (
+                  <option key={st} value={st}>
+                    {st}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="min-w-0">
+              <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                Arrival Date
+              </label>
+              <input
+                type="date"
+                value={settingsForm.arrivalDate || ''}
+                onChange={(e) =>
+                  setSettingsForm({ ...settingsForm, arrivalDate: e.target.value })
+                }
+                className={getFieldClass('emerald', 'min-w-0')}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+              Current Colour / Morph Description
+            </label>
+            <input
+              type="text"
+              value={settingsForm.currentColorMorph || ''}
+              onChange={(e) =>
+                setSettingsForm({ ...settingsForm, currentColorMorph: e.target.value })
+              }
+              className={getFieldClass('emerald')}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div className="min-w-0">
+              <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                Mist Every (h)
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="168"
+                value={settingsForm.mistTargetHours ?? ''}
+                onChange={(e) =>
+                  setSettingsForm({ ...settingsForm, mistTargetHours: e.target.value })
+                }
+                className={getFieldClass('emerald', 'min-w-0')}
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                Post-Molt Lock (h)
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="168"
+                value={settingsForm.hardeningHours ?? ''}
+                onChange={(e) =>
+                  setSettingsForm({ ...settingsForm, hardeningHours: e.target.value })
+                }
+                className={getFieldClass('emerald', 'min-w-0')}
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                Est. Molt Cycle (d)
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="180"
+                value={settingsForm.typicalInterMoltDays ?? ''}
+                onChange={(e) =>
+                  setSettingsForm({ ...settingsForm, typicalInterMoltDays: e.target.value })
+                }
+                className={getFieldClass('emerald', 'min-w-0')}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="min-w-0">
+              <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                Min °C
+              </label>
+              <input
+                type="number"
+                min="10"
+                max="45"
+                value={settingsForm.dayTempMinC ?? ''}
+                onChange={(e) =>
+                  setSettingsForm({ ...settingsForm, dayTempMinC: e.target.value })
+                }
+                className={getFieldClass('emerald', 'min-w-0')}
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                Max °C
+              </label>
+              <input
+                type="number"
+                min="10"
+                max="50"
+                value={settingsForm.dayTempMaxC ?? ''}
+                onChange={(e) =>
+                  setSettingsForm({ ...settingsForm, dayTempMaxC: e.target.value })
+                }
+                className={getFieldClass('emerald', 'min-w-0')}
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                Min RH%
+              </label>
+              <input
+                type="number"
+                min="10"
+                max="100"
+                value={settingsForm.humidityMinPct ?? ''}
+                onChange={(e) =>
+                  setSettingsForm({ ...settingsForm, humidityMinPct: e.target.value })
+                }
+                className={getFieldClass('emerald', 'min-w-0')}
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                Max RH%
+              </label>
+              <input
+                type="number"
+                min="10"
+                max="100"
+                value={settingsForm.humidityMaxPct ?? ''}
+                onChange={(e) =>
+                  setSettingsForm({ ...settingsForm, humidityMaxPct: e.target.value })
+                }
+                className={getFieldClass('emerald', 'min-w-0')}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+              Household &amp; Pet Sitter Care Note
+            </label>
+            <textarea
+              rows={3}
+              value={settingsForm.careNote || ''}
+              onChange={(e) =>
+                setSettingsForm({ ...settingsForm, careNote: e.target.value })
+              }
+              className={getFieldClass('emerald')}
+            />
+          </div>
+        </form>
+      </ModalShell>
 
       {/* ====================================================================
-          MODAL C: DELETE CONFIRMATION (MOLT / FEEDER)
+          MODAL C: DELETE CONFIRMATION (MIST / FEEDING / CLIMATE / MOLT / FEEDER)
       ==================================================================== */}
-      {confirmDeleteModal && canConfigure && (
-        <div
-          onClick={() => setConfirmDeleteModal(null)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Confirm Deletion"
-            className={`max-w-sm w-full rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${
-              darkMode
-                ? 'bg-slate-900 border-slate-800 text-slate-100'
-                : 'bg-white border-slate-200 text-slate-800'
-            }`}
-          >
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-rose-500/15 text-rose-500 flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="text-base font-extrabold">
-                  Delete {confirmDeleteModal.kind === 'molt' ? 'Molt Record' : 'Feeder Culture'}?
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 break-words">
-                  Are you sure you want to permanently remove{' '}
-                  <span className="font-bold text-slate-700 dark:text-slate-200">
-                    {confirmDeleteModal.label}
-                  </span>
-                  ? This cannot be undone.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-1">
+      <ModalShell
+        isOpen={Boolean(
+          confirmDeleteModal &&
+            (confirmDeleteModal.kind === 'molt' || confirmDeleteModal.kind === 'feeder'
+              ? canConfigure
+              : true)
+        )}
+        onClose={() => setConfirmDeleteModal(null)}
+        title={
+          confirmDeleteModal?.kind === 'molt'
+            ? 'Delete Molt Record?'
+            : confirmDeleteModal?.kind === 'feeder'
+              ? 'Delete Feeder Culture?'
+              : confirmDeleteModal?.kind === 'mist'
+                ? 'Delete Mist Entry?'
+                : confirmDeleteModal?.kind === 'feeding'
+                  ? 'Delete Feeding Entry?'
+                  : 'Delete Climate Check?'
+        }
+        icon={AlertTriangle}
+        accent="rose"
+        darkMode={darkMode}
+        maxWidthClass="max-w-sm"
+        zIndexClass="z-[60]"
+        ariaLabel="Confirm Deletion"
+        footer={
+          confirmDeleteModal ? (
+            <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setConfirmDeleteModal(null)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 cursor-pointer"
+                className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.98] transition cursor-pointer"
               >
                 Cancel
               </button>
@@ -3310,414 +3401,443 @@ export default function BloomApp({
                 onClick={async () => {
                   const target = confirmDeleteModal;
                   setConfirmDeleteModal(null);
+                  const targetDate = target.dateKey || todayKey;
                   if (target.kind === 'molt') {
                     await handleDeleteMolt(target.id);
                   } else if (target.kind === 'feeder') {
                     await handleDeleteFeeder(target.id);
+                  } else if (target.kind === 'mist') {
+                    await handleDeleteMist(target.id, targetDate);
+                  } else if (target.kind === 'feeding') {
+                    await handleDeleteFeeding(target.id, targetDate);
+                  } else if (target.kind === 'climate') {
+                    await handleDeleteClimateCheck(target.id, targetDate);
                   }
                 }}
-                className="px-4 py-2 rounded-xl text-xs font-extrabold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer"
+                className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-extrabold bg-rose-600 hover:bg-rose-700 text-white active:scale-[0.98] transition cursor-pointer"
               >
                 Delete
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          ) : null
+        }
+      >
+        {confirmDeleteModal && (
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed break-words">
+            Are you sure you want to permanently remove{' '}
+            <span className="font-bold text-slate-800 dark:text-slate-100">
+              {confirmDeleteModal.label}
+            </span>
+            ? This cannot be undone.
+          </p>
+        )}
+      </ModalShell>
 
       {/* ====================================================================
           MODAL D: PAST-DAY CARE BACKFILL / EDIT MODAL
       ==================================================================== */}
-      {backfillDate && (
-        <div
-          onClick={() => setBackfillDate(null)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Edit or Backfill Past Day Care Log"
-            className={`max-w-lg w-full max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${
-              darkMode
-                ? 'bg-slate-900 border-slate-800 text-slate-100'
-                : 'bg-white border-slate-200 text-slate-800'
-            }`}
-          >
-            {(() => {
-              const bfRec = localSnapshot?.logsByDate?.[backfillDate] || {};
-              const bfMists = bfRec.mists || [];
-              const bfFeeds = bfRec.feedings || [];
-              const bfClimates = bfRec.climateChecks || [];
-              const bfBehaviors = bfRec.behaviors || [];
-
-              return (
-                <>
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-10 h-10 rounded-2xl bg-lime-500/15 text-lime-600 dark:text-lime-400 flex items-center justify-center shrink-0">
-                        <Calendar className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <h3 className="text-base sm:text-lg font-extrabold">
-                          Care Log • {formatFriendlyDate(backfillDate, todayKey)}
-                        </h3>
-                        <p className="text-xs font-mono text-slate-500 dark:text-slate-400">
-                          {backfillDate} • Recorded as {activeCaregiver}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setBackfillDate(null)}
-                      aria-label="Close Care Backfill Modal"
-                      className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 cursor-pointer"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Existing recorded entries on this day */}
-                  <div className="space-y-2 text-xs">
-                    <div className="font-extrabold uppercase tracking-wide text-[11px] opacity-70">
-                      Logged Entries for {backfillDate}
-                    </div>
-                    {bfMists.length === 0 &&
-                    bfFeeds.length === 0 &&
-                    bfClimates.length === 0 ? (
-                      <div className="p-3 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 italic">
-                        No misting, feeding, or climate entries logged for this date yet.
-                      </div>
-                    ) : (
-                      <div className="space-y-1.5">
-                        {bfMists.map((m) => (
-                          <div
-                            key={m.id}
-                            className="flex items-center justify-between py-1.5 px-2.5 rounded-xl bg-sky-500/10 border border-sky-500/20"
-                          >
-                            <span>
-                              💧 <strong>{formatTimeDisplay(m.timestamp)}</strong> • {m.by}
-                              {m.dropletDrinkObserved ? ' • Drank' : ''}
-                              {m.note ? ` — "${m.note}"` : ''}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteMist(m.id, backfillDate)}
-                              className="text-slate-400 hover:text-rose-500 p-1 cursor-pointer"
-                              title="Delete mist entry"
-                              aria-label="Delete mist entry"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
-                        {bfFeeds.map((f) => (
-                          <div
-                            key={f.id}
-                            className="flex items-center justify-between py-1.5 px-2.5 rounded-xl bg-lime-500/10 border border-lime-500/20"
-                          >
-                            <span>
-                              {f.outcome === 'refused'
-                                ? `✗ Refused prey • ${f.by}`
-                                : `🪰 ${f.count}× ${f.preyLabel?.split(' (')[0]} • ${f.by}`}
-                              {f.abdomenAfter ? ` • Abdomen: ${f.abdomenAfter}` : ''}
-                              {f.note ? ` — "${f.note}"` : ''}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteFeeding(f.id, backfillDate)}
-                              className="text-slate-400 hover:text-rose-500 p-1 cursor-pointer"
-                              title="Delete feeding entry"
-                              aria-label="Delete feeding entry"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
-                        {bfClimates.map((c) => (
-                          <div
-                            key={c.id}
-                            className="flex items-center justify-between py-1.5 px-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20"
-                          >
-                            <span>
-                              🌡️ <strong>{formatTimeDisplay(c.timestamp)}</strong> •{' '}
-                              {c.tempC != null ? `${c.tempC}°C` : '—'}
-                              {c.humidityPct != null ? ` • ${c.humidityPct}% RH` : ''}
-                              {c.by ? ` • ${c.by}` : ''}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteClimateCheck(c.id, backfillDate)}
-                              className="text-slate-400 hover:text-rose-500 p-1 cursor-pointer"
-                              title="Delete climate entry"
-                              aria-label="Delete climate entry"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Backfill Mist */}
-                  <form
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      await handleLogMist(null, backfillDate, {
-                        timestamp: buildTimestampForDate(backfillDate, bfMistTime),
-                        drank: bfMistDrink,
-                        note: bfMistNote
-                      });
-                      setBfMistDrink(false);
-                      setBfMistNote('');
-                    }}
-                    className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs"
-                  >
-                    <div className="font-extrabold flex items-center gap-1.5">
-                      <Droplets className="w-4 h-4 text-sky-500" />
-                      <span>Backfill Enclosure Mist</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="time"
-                        value={bfMistTime}
-                        onChange={(e) => setBfMistTime(e.target.value)}
-                        className="px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                      />
-                      <label className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={bfMistDrink}
-                          onChange={(e) => setBfMistDrink(e.target.checked)}
-                          className="accent-sky-600"
-                        />
-                        <span className="font-semibold">Drank droplets</span>
-                      </label>
-                    </div>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={bfMistNote}
-                        onChange={(e) => setBfMistNote(e.target.value)}
-                        placeholder="Optional mist note..."
-                        className="flex-1 min-w-0 px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                      />
-                      <button
-                        type="submit"
-                        className="px-3.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold shrink-0 cursor-pointer"
-                      >
-                        Add Mist
-                      </button>
-                    </div>
-                  </form>
-
-                  {/* Backfill Feeding & Abdomen */}
-                  <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="font-extrabold flex items-center gap-1.5">
-                        <Bug className="w-4 h-4 text-lime-600 dark:text-lime-400" />
-                        <span>Backfill Feeding &amp; Abdomen</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateAbdomenOnly(bfAbdomen, backfillDate)}
-                        className="text-[11px] font-bold text-lime-600 dark:text-lime-400 hover:underline cursor-pointer"
-                      >
-                        Save Abdomen Only
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                      {ABDOMEN_LEVELS.map((lvl) => (
-                        <button
-                          key={lvl.id}
-                          type="button"
-                          onClick={() => setBfAbdomen(lvl.id)}
-                          className={`p-1.5 rounded-xl border text-left transition cursor-pointer ${
-                            bfAbdomen === lvl.id ? lvl.activeClass : lvl.pillClass
-                          }`}
-                        >
-                          <div className="text-[11px] font-extrabold">{lvl.label}</div>
-                        </button>
-                      ))}
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <select
-                        value={bfPrey}
-                        onChange={(e) => setBfPrey(e.target.value)}
-                        className="col-span-2 px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                      >
-                        {PREY_OPTIONS.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.label}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="number"
-                        min="1"
-                        max="20"
-                        value={bfPreyCount}
-                        onChange={(e) => setBfPreyCount(Number(e.target.value) || 1)}
-                        className="px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                      />
-                    </div>
-                    <input
-                      type="text"
-                      value={bfFeedNote}
-                      onChange={(e) => setBfFeedNote(e.target.value)}
-                      placeholder="Optional feeding note..."
-                      className="w-full px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                    />
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          await handleLogFeeding('eaten', backfillDate, {
-                            timestamp: buildTimestampForDate(backfillDate, '12:00'),
-                            preyId: bfPrey,
-                            count: bfPreyCount,
-                            abdomenAfter: bfAbdomen,
-                            note: bfFeedNote
-                          });
-                          setBfFeedNote('');
-                        }}
-                        className="py-1.5 px-3 rounded-xl bg-lime-600 hover:bg-lime-700 text-white font-bold cursor-pointer"
-                      >
-                        Log Eaten Meal
-                      </button>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          await handleLogFeeding('refused', backfillDate, {
-                            timestamp: buildTimestampForDate(backfillDate, '12:00'),
-                            preyId: bfPrey,
-                            count: 0,
-                            abdomenAfter: bfAbdomen,
-                            note: bfFeedNote
-                          });
-                          setBfFeedNote('');
-                        }}
-                        className="py-1.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold cursor-pointer"
-                      >
-                        Log Refused Prey
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Backfill Climate Check */}
-                  <form
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      if (bfTemp === '' && bfHumidity === '') return;
-                      await handleLogClimate(null, backfillDate, {
-                        temp: bfTemp,
-                        humidity: bfHumidity
-                      });
-                      setBfTemp('');
-                      setBfHumidity('');
-                    }}
-                    className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2 text-xs"
-                  >
-                    <div className="font-extrabold flex items-center gap-1.5">
-                      <Thermometer className="w-4 h-4 text-amber-500" />
-                      <span>Backfill Climate Check</span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        max="60"
-                        value={bfTemp}
-                        onChange={(e) => setBfTemp(e.target.value)}
-                        placeholder="Temp °C"
-                        className="px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                      />
-                      <input
-                        type="number"
-                        step="1"
-                        min="0"
-                        max="100"
-                        value={bfHumidity}
-                        onChange={(e) => setBfHumidity(e.target.value)}
-                        placeholder="RH %"
-                        className="px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                      />
-                      <button
-                        type="submit"
-                        className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold cursor-pointer"
-                      >
-                        Add Check
-                      </button>
-                    </div>
-                  </form>
-
-                  {/* Backfill Behaviours & Daily Note */}
-                  <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
-                    <div className="font-extrabold flex items-center gap-1.5">
-                      <Activity className="w-4 h-4 text-lime-600 dark:text-lime-400" />
-                      <span>Behaviours &amp; Daily Note</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {BEHAVIOR_TAGS.map((tag) => {
-                        const active = bfBehaviors.includes(tag);
-                        return (
-                          <button
-                            key={tag}
-                            type="button"
-                            onClick={() => handleToggleBehavior(tag, backfillDate)}
-                            className={`px-2 py-1 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
-                              active
-                                ? 'bg-lime-600 text-white border-lime-700'
-                                : darkMode
-                                  ? 'bg-slate-800 border-slate-700 text-slate-300'
-                                  : 'bg-slate-50 border-slate-200 text-slate-600'
-                            }`}
-                          >
-                            {tag}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        handleSaveJournalNote(null, backfillDate, bfJournal);
-                      }}
-                      className="flex gap-2"
-                    >
-                      <input
-                        type="text"
-                        value={bfJournal}
-                        onChange={(e) => setBfJournal(e.target.value)}
-                        placeholder={`Observation note for ${backfillDate}...`}
-                        className="flex-1 min-w-0 px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                      />
-                      <button
-                        type="submit"
-                        className="px-3.5 py-1.5 rounded-xl bg-lime-600 hover:bg-lime-700 text-white font-bold shrink-0 cursor-pointer"
-                      >
-                        Save Note
-                      </button>
-                    </form>
-                  </div>
-
-                  <div className="flex justify-end pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setBackfillDate(null)}
-                      className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 cursor-pointer"
-                    >
-                      Done
-                    </button>
-                  </div>
-                </>
-              );
-            })()}
+      <ModalShell
+        isOpen={Boolean(backfillDate)}
+        onClose={() => setBackfillDate(null)}
+        title={
+          backfillDate
+            ? `Care Log • ${formatFriendlyDate(backfillDate, todayKey)}`
+            : 'Care Log'
+        }
+        subtitle={backfillDate ? `${backfillDate} • Recorded as ${activeCaregiver}` : ''}
+        icon={Calendar}
+        accent="emerald"
+        darkMode={darkMode}
+        maxWidthClass="max-w-lg"
+        ariaLabel="Edit or Backfill Past Day Care Log"
+        footer={
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setBackfillDate(null)}
+              className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.98] transition cursor-pointer"
+            >
+              Done
+            </button>
           </div>
-        </div>
-      )}
+        }
+      >
+        {backfillDate && (() => {
+          const bfRec = localSnapshot?.logsByDate?.[backfillDate] || {};
+          const bfMists = bfRec.mists || [];
+          const bfFeeds = bfRec.feedings || [];
+          const bfClimates = bfRec.climateChecks || [];
+          const bfBehaviors = bfRec.behaviors || [];
+
+          return (
+            <div className="space-y-4">
+              {/* Existing recorded entries on this day */}
+              <div className="space-y-2 text-xs">
+                <div className="font-extrabold uppercase tracking-wide text-xs text-slate-600 dark:text-slate-300">
+                  Logged Entries for {backfillDate}
+                </div>
+                {bfMists.length === 0 &&
+                bfFeeds.length === 0 &&
+                bfClimates.length === 0 ? (
+                  <EmptyStateCard
+                    accent="emerald"
+                    darkMode={darkMode}
+                    icon={Calendar}
+                    title={`No entries logged for ${backfillDate}`}
+                    description="Use the forms below to backfill misting, feeding, or climate checks."
+                    className="p-4 sm:p-5"
+                  />
+                ) : (
+                  <div className="space-y-1.5">
+                    {bfMists.map((m) => (
+                      <div
+                        key={m.id}
+                        className="flex flex-wrap items-center justify-between gap-2 py-1.5 px-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20"
+                      >
+                        <span className="min-w-0 flex-1 break-words">
+                          💧 <strong>{formatTimeDisplay(m.timestamp)}</strong> • {m.by}
+                          {m.dropletDrinkObserved ? ' • Drank' : ''}
+                          {m.note ? ` — "${m.note}"` : ''}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setConfirmDeleteModal({
+                              kind: 'mist',
+                              id: m.id,
+                              dateKey: backfillDate,
+                              label: `mist on ${backfillDate} at ${formatTimeDisplay(m.timestamp)}`
+                            })
+                          }
+                          className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 active:scale-[0.98] transition cursor-pointer shrink-0"
+                          title="Delete mist entry"
+                          aria-label="Delete mist entry"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                    {bfFeeds.map((f) => (
+                      <div
+                        key={f.id}
+                        className="flex flex-wrap items-center justify-between gap-2 py-1.5 px-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20"
+                      >
+                        <span className="min-w-0 flex-1 break-words">
+                          {f.outcome === 'refused'
+                            ? `✗ Refused prey • ${f.by}`
+                            : `🪰 ${f.count}× ${f.preyLabel?.split(' (')[0]} • ${f.by}`}
+                          {f.abdomenAfter ? ` • Abdomen: ${f.abdomenAfter}` : ''}
+                          {f.note ? ` — "${f.note}"` : ''}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setConfirmDeleteModal({
+                              kind: 'feeding',
+                              id: f.id,
+                              dateKey: backfillDate,
+                              label:
+                                f.outcome === 'refused'
+                                  ? `refused ${f.preyLabel?.split(' (')[0]} on ${backfillDate}`
+                                  : `${f.count}× ${f.preyLabel?.split(' (')[0]} on ${backfillDate}`
+                            })
+                          }
+                          className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 active:scale-[0.98] transition cursor-pointer shrink-0"
+                          title="Delete feeding entry"
+                          aria-label="Delete feeding entry"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                    {bfClimates.map((c) => (
+                      <div
+                        key={c.id}
+                        className="flex flex-wrap items-center justify-between gap-2 py-1.5 px-3 rounded-xl bg-amber-500/10 border border-amber-500/20"
+                      >
+                        <span className="min-w-0 flex-1 break-words">
+                          🌡️ <strong>{formatTimeDisplay(c.timestamp)}</strong> •{' '}
+                          {c.tempC != null ? `${c.tempC}°C` : '—'}
+                          {c.humidityPct != null ? ` • ${c.humidityPct}% RH` : ''}
+                          {c.by ? ` • ${c.by}` : ''}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setConfirmDeleteModal({
+                              kind: 'climate',
+                              id: c.id,
+                              dateKey: backfillDate,
+                              label: `climate check on ${backfillDate} at ${formatTimeDisplay(c.timestamp)}`
+                            })
+                          }
+                          className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 active:scale-[0.98] transition cursor-pointer shrink-0"
+                          title="Delete climate entry"
+                          aria-label="Delete climate entry"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Backfill Mist */}
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const ok = await handleLogMist(null, backfillDate, {
+                    timestamp: buildTimestampForDate(backfillDate, bfMistTime),
+                    drank: bfMistDrink,
+                    note: bfMistNote
+                  });
+                  if (ok) {
+                    setBfMistDrink(false);
+                    setBfMistNote('');
+                  }
+                }}
+                className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs"
+              >
+                <div className="font-extrabold flex items-center gap-1.5">
+                  <Droplets className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
+                  <span>Backfill Enclosure Mist</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    type="time"
+                    value={bfMistTime}
+                    onChange={(e) => setBfMistTime(e.target.value)}
+                    className={getFieldClass('emerald', 'min-w-0')}
+                  />
+                  <label className="min-h-[40px] flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bfMistDrink}
+                      onChange={(e) => setBfMistDrink(e.target.checked)}
+                      className="w-4 h-4 accent-emerald-600"
+                    />
+                    <span className="font-semibold">Drank droplets</span>
+                  </label>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={bfMistNote}
+                    onChange={(e) => setBfMistNote(e.target.value)}
+                    placeholder="Optional mist note..."
+                    className={getFieldClass('emerald', 'flex-1 min-w-0')}
+                  />
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="min-h-[40px] px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold shrink-0 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer"
+                  >
+                    Add Mist
+                  </button>
+                </div>
+              </form>
+
+              {/* Backfill Feeding & Abdomen */}
+              <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-extrabold flex items-center gap-1.5 min-w-0 break-words">
+                    <Bug className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                    <span>Backfill Feeding &amp; Abdomen</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateAbdomenOnly(bfAbdomen, backfillDate)}
+                    className="min-h-[40px] px-2.5 rounded-xl text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 hover:underline active:scale-[0.98] transition cursor-pointer shrink-0"
+                  >
+                    Save Abdomen Only
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {ABDOMEN_LEVELS.map((lvl) => (
+                    <button
+                      key={lvl.id}
+                      type="button"
+                      onClick={() => setBfAbdomen(lvl.id)}
+                      className={`min-h-[40px] p-2 rounded-xl border text-left active:scale-[0.98] transition cursor-pointer ${
+                        bfAbdomen === lvl.id ? lvl.activeClass : lvl.pillClass
+                      }`}
+                    >
+                      <div className="text-xs font-extrabold">{lvl.label}</div>
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="sm:col-span-2 min-w-0">
+                    <select
+                      value={bfPrey}
+                      onChange={(e) => setBfPrey(e.target.value)}
+                      className={getFieldClass('emerald', 'min-w-0')}
+                    >
+                      {PREY_OPTIONS.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <input
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={bfPreyCount}
+                    onChange={(e) => setBfPreyCount(Number(e.target.value) || 1)}
+                    className={getFieldClass('emerald', 'min-w-0')}
+                  />
+                </div>
+                <input
+                  type="text"
+                  value={bfFeedNote}
+                  onChange={(e) => setBfFeedNote(e.target.value)}
+                  placeholder="Optional feeding note..."
+                  className={getFieldClass('emerald')}
+                />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={async () => {
+                      const ok = await handleLogFeeding('eaten', backfillDate, {
+                        timestamp: buildTimestampForDate(backfillDate, '12:00'),
+                        preyId: bfPrey,
+                        count: bfPreyCount,
+                        abdomenAfter: bfAbdomen,
+                        note: bfFeedNote
+                      });
+                      if (ok) setBfFeedNote('');
+                    }}
+                    className="min-h-[40px] py-2 px-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer"
+                  >
+                    Log Eaten Meal
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={async () => {
+                      const ok = await handleLogFeeding('refused', backfillDate, {
+                        timestamp: buildTimestampForDate(backfillDate, '12:00'),
+                        preyId: bfPrey,
+                        count: 0,
+                        abdomenAfter: bfAbdomen,
+                        note: bfFeedNote
+                      });
+                      if (ok) setBfFeedNote('');
+                    }}
+                    className="min-h-[40px] py-2 px-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer"
+                  >
+                    Log Refused Prey
+                  </button>
+                </div>
+              </div>
+
+              {/* Backfill Climate Check */}
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const ok = await handleLogClimate(null, backfillDate, {
+                    temp: bfTemp,
+                    humidity: bfHumidity
+                  });
+                  if (ok) {
+                    setBfTemp('');
+                    setBfHumidity('');
+                  }
+                }}
+                className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2 text-xs"
+              >
+                <div className="font-extrabold flex items-center gap-1.5">
+                  <Thermometer className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                  <span>Backfill Climate Check</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="60"
+                    value={bfTemp}
+                    onChange={(e) => setBfTemp(e.target.value)}
+                    placeholder="Temp °C"
+                    className={getFieldClass('emerald', 'min-w-0')}
+                  />
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    max="100"
+                    value={bfHumidity}
+                    onChange={(e) => setBfHumidity(e.target.value)}
+                    placeholder="RH %"
+                    className={getFieldClass('emerald', 'min-w-0')}
+                  />
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="col-span-2 sm:col-span-1 min-h-[40px] px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer"
+                  >
+                    Add Check
+                  </button>
+                </div>
+              </form>
+
+              {/* Backfill Behaviours & Daily Note */}
+              <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
+                <div className="font-extrabold flex items-center gap-1.5">
+                  <Activity className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
+                  <span>Behaviours &amp; Daily Note</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {BEHAVIOR_TAGS.map((tag) => {
+                    const active = bfBehaviors.includes(tag);
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => handleToggleBehavior(tag, backfillDate)}
+                        className={`min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold border active:scale-[0.98] transition cursor-pointer ${
+                          active
+                            ? 'bg-emerald-700 text-white border-emerald-800'
+                            : darkMode
+                              ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                              : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        {tag}
+                      </button>
+                    );
+                  })}
+                </div>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSaveJournalNote(null, backfillDate, bfJournal);
+                  }}
+                  className="flex flex-col sm:flex-row gap-2"
+                >
+                  <input
+                    type="text"
+                    value={bfJournal}
+                    onChange={(e) => setBfJournal(e.target.value)}
+                    placeholder={`Observation note for ${backfillDate}...`}
+                    className={getFieldClass('emerald', 'flex-1 min-w-0')}
+                  />
+                  <button
+                    type="submit"
+                    className="min-h-[40px] px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold shrink-0 active:scale-[0.98] transition cursor-pointer"
+                  >
+                    Save Note
+                  </button>
+                </form>
+              </div>
+            </div>
+          );
+        })()}
+      </ModalShell>
     </main>
   );
 }

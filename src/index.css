@@ -37,7 +37,12 @@ html.dark .bg-slate-900:not([class*="dark:bg-"]),
 html.dark .bg-stone-900:not([class*="dark:bg-"]),
 html.dark .dark\:bg-slate-900,
 html.dark .dark\:bg-stone-900,
+html.dark .bg-slate-900\/40,
+html.dark .dark\:bg-slate-900\/40,
+html.dark .bg-slate-900\/60,
+html.dark .bg-slate-900\/70,
 html.dark .bg-slate-900\/90,
+html.dark .dark\:bg-slate-900\/90,
 html.dark .bg-stone-900\/80 {
   background-color: #243044 !important;
 }
@@ -51,28 +56,78 @@ html.dark .bg-slate-800\/40,
 html.dark .bg-slate-800\/50,
 html.dark .bg-slate-800\/60,
 html.dark .bg-slate-800\/70,
+html.dark .bg-slate-800\/80,
+html.dark .bg-slate-800\/90,
+html.dark .dark\:bg-slate-800\/50,
+html.dark .dark\:bg-slate-800\/60,
+html.dark .dark\:bg-slate-800\/70,
+html.dark .dark\:bg-slate-800\/80,
 html.dark .bg-stone-800\/40,
 html.dark .bg-stone-800\/50,
 html.dark .bg-stone-800\/60,
-html.dark .bg-stone-800\/70 {
+html.dark .bg-stone-800\/70,
+html.dark .bg-stone-800\/80,
+html.dark .bg-stone-800\/90 {
   background-color: #2f3e56 !important;
 }
 
+/* Elevated Pills, Badges & Secondary Dark Buttons on #2f3e56 Strips */
+html.dark .bg-slate-700:not([class*="dark:bg-"]),
+html.dark .dark\:bg-slate-700 {
+  background-color: #3b4d6b !important;
+}
+
+html.dark .dark\:bg-slate-600 {
+  background-color: #475a78 !important;
+}
+
 /* Deep Surfaces & App Switcher Track (lifts slate-950 / stone-950 when not a modal backdrop) */
+html.dark .bg-slate-950:not(.fixed):not([class*="dark:bg-"]),
+html.dark .dark\:bg-slate-950:not(.fixed),
 html.dark .bg-slate-950\/70,
+html.dark .dark\:bg-slate-950\/70,
 html.dark .bg-slate-950\/60:not(.fixed),
 html.dark .bg-stone-950\/70,
 html.dark .bg-stone-950\/50 {
   background-color: #1c2637 !important;
 }
 
-/* Form Inputs, Selects & Textareas in Dark Mode */
-html.dark input:not([type="range"]):not([type="checkbox"]),
+/* Explicit Dark Hover Surfaces (after base surfaces so hover feedback stays crisp) */
+html.dark .hover\:bg-slate-900:hover {
+  background-color: #1e293b !important;
+}
+
+html.dark .hover\:bg-slate-800:hover,
+html.dark .dark\:hover\:bg-slate-800:hover,
+html.dark .hover\:bg-slate-800\/60:hover,
+html.dark .dark\:hover\:bg-slate-800\/60:hover,
+html.dark .hover\:bg-slate-800\/80:hover,
+html.dark .dark\:hover\:bg-slate-800\/80:hover,
+html.dark .dark\:hover\:bg-slate-800\/70:hover {
+  background-color: #344560 !important;
+}
+
+html.dark .hover\:bg-slate-700:hover,
+html.dark .dark\:hover\:bg-slate-700:hover {
+  background-color: #435675 !important;
+}
+
+html.dark .dark\:hover\:bg-slate-600:hover {
+  background-color: #4f6485 !important;
+}
+
+/* Form Inputs, Selects & Textareas in Dark Mode (keep focus ring/border intact) */
+html.dark input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 html.dark select,
 html.dark textarea {
   background-color: #1c2638 !important;
-  border-color: #4b5e7d !important;
   color: #f8fafc !important;
+}
+
+html.dark input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not(:focus),
+html.dark select:not(:focus),
+html.dark textarea:not(:focus) {
+  border-color: #4b5e7d !important;
 }
 
 html.dark input::placeholder,
@@ -80,18 +135,21 @@ html.dark textarea::placeholder {
   color: #94a3b8 !important;
 }
 
-/* Boost Muted Secondary Text & Borders while preserving visual hierarchy */
-html.dark .text-slate-500:not(:hover),
+/* Boost Muted Secondary Text & Borders while preserving visual hierarchy (AA >= 4.5:1) */
+html.dark .text-slate-500:not(:hover):not([class*="dark:text-"]),
+html.dark .dark\:text-slate-500:not(:hover),
 html.dark .text-stone-500:not(:hover) {
-  color: #94a3b8 !important;
+  color: #a3b3c9 !important;
 }
 
-html.dark .text-slate-400:not(:hover),
+html.dark .text-slate-400:not(:hover):not([class*="dark:text-"]),
+html.dark .dark\:text-slate-400:not(:hover),
 html.dark .text-stone-400:not(:hover) {
   color: #b6c4d8 !important;
 }
 
-html.dark .text-slate-300:not(:hover),
+html.dark .text-slate-300:not(:hover):not([class*="dark:text-"]),
+html.dark .dark\:text-slate-300:not(:hover),
 html.dark .text-stone-300:not(:hover) {
   color: #e2e8f0 !important;
 }
@@ -101,8 +159,25 @@ html.dark .border-stone-800,
 html.dark [class*="border-slate-800/"],
 html.dark [class*="border-stone-800/"],
 html.dark .border-slate-700,
-html.dark .border-stone-700 {
+html.dark .border-stone-700,
+html.dark [class*="border-slate-700/"],
+html.dark [class*="border-stone-700/"],
+html.dark .dark\:border-slate-600,
+html.dark .divide-slate-800 > :not(:last-child),
+html.dark .dark\:divide-slate-800 > :not(:last-child) {
   border-color: #3d4f6d !important;
+}
+
+html.dark .hover\:border-sky-500\/50:hover {
+  border-color: rgba(14, 165, 233, 0.5) !important;
+}
+
+html.dark .hover\:border-purple-400:hover {
+  border-color: #c084fc !important;
+}
+
+html.dark .dark\:ring-slate-900 {
+  --tw-ring-color: #243044 !important;
 }
 
 /* ============================================================================
@@ -131,6 +206,7 @@ html.warm .howard-floating-pill {
 
 /* Main Cards & White Surfaces -> Soft Parchment Cream */
 html.warm .bg-white,
+html.warm .bg-white\/70,
 html.warm .bg-white\/80,
 html.warm .bg-white\/90,
 html.warm .bg-white\/95 {
@@ -138,41 +214,101 @@ html.warm .bg-white\/95 {
 }
 
 /* Secondary Surfaces & Subtle Panels -> Warm Sand / Oatmeal */
+html.warm .bg-slate-50\/40 {
+  background-color: #f4efe4 !important;
+}
+
 html.warm .bg-slate-50,
 html.warm .bg-stone-50,
 html.warm .bg-slate-50\/60,
 html.warm .bg-slate-50\/70,
 html.warm .bg-slate-50\/80,
+html.warm .bg-slate-50\/90,
 html.warm .bg-stone-50\/60,
 html.warm .bg-stone-50\/70,
-html.warm .bg-stone-50\/80 {
+html.warm .bg-stone-50\/80,
+html.warm .bg-stone-50\/90 {
   background-color: #efe8da !important;
 }
 
 html.warm .bg-slate-100,
 html.warm .bg-stone-100,
+html.warm .bg-slate-100\/70,
+html.warm .bg-slate-100\/80,
 html.warm .bg-slate-100\/90,
+html.warm .bg-stone-100\/80,
 html.warm .bg-stone-100\/90,
+html.warm .bg-slate-200\/60,
 html.warm .bg-slate-200\/70,
 html.warm .bg-stone-200\/70 {
   background-color: #e6decb !important;
 }
 
-/* Form Inputs, Selects & Textareas */
-html.warm input:not([type="range"]):not([type="checkbox"]),
+html.warm .bg-slate-200,
+html.warm .bg-stone-200,
+html.warm .bg-slate-200\/80,
+html.warm .bg-stone-200\/80 {
+  background-color: #dfd5c1 !important;
+}
+
+html.warm .bg-slate-300,
+html.warm .bg-stone-300 {
+  background-color: #cbbda4 !important;
+}
+
+/* Explicit Warm Hover Surfaces (placed AFTER base rules so hover states stay responsive) */
+html.warm .hover\:bg-white:hover,
+html.warm .hover\:bg-white\/80:hover {
+  background-color: #fffcf6 !important;
+}
+
+html.warm .hover\:bg-slate-50:hover,
+html.warm .hover\:bg-stone-50:hover {
+  background-color: #f3ecdf !important;
+}
+
+html.warm .hover\:bg-slate-100:hover,
+html.warm .hover\:bg-stone-100:hover,
+html.warm .hover\:bg-slate-100\/80:hover {
+  background-color: #ebe3d3 !important;
+}
+
+html.warm .hover\:bg-slate-200:hover,
+html.warm .hover\:bg-stone-200:hover,
+html.warm .hover\:bg-slate-200\/60:hover,
+html.warm .hover\:bg-slate-200\/70:hover,
+html.warm .hover\:bg-slate-200\/80:hover {
+  background-color: #ddd2bd !important;
+}
+
+html.warm .hover\:bg-sky-50:hover {
+  background-color: #e0f2fe !important;
+}
+
+html.warm .hover\:bg-rose-50\/50:hover {
+  background-color: rgba(255, 228, 230, 0.65) !important;
+}
+
+/* Form Inputs, Selects & Textareas (preserve focus borders) */
+html.warm input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 html.warm select,
 html.warm textarea {
   background-color: #f6f1e6 !important;
-  border-color: #d4c8b0 !important;
   color: #2c2520 !important;
+}
+
+html.warm input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not(:focus),
+html.warm select:not(:focus),
+html.warm textarea:not(:focus) {
+  border-color: #d4c8b0 !important;
 }
 
 html.warm input::placeholder,
 html.warm textarea::placeholder {
-  color: #85796b !important;
+  color: #736659 !important;
 }
 
-/* Warm Typography & Muted Labels */
+/* Warm Typography & AA Muted Labels */
 html.warm .text-slate-800,
 html.warm .text-slate-900,
 html.warm .text-stone-800,
@@ -180,10 +316,10 @@ html.warm .text-stone-900 {
   color: #2c2520 !important;
 }
 
-html.warm .text-slate-600,
-html.warm .text-slate-700,
-html.warm .text-stone-600,
-html.warm .text-stone-700 {
+html.warm .text-slate-600:not(:hover),
+html.warm .text-slate-700:not(:hover),
+html.warm .text-stone-600:not(:hover),
+html.warm .text-stone-700:not(:hover) {
   color: #4a4037 !important;
 }
 
@@ -191,14 +327,39 @@ html.warm .text-slate-500:not(:hover),
 html.warm .text-stone-500:not(:hover),
 html.warm .text-slate-400:not(:hover),
 html.warm .text-stone-400:not(:hover) {
-  color: #706458 !important;
+  color: #5c5146 !important;
+}
+
+html.warm .hover\:text-sky-800:hover {
+  color: #075985 !important;
 }
 
 /* Warm Dividers & Borders */
 html.warm [class*="border-slate-100"],
 html.warm [class*="border-slate-200"],
-html.warm [class*="border-stone-200"] {
+html.warm [class*="border-stone-200"],
+html.warm .divide-slate-100 > :not(:last-child),
+html.warm .divide-slate-200 > :not(:last-child),
+html.warm .divide-slate-200\/60 > :not(:last-child),
+html.warm .divide-stone-200 > :not(:last-child) {
   border-color: #e2d9c5 !important;
+}
+
+html.warm [class*="border-slate-300"],
+html.warm [class*="border-stone-300"] {
+  border-color: #d4c8b0 !important;
+}
+
+html.warm .hover\:border-sky-300:hover {
+  border-color: #7dd3fc !important;
+}
+
+html.warm .hover\:border-purple-400:hover {
+  border-color: #c084fc !important;
+}
+
+html.warm .ring-white {
+  --tw-ring-color: #faf6ee !important;
 }
 
 @keyframes howard-fade-in {
@@ -216,6 +377,17 @@ html.warm [class*="border-stone-200"] {
   animation: howard-fade-in 0.18s ease-out;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 @media print {
   .no-print {
     display: none !important;
@@ -228,6 +400,10 @@ html.warm [class*="border-stone-200"] {
   }
   .print-block {
     display: block !important;
+  }
+  .print-avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
   thead {
     display: table-header-group;

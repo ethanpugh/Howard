@@ -28,8 +28,10 @@ import {
   Sparkles,
   ArrowRight,
   Stethoscope,
-  UserCheck
+  UserCheck,
+  Phone
 } from 'lucide-react';
+import { MODULE_ACCENTS, ModuleHeader, EmptyStateCard } from '../components/HowardUI.jsx';
 
 export default function FoyerApp({
   activeProfile,
@@ -43,6 +45,7 @@ export default function FoyerApp({
   ledgerData,
   beaconInfo,
   nowMs = Date.now(),
+  quickActionPending = false,
   onNavigateApp,
   onOpenBloom,
   onQuickRecordDose,
@@ -172,73 +175,67 @@ export default function FoyerApp({
       {/* ====================================================================
           1. FOYER WELCOME BANNER & QUICK PROFILE CONTEXT
       ==================================================================== */}
-      <section
-        className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex items-center justify-between gap-3 ${
-          darkMode
-            ? 'bg-slate-900 border-slate-800'
-            : 'bg-white border-slate-200/90'
-        }`}
-      >
-        <div className="flex items-start sm:items-center gap-3 min-w-0">
-          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 text-white flex items-center justify-center shadow-xs shrink-0">
-            <Home className="w-5 h-5 sm:w-6 sm:h-6" />
-          </div>
-          <div className="space-y-0.5 min-w-0">
-            <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-bold uppercase tracking-wider text-teal-600 dark:text-teal-400">
-              <Sparkles className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">
-                Foyer •{' '}
-                {now.toLocaleDateString('en-GB', {
-                  weekday: 'long',
-                  day: 'numeric',
-                  month: 'long',
-                  year: 'numeric'
-                })}
-              </span>
-            </div>
-            <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold tracking-tight">
-              {greeting}, {activeProfile.name} {activeProfile.badgeEmoji}
-            </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              {activeProfile.id === 'caregiver'
-                ? `Caregiver & Pet Sitter View — ${catName}'s medicine, ${mantisName}'s mantis habitat, and emergency house guide.`
-                : `Here is your live household briefing across ${catName}'s medicine, ${mantisName}'s growth & habitat, calendar events, and finances.`}
-            </p>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={onOpenProfileModal}
-          className={`p-2.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
-            darkMode
-              ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
-              : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
-          }`}
-          title={`Switch User (${activeProfile.name})`}
-          aria-label={`Switch User (${activeProfile.name})`}
-        >
-          <UserCheck className="w-4 h-4 text-teal-500" />
-          <span className="hidden sm:inline">Switch User ({activeProfile.name})</span>
-        </button>
-      </section>
+      <ModuleHeader
+        accent="teal"
+        icon={Home}
+        title={`${greeting}, ${activeProfile.name} ${activeProfile.badgeEmoji}`}
+        badges={
+          <span
+            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-bold uppercase tracking-wider ${MODULE_ACCENTS.teal.badge}`}
+          >
+            <Sparkles className="w-3 h-3 shrink-0" />
+            <span>
+              Foyer •{' '}
+              {now.toLocaleDateString('en-GB', {
+                weekday: 'short',
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric'
+              })}
+            </span>
+          </span>
+        }
+        subtitle={
+          activeProfile.id === 'caregiver'
+            ? `Caregiver & Pet Sitter View — ${catName}'s medicine, ${mantisName}'s mantis habitat, and emergency house guide.`
+            : `Here is your live household briefing across ${catName}'s medicine, ${mantisName}'s growth & habitat, calendar events, and finances.`
+        }
+        darkMode={darkMode}
+        compactActions
+        actions={
+          <button
+            type="button"
+            onClick={onOpenProfileModal}
+            className={`min-w-[44px] min-h-[44px] px-3 py-2 sm:px-3.5 rounded-xl text-xs font-bold border inline-flex items-center justify-center gap-1.5 transition active:scale-[0.98] cursor-pointer ${
+              darkMode
+                ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+                : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+            }`}
+            title={`Switch User (${activeProfile.name})`}
+            aria-label={`Switch User (${activeProfile.name})`}
+          >
+            <UserCheck className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+            <span className="hidden sm:inline">Switch User ({activeProfile.name})</span>
+          </button>
+        }
+      />
 
       {/* ====================================================================
           2. BOTTLE EXPIRY WARNING BANNER (AUTO-SURFACED WHEN <= 14 DAYS)
       ==================================================================== */}
       {bottleAlert.isAlert && (
         <section className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border bg-amber-500/10 border-amber-500/40 text-amber-900 dark:text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center shrink-0">
               <AlertTriangle className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h3 className="text-sm font-extrabold">
                 {bottleAlert.daysRemaining <= 0
                   ? `${catName}'s ${medName} Bottle Has Reached Expiry`
                   : `${catName}'s ${medName} Bottle Expires in ${bottleAlert.daysRemaining} Days`}
               </h3>
-              <p className="text-xs opacity-85">
+              <p className="text-xs text-amber-900 dark:text-amber-200">
                 {activeProfile.id === 'caregiver'
                   ? `Discard date: ${bottleAlert.expiryFormatted}. Please let a household member know a fresh bottle is needed.`
                   : `Discard date: ${bottleAlert.expiryFormatted}. Open Cadence when starting a fresh bottle.`}
@@ -248,7 +245,7 @@ export default function FoyerApp({
           <button
             type="button"
             onClick={() => onNavigateApp('cadence')}
-            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shrink-0 cursor-pointer"
+            className="min-h-[44px] px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shrink-0 cursor-pointer active:scale-[0.98] transition"
           >
             {activeProfile.id === 'caregiver'
               ? 'View in Cadence →'
@@ -260,23 +257,24 @@ export default function FoyerApp({
       {/* BLOOM SAFETY ALERTS: UNEATEN LIVE PREY, PREMOLT/HARDENING LOCKOUT, OR FEEDER CULTURE LOW */}
       {bloomSummary.settings.livePreyInside && (
         <section className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border bg-rose-500/10 border-rose-500/40 text-rose-950 dark:text-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 rounded-2xl bg-rose-600 text-white flex items-center justify-center shrink-0">
               <ShieldAlert className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h3 className="text-sm font-extrabold">
                 Uneaten Live Prey Inside {mantisName}&apos;s Enclosure
               </h3>
-              <p className="text-xs opacity-85">
+              <p className="text-xs text-rose-900 dark:text-rose-200">
                 {bloomSummary.settings.livePreyNote || 'Live feeder left inside.'} Check that {mantisName} ate or remove before lights-out.
               </p>
             </div>
           </div>
           <button
             type="button"
+            disabled={quickActionPending}
             onClick={onClearMantisLivePrey}
-            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shrink-0 cursor-pointer"
+            className="min-h-[44px] px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shrink-0 cursor-pointer active:scale-[0.98] transition disabled:opacity-60 disabled:cursor-not-allowed"
           >
             ✓ Prey Eaten / Removed
           </button>
@@ -284,18 +282,36 @@ export default function FoyerApp({
       )}
 
       {bloomSummary.isNoFeedLockout && (
-        <section className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border bg-fuchsia-500/10 border-fuchsia-500/40 text-fuchsia-950 dark:text-fuchsia-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-fuchsia-600 text-white flex items-center justify-center shrink-0">
+        <section
+          className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+            bloomSummary.effectiveStatus === 'premolt'
+              ? 'bg-amber-500/15 border-amber-500/50 text-amber-950 dark:text-amber-100'
+              : 'bg-rose-500/10 border-rose-500/40 text-rose-950 dark:text-rose-100'
+          }`}
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+                bloomSummary.effectiveStatus === 'premolt'
+                  ? 'bg-amber-500 text-slate-950'
+                  : 'bg-rose-600 text-white'
+              }`}
+            >
               <Flower2 className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h3 className="text-sm font-extrabold">
                 {bloomSummary.effectiveStatus === 'premolt'
                   ? `⚠️ ${mantisName} is in Premolt Watch — Do NOT Offer Live Prey`
                   : `🛡️ ${mantisName} Molted to ${bloomSummary.settings.currentInstar} — Hardening (${bloomSummary.hardeningRemainingLabel} left)`}
               </h3>
-              <p className="text-xs opacity-85">
+              <p
+                className={`text-xs ${
+                  bloomSummary.effectiveStatus === 'premolt'
+                    ? 'text-amber-900 dark:text-amber-100'
+                    : 'text-rose-900 dark:text-rose-200'
+                }`}
+              >
                 {bloomSummary.effectiveStatus === 'premolt'
                   ? 'Keep enclosure unobstructed and mist wall gently; do not bump lid or leave feeders inside.'
                   : 'New exoskeleton is hardening—gentle wall misting only, hold all live prey until timer finishes.'}
@@ -305,7 +321,11 @@ export default function FoyerApp({
           <button
             type="button"
             onClick={() => onNavigateApp('bloom')}
-            className="px-4 py-2 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-700 text-white font-bold text-xs shrink-0 cursor-pointer"
+            className={`min-h-[44px] px-4 py-2 rounded-xl font-bold text-xs shrink-0 cursor-pointer active:scale-[0.98] transition ${
+              bloomSummary.effectiveStatus === 'premolt'
+                ? 'bg-amber-700 hover:bg-amber-800 text-white'
+                : 'bg-rose-600 hover:bg-rose-700 text-white'
+            }`}
           >
             Open Bloom &rarr;
           </button>
@@ -313,16 +333,16 @@ export default function FoyerApp({
       )}
 
       {bloomSummary.feederAlerts.length > 0 && activeProfile.id !== 'caregiver' && (
-        <section className="rounded-2xl sm:rounded-3xl p-4 border bg-lime-500/10 border-lime-500/40 text-lime-950 dark:text-lime-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-2xl bg-lime-600 text-white flex items-center justify-center shrink-0">
-              <Bug className="w-4 h-4" />
+        <section className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border bg-emerald-500/10 border-emerald-500/40 text-emerald-950 dark:text-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-700 text-white flex items-center justify-center shrink-0">
+              <Bug className="w-5 h-5" />
             </div>
-            <div className="text-xs">
+            <div className="text-xs min-w-0">
               <div className="font-extrabold text-sm">
                 {mantisName}&apos;s Feeder Stash Alert ({bloomSummary.feederAlerts[0].name})
               </div>
-              <p className="opacity-85">
+              <p className="text-emerald-900 dark:text-emerald-200">
                 {bloomSummary.feederAlerts.length} active feeder culture{bloomSummary.feederAlerts.length > 1 ? 's are' : ' is'} running low or nearing culture crash age.
               </p>
             </div>
@@ -332,7 +352,7 @@ export default function FoyerApp({
             onClick={() =>
               onOpenBloom ? onOpenBloom({ tab: 'habitat' }) : onNavigateApp('bloom')
             }
-            className="px-3.5 py-2 rounded-xl bg-lime-600 hover:bg-lime-700 text-white font-bold text-xs shrink-0 cursor-pointer"
+            className="min-h-[44px] px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shrink-0 cursor-pointer active:scale-[0.98] transition"
           >
             Check Feeders in Bloom &rarr;
           </button>
@@ -350,16 +370,18 @@ export default function FoyerApp({
         }`}
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200/70 dark:border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-purple-600 to-fuchsia-600 text-white flex items-center justify-center shadow-xs">
-              <Cat className="w-6 h-6" />
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${MODULE_ACCENTS.purple.iconBg}`}
+            >
+              <Cat className="w-5 h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-lg font-extrabold">
                   {catName}&apos;s {medName}
                 </h2>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-500/15 text-purple-800 dark:text-purple-300 border border-purple-500/30">
                   {dosageLabel}
                 </span>
               </div>
@@ -376,10 +398,10 @@ export default function FoyerApp({
           <button
             type="button"
             onClick={() => onNavigateApp('cadence')}
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
+            className="min-h-[44px] px-2 py-1.5 inline-flex items-center gap-1.5 text-xs font-bold text-purple-700 dark:text-purple-400 hover:underline cursor-pointer self-start sm:self-auto shrink-0"
           >
             <span>Open Full Cadence Tracker &amp; History</span>
-            <ArrowRight className="w-4 h-4" />
+            <ArrowRight className="w-4 h-4 shrink-0" />
           </button>
         </div>
 
@@ -396,23 +418,25 @@ export default function FoyerApp({
                   : 'bg-slate-50/80 border-slate-200'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
                 <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
                     amDose?.given
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-amber-500/20 text-amber-600 dark:text-amber-300'
+                      ? 'bg-emerald-700 text-white'
+                      : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
                   }`}
                 >
                   <Sun className="w-5 h-5" />
                 </div>
-                <div>
-                  <div className="font-bold text-sm flex items-center gap-1.5">
+                <div className="min-w-0">
+                  <div className="font-bold text-sm flex flex-wrap items-center gap-1.5">
                     <span>Morning Dose</span>
-                    <span className="text-xs opacity-70">~{amTarget}</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">
+                      AM • ~{amTarget}
+                    </span>
                   </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                  <div className="text-xs text-slate-500 dark:text-slate-400 break-words">
                     {amDose?.given
                       ? `Given at ${formatTimeDisplay(amDose.timestamp)} by ${amDose.givenBy}`
                       : 'Awaiting morning dose'}
@@ -421,10 +445,10 @@ export default function FoyerApp({
               </div>
 
               <span
-                className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase ${
+                className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase shrink-0 ${
                   amDose?.given
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                    ? 'bg-emerald-700 text-white'
+                    : 'bg-purple-500/15 text-purple-800 dark:text-purple-300 border border-purple-500/25'
                 }`}
               >
                 {amDose?.given ? 'Done' : 'Pending'}
@@ -432,12 +456,12 @@ export default function FoyerApp({
             </div>
 
             {amDose?.given ? (
-              <div className="flex items-center justify-between text-xs pt-2 border-t border-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-semibold">
-                <span>✓ Safe — Morning dose recorded</span>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-2 border-t border-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-semibold">
+                <span className="min-w-0">✓ Safe — Morning dose recorded</span>
                 <button
                   type="button"
                   onClick={() => onNavigateApp('cadence')}
-                  className="underline cursor-pointer"
+                  className="min-h-[40px] inline-flex items-center px-2 underline cursor-pointer shrink-0"
                 >
                   Edit in Cadence
                 </button>
@@ -445,10 +469,11 @@ export default function FoyerApp({
             ) : (
               <button
                 type="button"
+                disabled={quickActionPending}
                 onClick={() => onQuickRecordDose('morning')}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-extrabold text-xs sm:text-sm shadow-sm flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] transition"
+                className="w-full min-h-[44px] py-3 px-4 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs sm:text-sm shadow-xs flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] transition disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <CheckCircle2 className="w-4 h-4" />
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
                 <span>
                   Log {catName}&apos;s Morning Dose ({activeProfile.caregiverName || activeProfile.name})
                 </span>
@@ -468,23 +493,25 @@ export default function FoyerApp({
                   : 'bg-slate-50/80 border-slate-200'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
                 <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
                     pmDose?.given
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-300'
+                      ? 'bg-emerald-700 text-white'
+                      : 'bg-purple-500/15 text-purple-700 dark:text-purple-300'
                   }`}
                 >
                   <Moon className="w-5 h-5" />
                 </div>
-                <div>
-                  <div className="font-bold text-sm flex items-center gap-1.5">
+                <div className="min-w-0">
+                  <div className="font-bold text-sm flex flex-wrap items-center gap-1.5">
                     <span>Evening Dose</span>
-                    <span className="text-xs opacity-70">~{pmTarget}</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">
+                      PM • ~{pmTarget}
+                    </span>
                   </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                  <div className="text-xs text-slate-500 dark:text-slate-400 break-words">
                     {pmDose?.given
                       ? `Given at ${formatTimeDisplay(pmDose.timestamp)} by ${pmDose.givenBy}`
                       : 'Awaiting evening dose'}
@@ -493,10 +520,10 @@ export default function FoyerApp({
               </div>
 
               <span
-                className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase ${
+                className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase shrink-0 ${
                   pmDose?.given
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-indigo-500/20 text-indigo-700 dark:text-indigo-300'
+                    ? 'bg-emerald-700 text-white'
+                    : 'bg-purple-500/15 text-purple-800 dark:text-purple-300 border border-purple-500/25'
                 }`}
               >
                 {pmDose?.given ? 'Done' : 'Pending'}
@@ -504,12 +531,12 @@ export default function FoyerApp({
             </div>
 
             {pmDose?.given ? (
-              <div className="flex items-center justify-between text-xs pt-2 border-t border-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-semibold">
-                <span>✓ Safe — Evening dose recorded</span>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-2 border-t border-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-semibold">
+                <span className="min-w-0">✓ Safe — Evening dose recorded</span>
                 <button
                   type="button"
                   onClick={() => onNavigateApp('cadence')}
-                  className="underline cursor-pointer"
+                  className="min-h-[40px] inline-flex items-center px-2 underline cursor-pointer shrink-0"
                 >
                   Edit in Cadence
                 </button>
@@ -517,10 +544,11 @@ export default function FoyerApp({
             ) : (
               <button
                 type="button"
+                disabled={quickActionPending}
                 onClick={() => onQuickRecordDose('evening')}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-extrabold text-xs sm:text-sm shadow-sm flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] transition"
+                className="w-full min-h-[44px] py-3 px-4 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs sm:text-sm shadow-xs flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] transition disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <CheckCircle2 className="w-4 h-4" />
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
                 <span>
                   Log {catName}&apos;s Evening Dose ({activeProfile.caregiverName || activeProfile.name})
                 </span>
@@ -541,20 +569,28 @@ export default function FoyerApp({
         }`}
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200/70 dark:border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-lime-500 to-emerald-600 text-white flex items-center justify-center shadow-xs">
-              <Flower2 className="w-6 h-6" />
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${MODULE_ACCENTS.emerald.iconBg}`}
+            >
+              <Flower2 className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-lg font-extrabold">
                   {mantisName} • {bloomSummary.settings.commonName}
                 </h2>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-lime-500/15 text-lime-700 dark:text-lime-300 border border-lime-500/30">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30">
                   {bloomSummary.settings.currentInstar} • Day {bloomSummary.daysInCurrentInstar}
                 </span>
                 {bloomSummary.isNoFeedLockout && (
-                  <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-fuchsia-600 text-white">
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[11px] font-extrabold ${
+                      bloomSummary.effectiveStatus === 'premolt'
+                        ? 'bg-amber-500 text-slate-950'
+                        : 'bg-rose-600 text-white'
+                    }`}
+                  >
                     {bloomSummary.effectiveStatus === 'premolt' ? 'Premolt (No Prey)' : 'Hardening'}
                   </span>
                 )}
@@ -572,10 +608,10 @@ export default function FoyerApp({
           <button
             type="button"
             onClick={() => onNavigateApp('bloom')}
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-lime-600 dark:text-lime-400 hover:underline cursor-pointer"
+            className="min-h-[44px] px-2 py-1.5 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer self-start sm:self-auto shrink-0"
           >
             <span>Open Full Bloom Habitat &amp; Growth</span>
-            <ArrowRight className="w-4 h-4" />
+            <ArrowRight className="w-4 h-4 shrink-0" />
           </button>
         </div>
 
@@ -592,20 +628,20 @@ export default function FoyerApp({
                   : 'bg-slate-50/80 border-slate-200'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
                 <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
                     bloomSummary.todayMistCount > 0
-                      ? 'bg-sky-600 text-white'
-                      : 'bg-sky-500/20 text-sky-600 dark:text-sky-300'
+                      ? 'bg-emerald-700 text-white'
+                      : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
                   }`}
                 >
                   <Droplets className="w-5 h-5" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="font-bold text-sm">Enclosure Wall Mist</div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                  <div className="text-xs text-slate-500 dark:text-slate-400 break-words">
                     {bloomSummary.lastMist
                       ? `Last misted ${bloomSummary.lastMist.timeAgoLabel} by ${bloomSummary.lastMist.by}`
                       : 'No mists logged yet'}
@@ -614,10 +650,10 @@ export default function FoyerApp({
               </div>
 
               <span
-                className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase ${
+                className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase shrink-0 ${
                   bloomSummary.isMistDue
-                    ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
-                    : 'bg-emerald-600 text-white'
+                    ? 'bg-amber-500/20 text-amber-800 dark:text-amber-300'
+                    : 'bg-emerald-700 text-white'
                 }`}
               >
                 {bloomSummary.isMistDue ? 'Due' : 'Hydrated'}
@@ -626,16 +662,17 @@ export default function FoyerApp({
 
             <button
               type="button"
+              disabled={quickActionPending}
               onClick={onQuickMistMantis}
-              className={`w-full py-2.5 px-4 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer transition ${
+              className={`w-full min-h-[44px] py-2.5 px-4 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] transition disabled:opacity-60 disabled:cursor-not-allowed ${
                 bloomSummary.todayMistCount > 0
                   ? darkMode
                     ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
                     : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
-                  : 'bg-gradient-to-r from-sky-600 to-teal-600 hover:from-sky-700 hover:to-teal-700 text-white shadow-sm'
+                  : 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs'
               }`}
             >
-              <Droplets className="w-4 h-4" />
+              <Droplets className="w-4 h-4 shrink-0" />
               <span>
                 {bloomSummary.todayMistCount > 0
                   ? `Log Another Mist (${bloomSummary.todayMistCount} today)`
@@ -648,22 +685,26 @@ export default function FoyerApp({
           <div
             className={`rounded-2xl p-4 border-2 flex flex-col justify-between gap-3 transition ${
               bloomSummary.isNoFeedLockout
-                ? darkMode
-                  ? 'bg-fuchsia-950/25 border-fuchsia-800/70'
-                  : 'bg-fuchsia-50/60 border-fuchsia-200'
+                ? bloomSummary.effectiveStatus === 'premolt'
+                  ? darkMode
+                    ? 'bg-amber-950/25 border-amber-700/70'
+                    : 'bg-amber-50/70 border-amber-300'
+                  : darkMode
+                    ? 'bg-rose-950/25 border-rose-800/70'
+                    : 'bg-rose-50/60 border-rose-200'
                 : darkMode
                   ? 'bg-slate-800/50 border-slate-700'
                   : 'bg-slate-50/80 border-slate-200'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-xl bg-lime-500/20 text-lime-600 dark:text-lime-300 flex items-center justify-center">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0">
                   <Bug className="w-5 h-5" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="font-bold text-sm">Feeding &amp; Abdomen</div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                  <div className="text-xs text-slate-500 dark:text-slate-400 break-words">
                     {bloomSummary.lastMeal
                       ? `Last ate ${bloomSummary.lastMeal.friendlyWhen} (${bloomSummary.lastMeal.count}× ${bloomSummary.lastMeal.preyLabel ? bloomSummary.lastMeal.preyLabel.split(' (')[0] : 'feeder prey'})`
                       : 'No meals logged yet'}
@@ -671,14 +712,20 @@ export default function FoyerApp({
                 </div>
               </div>
 
-              <span className="px-2.5 py-1 rounded-full text-[11px] font-bold capitalize bg-lime-500/15 text-lime-700 dark:text-lime-300">
+              <span className="px-2.5 py-1 rounded-full text-[11px] font-bold capitalize bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/25 shrink-0">
                 {bloomSummary.latestAbdomen ? `Abdomen: ${bloomSummary.latestAbdomen}` : bloomSummary.settings.currentInstar}
               </span>
             </div>
 
             {bloomSummary.isNoFeedLockout ? (
-              <div className="flex items-center justify-between text-xs pt-2 border-t border-fuchsia-500/20 text-fuchsia-700 dark:text-fuchsia-300 font-semibold">
-                <span>
+              <div
+                className={`flex flex-wrap items-center justify-between gap-2 text-xs pt-2 border-t font-semibold ${
+                  bloomSummary.effectiveStatus === 'premolt'
+                    ? 'border-amber-500/25 text-amber-800 dark:text-amber-300'
+                    : 'border-rose-500/20 text-rose-700 dark:text-rose-300'
+                }`}
+              >
+                <span className="min-w-0">
                   {bloomSummary.effectiveStatus === 'premolt'
                     ? '⚠️ Premolt — Do not offer live prey'
                     : `🛡️ Hardening (${bloomSummary.hardeningRemainingLabel} left)`}
@@ -686,7 +733,7 @@ export default function FoyerApp({
                 <button
                   type="button"
                   onClick={() => onNavigateApp('bloom')}
-                  className="underline cursor-pointer"
+                  className="min-h-[40px] inline-flex items-center px-2 underline cursor-pointer shrink-0"
                 >
                   Manage
                 </button>
@@ -695,9 +742,9 @@ export default function FoyerApp({
               <button
                 type="button"
                 onClick={() => onNavigateApp('bloom')}
-                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-lime-600 to-emerald-600 hover:from-lime-700 hover:to-emerald-700 text-white font-extrabold text-xs sm:text-sm shadow-sm flex items-center justify-center gap-2 cursor-pointer transition"
+                className="w-full min-h-[44px] py-2.5 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs sm:text-sm shadow-xs flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] transition"
               >
-                <Bug className="w-4 h-4" />
+                <Bug className="w-4 h-4 shrink-0" />
                 <span>Log {mantisName}&apos;s Meal or Abdomen Check &rarr;</span>
               </button>
             )}
@@ -719,11 +766,13 @@ export default function FoyerApp({
           }`}
         >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-sky-500/15 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${MODULE_ACCENTS.sky.iconBg}`}
+              >
                 <ShieldAlert className="w-5 h-5" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <h2 className="text-lg font-extrabold">
                   Beacon • Pet Sitter &amp; Emergency Quick Reference
                 </h2>
@@ -735,19 +784,19 @@ export default function FoyerApp({
             <button
               type="button"
               onClick={() => onNavigateApp('beacon')}
-              className="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold cursor-pointer shrink-0 self-start sm:self-auto"
+              className="min-h-[44px] px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-800 text-white text-xs font-bold inline-flex items-center cursor-pointer shrink-0 self-start sm:self-auto active:scale-[0.98] transition"
             >
               Open Full Guide &rarr;
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
             <div
               className={`p-4 rounded-2xl border space-y-1.5 ${
                 darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
               }`}
             >
-              <div className="font-bold text-sky-600 dark:text-sky-400 uppercase">
+              <div className="font-bold text-sky-700 dark:text-sky-300 uppercase">
                 🐾 Pet Care &amp; Feeding
               </div>
               <p className="leading-relaxed">
@@ -756,7 +805,7 @@ export default function FoyerApp({
             </div>
 
             <div
-              className={`p-4 rounded-2xl border space-y-1.5 ${
+              className={`p-4 rounded-2xl border space-y-2 ${
                 darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
               }`}
             >
@@ -766,66 +815,73 @@ export default function FoyerApp({
               <div className="font-bold text-sm">
                 {beaconInfo?.vetInfo?.clinicName?.trim() || 'Veterinary Clinic not set'}
               </div>
-              {beaconInfo?.vetInfo?.phone?.trim() && (
-                <div>
-                  Daytime:{' '}
-                  <a
-                    href={`tel:${beaconInfo.vetInfo.phone.trim()}`}
-                    className="font-mono underline"
-                  >
-                    {beaconInfo.vetInfo.phone.trim()}
-                  </a>
-                </div>
-              )}
-              {beaconInfo?.vetInfo?.emergencyPhone?.trim() && (
-                <div className="text-rose-600 dark:text-rose-400 font-semibold">
-                  Emergency:{' '}
-                  <a
-                    href={`tel:${beaconInfo.vetInfo.emergencyPhone.trim()}`}
-                    className="font-mono underline"
-                  >
-                    {beaconInfo.vetInfo.emergencyPhone.trim()}
-                  </a>
+              {(beaconInfo?.vetInfo?.phone?.trim() ||
+                beaconInfo?.vetInfo?.emergencyPhone?.trim()) && (
+                <div className="flex flex-wrap gap-2 pt-0.5">
+                  {beaconInfo?.vetInfo?.phone?.trim() && (
+                    <a
+                      href={`tel:${beaconInfo.vetInfo.phone.trim()}`}
+                      className="min-h-[40px] px-3 py-1.5 rounded-full bg-sky-700 hover:bg-sky-800 text-white font-bold text-xs inline-flex items-center gap-1.5 max-w-full min-w-0 transition active:scale-[0.98]"
+                    >
+                      <Phone className="w-3.5 h-3.5 shrink-0" />
+                      <span className="min-w-0 break-all">
+                        Daytime: {beaconInfo.vetInfo.phone.trim()}
+                      </span>
+                    </a>
+                  )}
+                  {beaconInfo?.vetInfo?.emergencyPhone?.trim() && (
+                    <a
+                      href={`tel:${beaconInfo.vetInfo.emergencyPhone.trim()}`}
+                      className="min-h-[40px] px-3 py-1.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs inline-flex items-center gap-1.5 max-w-full min-w-0 transition active:scale-[0.98]"
+                    >
+                      <Phone className="w-3.5 h-3.5 shrink-0" />
+                      <span className="min-w-0 break-all">
+                        Emergency: {beaconInfo.vetInfo.emergencyPhone.trim()}
+                      </span>
+                    </a>
+                  )}
                 </div>
               )}
             </div>
 
             <div
-              className={`p-4 rounded-2xl border space-y-1.5 ${
+              className={`md:col-span-2 lg:col-span-1 p-4 rounded-2xl border space-y-1.5 ${
                 darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'
               }`}
             >
-              <div className="font-bold text-teal-600 dark:text-teal-400 uppercase">
-                📞 Contact {partner1Name} &amp; {partner2Name}
+              <div className="font-bold text-sky-700 dark:text-sky-300 uppercase">
+                📞 Household &amp; Emergency Contacts
               </div>
               {(beaconInfo?.contacts || []).length > 0 ? (
-                (beaconInfo?.contacts || []).map((c) => (
-                  <div key={c.id} className="flex items-center justify-between py-0.5 gap-2">
-                    <span className="font-semibold truncate">{c.name || 'Contact'}:</span>
+                (beaconInfo?.contacts || []).map((c, idx) => (
+                  <div key={c.id || idx} className="flex flex-wrap items-center justify-between py-0.5 gap-2">
+                    <span className="font-semibold min-w-0 truncate">{c.name || 'Contact'}:</span>
                     {c.phone?.trim() ? (
                       <a
                         href={`tel:${c.phone.trim()}`}
-                        className="font-mono underline text-teal-600 dark:text-teal-400 shrink-0"
+                        className="min-h-[40px] inline-flex items-center px-2 font-mono font-semibold underline text-sky-700 dark:text-sky-300 min-w-0 max-w-full break-all"
                       >
                         {c.phone.trim()}
                       </a>
                     ) : (
-                      <span className="text-slate-400 italic shrink-0">No number</span>
+                      <span className="text-slate-500 dark:text-slate-400 italic shrink-0">
+                        No number
+                      </span>
                     )}
                   </div>
                 ))
               ) : (
-                <div className="text-xs text-slate-500">No contacts listed.</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">No contacts listed.</div>
               )}
             </div>
           </div>
         </section>
       ) : (
         <div
-          className={`grid grid-cols-1 ${
+          className={`grid grid-cols-1 md:grid-cols-2 ${
             activeProfile.allowedApps.includes('floodgate')
-              ? 'lg:grid-cols-3'
-              : 'lg:grid-cols-2'
+              ? 'xl:grid-cols-3'
+              : ''
           } gap-4 sm:gap-5`}
         >
           {/* ALMANAC UPCOMING AGENDA CARD */}
@@ -837,12 +893,14 @@ export default function FoyerApp({
             }`}
           >
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-10 h-10 rounded-2xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <div
+                    className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${MODULE_ACCENTS.indigo.iconBg}`}
+                  >
                     <Calendar className="w-5 h-5" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <h3 className="font-extrabold text-base">Almanac Agenda</h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
                       Upcoming household dates &amp; appointments
@@ -852,7 +910,7 @@ export default function FoyerApp({
                 <button
                   type="button"
                   onClick={() => onNavigateApp('almanac')}
-                  className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                  className="min-h-[40px] inline-flex items-center px-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer shrink-0"
                 >
                   Open Calendar &rarr;
                 </button>
@@ -875,10 +933,10 @@ export default function FoyerApp({
                               : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100'
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-2 text-xs">
-                          <span className="font-bold truncate">{evt.title}</span>
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <span className="font-bold min-w-0 truncate">{evt.title}</span>
                           <span
-                            className={`px-2 py-0.5 rounded-md font-bold text-[10px] shrink-0 ${
+                            className={`px-2 py-0.5 rounded-md font-bold text-[11px] shrink-0 ${
                               isToday
                                 ? 'bg-indigo-600 text-white'
                                 : 'bg-slate-200/70 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
@@ -888,7 +946,7 @@ export default function FoyerApp({
                           </span>
                         </div>
                         {evt.notes && (
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 truncate">
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
                             {evt.notes}
                           </p>
                         )}
@@ -897,16 +955,21 @@ export default function FoyerApp({
                   })}
                 </div>
               ) : (
-                <p className="text-xs text-slate-500 py-6 text-center">
-                  No upcoming events on the Almanac calendar.
-                </p>
+                <EmptyStateCard
+                  accent="indigo"
+                  darkMode={darkMode}
+                  icon={Calendar}
+                  title="No upcoming events"
+                  description="No upcoming events on the Almanac calendar."
+                  className="p-4 sm:p-5"
+                />
               )}
             </div>
 
             <button
               type="button"
               onClick={() => onNavigateApp('almanac')}
-              className={`w-full py-2.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+              className={`w-full min-h-[44px] py-2.5 px-3 rounded-xl text-xs font-bold border transition active:scale-[0.98] cursor-pointer ${
                 darkMode
                   ? 'border-slate-700 hover:bg-slate-800 text-slate-300'
                   : 'border-slate-200 hover:bg-slate-50 text-slate-700'
@@ -925,12 +988,14 @@ export default function FoyerApp({
             }`}
           >
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-10 h-10 rounded-2xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <div
+                    className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${MODULE_ACCENTS.amber.iconBg}`}
+                  >
                     <Wallet className="w-5 h-5" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <h3 className="font-extrabold text-base">Ledger Finances</h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
                       Direct Debits, subscriptions &amp; monthly spend
@@ -940,7 +1005,7 @@ export default function FoyerApp({
                 <button
                   type="button"
                   onClick={() => onNavigateApp('ledger')}
-                  className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
+                  className="min-h-[40px] inline-flex items-center px-2 text-xs font-bold text-amber-700 dark:text-amber-400 hover:underline cursor-pointer shrink-0"
                 >
                   Open Ledger &rarr;
                 </button>
@@ -955,10 +1020,10 @@ export default function FoyerApp({
                       : 'bg-slate-50 border-slate-200/80'
                   }`}
                 >
-                  <div className="text-[10px] font-bold uppercase opacity-60">
+                  <div className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
                     Committed DDs &amp; Subs
                   </div>
-                  <div className="text-sm font-extrabold text-indigo-600 dark:text-indigo-400">
+                  <div className="text-sm font-extrabold text-amber-700 dark:text-amber-400 mt-0.5">
                     {formatGBP(ledgerBriefing.totalMonthlyCommitted)}/mo
                   </div>
                 </div>
@@ -969,17 +1034,17 @@ export default function FoyerApp({
                       : 'bg-slate-50 border-slate-200/80'
                   }`}
                 >
-                  <div className="text-[10px] font-bold uppercase opacity-60">
+                  <div className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
                     Month&apos;s Expenses
                   </div>
-                  <div className="text-sm font-extrabold text-amber-600 dark:text-amber-400">
+                  <div className="text-sm font-extrabold text-amber-700 dark:text-amber-400 mt-0.5">
                     {formatGBP(ledgerBriefing.currentMonthExpenses)}
                   </div>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <div className="text-[11px] font-bold uppercase tracking-wider opacity-60">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Next Billing Dates
                 </div>
                 {ledgerBriefing.upcomingBills.length > 0 ? (
@@ -994,9 +1059,9 @@ export default function FoyerApp({
                           : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100'
                       }`}
                     >
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="text-xs font-bold truncate">{bill.title}</div>
-                        <div className="text-[11px] text-slate-500">
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
                           {bill.owner === 'joint'
                             ? '🤝 Joint'
                             : bill.owner === 'partner1'
@@ -1011,9 +1076,14 @@ export default function FoyerApp({
                     </button>
                   ))
                 ) : (
-                  <p className="text-xs text-slate-500 py-3 text-center">
-                    No active recurring bills scheduled yet.
-                  </p>
+                  <EmptyStateCard
+                    accent="amber"
+                    darkMode={darkMode}
+                    icon={Wallet}
+                    title="No scheduled bills yet"
+                    description="No active recurring bills scheduled yet."
+                    className="p-4 sm:p-5"
+                  />
                 )}
               </div>
             </div>
@@ -1021,7 +1091,7 @@ export default function FoyerApp({
             <button
               type="button"
               onClick={() => onNavigateApp('ledger')}
-              className={`w-full py-2.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+              className={`w-full min-h-[44px] py-2.5 px-3 rounded-xl text-xs font-bold border transition active:scale-[0.98] cursor-pointer ${
                 darkMode
                   ? 'border-slate-700 hover:bg-slate-800 text-slate-300'
                   : 'border-slate-200 hover:bg-slate-50 text-slate-700'
@@ -1034,26 +1104,28 @@ export default function FoyerApp({
           {/* PARTNER 2'S PRIVATE FLOODGATE QUICK CARD (ONLY SHOWN FOR PARTNER 2) */}
           {activeProfile.allowedApps.includes('floodgate') && (
             <section
-              className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between space-y-4 ${
+              className={`md:col-span-2 xl:col-span-1 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between space-y-4 ${
                 darkMode
                   ? 'bg-slate-900 border-rose-900/50'
                   : 'bg-rose-50/40 border-rose-200/80'
               }`}
             >
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-10 h-10 rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div
+                      className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${MODULE_ACCENTS.rose.iconBg}`}
+                    >
                       <Heart className="w-5 h-5" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <h3 className="font-extrabold text-base">Floodgate Journal</h3>
                       <p className="text-xs text-slate-500 dark:text-slate-400">
                         {partner2Name}&apos;s private cycle, clot &amp; pain log
                       </p>
                     </div>
                   </div>
-                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-300">
+                  <span className="text-[11px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-300 shrink-0">
                     Private
                   </span>
                 </div>
@@ -1092,7 +1164,7 @@ export default function FoyerApp({
                     }`}
                   >
                     <div className="font-bold">No entry logged yet for today</div>
-                    <p className="opacity-80">
+                    <p className="text-slate-600 dark:text-slate-300">
                       Tap below to record flow, clots, pain score, bowel symptoms, or medications.
                     </p>
                   </div>
@@ -1103,14 +1175,14 @@ export default function FoyerApp({
                 <button
                   type="button"
                   onClick={() => onOpenFloodgate({ tab: 'log', date: todayKey })}
-                  className="py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer"
+                  className="min-h-[44px] py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer active:scale-[0.98] transition"
                 >
                   {partner2TodayLog ? 'Edit Today' : 'Log Today'}
                 </button>
                 <button
                   type="button"
                   onClick={() => onOpenFloodgate({ tab: 'insights', date: todayKey })}
-                  className={`py-2.5 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1 cursor-pointer ${
+                  className={`min-h-[44px] py-2.5 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1 cursor-pointer active:scale-[0.98] transition ${
                     darkMode
                       ? 'border-slate-700 hover:bg-slate-800 text-slate-200'
                       : 'bg-white border-rose-200 hover:bg-rose-50 text-rose-700'

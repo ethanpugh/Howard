@@ -13,9 +13,14 @@ import {
   Wallet,
   Clock,
   Layers,
-  Repeat,
-  X
+  Repeat
 } from 'lucide-react';
+import {
+  ModuleHeader,
+  ModalShell,
+  EmptyStateCard,
+  getFieldClass
+} from '../components/HowardUI.jsx';
 import {
   getLocalDateKey,
   parseLocalDateKey,
@@ -24,7 +29,8 @@ import {
   doesLedgerItemOccurOnDate,
   computeBloomSummary,
   doesAlmanacEventOccurOnDate,
-  isAlmanacEventVisibleToProfile
+  isAlmanacEventVisibleToProfile,
+  inferProfileIdFromName
 } from '../utils/householdHelpers.js';
 
 const formatDateFriendly = (dateStr) => {
@@ -49,7 +55,7 @@ const EVENT_CATEGORIES = [
   { id: 'household', label: 'Household', color: 'bg-indigo-600 text-white', badge: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300' },
   { id: 'pet', label: 'Pet / Vet', color: 'bg-purple-600 text-white', badge: 'bg-purple-500/15 text-purple-700 dark:text-purple-300' },
   { id: 'medical', label: 'GP / Health', color: 'bg-rose-600 text-white', badge: 'bg-rose-500/15 text-rose-700 dark:text-rose-300' },
-  { id: 'bins', label: 'Bins / Utilities', color: 'bg-amber-600 text-white', badge: 'bg-amber-500/15 text-amber-800 dark:text-amber-300' },
+  { id: 'bins', label: 'Bins / Utilities', color: 'bg-amber-500 text-slate-950', badge: 'bg-amber-500/15 text-amber-800 dark:text-amber-300' },
   { id: 'social', label: 'Holiday / Social', color: 'bg-teal-600 text-white', badge: 'bg-teal-500/15 text-teal-700 dark:text-teal-300' }
 ];
 
@@ -68,7 +74,8 @@ export default function AlmanacApp({
   onMutateEvents,
   onSaveEvents,
   onOpenFloodgate,
-  onNavigateApp
+  onNavigateApp,
+  showToast
 }) {
   const nowObj = useMemo(() => (nowMs ? new Date(nowMs) : new Date()), [nowMs]);
   const todayStr = getLocalDateKey(nowObj);
@@ -119,23 +126,8 @@ export default function AlmanacApp({
   const [assignedToInput, setAssignedToInput] = useState('Both');
   const [notesInput, setNotesInput] = useState('');
   const [linkGpReportInput, setLinkGpReportInput] = useState(false);
-
-  useEffect(() => {
-    if (!addModalOpen && !confirmDeleteEvent) return;
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        if (confirmDeleteEvent) {
-          setConfirmDeleteEvent(null);
-        } else if (addModalOpen) {
-          setAddModalOpen(false);
-          setEditingEventId(null);
-          setEditingEventOriginal(null);
-        }
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [addModalOpen, confirmDeleteEvent]);
+  const [gpLinkManual, setGpLinkManual] = useState(false);
+  const [formError, setFormError] = useState('');
 
   const catName = cadenceSnapshot?.settings?.catName || 'Pet';
   const bloomSummary = useMemo(
@@ -312,6 +304,8 @@ export default function AlmanacApp({
     setAssignedToInput('Both');
     setNotesInput('');
     setLinkGpReportInput(false);
+    setGpLinkManual(false);
+    setFormError('');
     setAddModalOpen(true);
   };
 
@@ -322,27 +316,35 @@ export default function AlmanacApp({
     setRepeatEditScope('single');
     setTitleInput(evt.title || '');
     setDateInput(isRec ? selectedDate : evt.date || selectedDate);
-    setTimeInput(evt.time || '10:00');
+    setTimeInput(evt.time ?? '');
     setCategoryInput(evt.category || 'household');
     setRecurrenceInput(isRec ? 'none' : evt.recurrence || 'none');
     setAssignedToInput(evt.assignedTo || 'Both');
     setNotesInput(evt.notes || '');
     setLinkGpReportInput(Boolean(evt.linkToGpReport));
+    setGpLinkManual(false);
+    setFormError('');
     setAddModalOpen(true);
   };
 
   const handleSaveEvent = async (e) => {
     e.preventDefault();
-    if (isSaving || !titleInput.trim()) return;
+    if (isSaving) return;
+    if (!titleInput.trim()) {
+      setFormError('Please enter an event title');
+      if (showToast) showToast('Please enter an event title', 'error');
+      return;
+    }
     const targetDate = dateInput || selectedDate;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+      setFormError('Please select a valid date (YYYY-MM-DD)');
+      if (showToast) showToast('Please select a valid date (YYYY-MM-DD)', 'error');
+      return;
+    }
+    setFormError('');
     const canLinkGpReport = activeProfile.allowedApps.includes('floodgate');
     const resolvedGpLink = canLinkGpReport ? Boolean(linkGpReportInput) : false;
-    const assignedToProfileId =
-      assignedToInput === partner1Name || assignedToInput === 'Partner 1'
-        ? 'partner1'
-        : assignedToInput === partner2Name || assignedToInput === 'Partner 2'
-          ? 'partner2'
-          : null;
+    const assignedToProfileId = inferProfileIdFromName(profiles, assignedToInput);
 
     setIsSaving(true);
     let ok = true;
@@ -555,107 +557,112 @@ export default function AlmanacApp({
       {/* ====================================================================
           TOP ALMANAC HEADER & OVERLAY LAYER TOGGLES
       ==================================================================== */}
-      <section
-        className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 ${
-          darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
-        }`}
-      >
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-indigo-600 to-blue-600 text-white flex items-center justify-center shadow-xs shrink-0">
-            <CalendarIcon className="w-5 h-5 sm:w-6 sm:h-6" />
-          </div>
-          <div>
-            <h1 className="text-lg sm:text-xl font-extrabold tracking-tight">
-              Almanac • Unified Household Calendar
-            </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Household events cross-pollinated with {catName}&apos;s Cadence logs, {mantisName}&apos;s Bloom molts &amp; care, Ledger due dates
-              {activeProfile.allowedApps.includes('floodgate') ? ', and Floodgate cycle logs' : ''}
-            </p>
-          </div>
-        </div>
-
-        {/* Layer Toggles */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1 mr-1">
-            <Layers className="w-3.5 h-3.5" /> Layers:
-          </span>
-
+      <ModuleHeader
+        accent="indigo"
+        icon={CalendarIcon}
+        title="Almanac • Unified Household Calendar"
+        subtitle={
+          <>
+            Household events cross-pollinated with {catName}&apos;s Cadence logs,{' '}
+            {mantisName}&apos;s Bloom molts &amp; care, Ledger due dates
+            {activeProfile.allowedApps.includes('floodgate')
+              ? ', and Floodgate cycle logs'
+              : ''}
+          </>
+        }
+        darkMode={darkMode}
+        actions={
           <button
             type="button"
-            onClick={() => setShowCadenceLayer(!showCadenceLayer)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition cursor-pointer ${
-              showCadenceLayer
-                ? 'bg-purple-600 text-white border-purple-600'
-                : darkMode
-                  ? 'bg-slate-800 border-slate-700 text-slate-400'
-                  : 'bg-slate-100 border-slate-200 text-slate-500'
-            }`}
+            onClick={openAddEventModal}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white min-h-[40px] px-3.5 py-2 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs active:scale-[0.98] transition cursor-pointer"
           >
-            <Cat className="w-3.5 h-3.5" />
-            <span>Cadence</span>
+            <Plus className="w-4 h-4 shrink-0" />
+            <span>Add Event</span>
           </button>
+        }
+        footer={
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1 mr-1">
+              <Layers className="w-3.5 h-3.5" /> Layers:
+            </span>
 
-          <button
-            type="button"
-            onClick={() => setShowBloomLayer(!showBloomLayer)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition cursor-pointer ${
-              showBloomLayer
-                ? 'bg-lime-600 text-white border-lime-600'
-                : darkMode
-                  ? 'bg-slate-800 border-slate-700 text-slate-400'
-                  : 'bg-slate-100 border-slate-200 text-slate-500'
-            }`}
-          >
-            <Flower2 className="w-3.5 h-3.5" />
-            <span>Bloom</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setShowLedgerLayer(!showLedgerLayer)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition cursor-pointer ${
-              showLedgerLayer
-                ? 'bg-amber-600 text-white border-amber-600'
-                : darkMode
-                  ? 'bg-slate-800 border-slate-700 text-slate-400'
-                  : 'bg-slate-100 border-slate-200 text-slate-500'
-            }`}
-          >
-            <Wallet className="w-3.5 h-3.5" />
-            <span>Ledger</span>
-          </button>
-
-          {activeProfile.allowedApps.includes('floodgate') && (
             <button
               type="button"
-              onClick={() => setShowFloodgateLayer(!showFloodgateLayer)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition cursor-pointer ${
-                showFloodgateLayer
-                  ? 'bg-rose-600 text-white border-rose-600'
+              onClick={() => setShowCadenceLayer(!showCadenceLayer)}
+              className={`min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 active:scale-[0.98] transition cursor-pointer ${
+                showCadenceLayer
+                  ? 'bg-purple-600 text-white border-purple-600'
                   : darkMode
-                    ? 'bg-slate-800 border-slate-700 text-slate-400'
-                    : 'bg-slate-100 border-slate-200 text-slate-500'
+                    ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                    : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200/70'
               }`}
             >
-              <Heart className="w-3.5 h-3.5" />
-              <span>Floodgate</span>
+              <Cat className="w-3.5 h-3.5" />
+              <span>Cadence</span>
             </button>
-          )}
-        </div>
-      </section>
+
+            <button
+              type="button"
+              onClick={() => setShowBloomLayer(!showBloomLayer)}
+              className={`min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 active:scale-[0.98] transition cursor-pointer ${
+                showBloomLayer
+                  ? 'bg-emerald-700 text-white border-emerald-700'
+                  : darkMode
+                    ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                    : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200/70'
+              }`}
+            >
+              <Flower2 className="w-3.5 h-3.5" />
+              <span>Bloom</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowLedgerLayer(!showLedgerLayer)}
+              className={`min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 active:scale-[0.98] transition cursor-pointer ${
+                showLedgerLayer
+                  ? 'bg-amber-500 text-slate-950 border-amber-600'
+                  : darkMode
+                    ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                    : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200/70'
+              }`}
+            >
+              <Wallet className="w-3.5 h-3.5" />
+              <span>Ledger</span>
+            </button>
+
+            {activeProfile.allowedApps.includes('floodgate') && (
+              <button
+                type="button"
+                onClick={() => setShowFloodgateLayer(!showFloodgateLayer)}
+                className={`min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 active:scale-[0.98] transition cursor-pointer ${
+                  showFloodgateLayer
+                    ? 'bg-rose-600 text-white border-rose-600'
+                    : darkMode
+                      ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                      : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200/70'
+                }`}
+              >
+                <Heart className="w-3.5 h-3.5" />
+                <span>Floodgate</span>
+              </button>
+            )}
+          </div>
+        }
+      />
 
       {/* ====================================================================
           CALENDAR GRID + DAY INSPECTOR SIDEBAR
       ==================================================================== */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 sm:gap-5">
         {/* 8-Column Monthly Grid */}
         <div
-          className={`lg:col-span-8 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${
+          className={`xl:col-span-8 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs ${
             darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
           }`}
         >
-          <div className="flex items-center justify-between mb-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
             <div>
               <h2 className="text-xl font-extrabold">
                 {new Date(calendarMonth.year, calendarMonth.month, 1).toLocaleDateString(
@@ -668,7 +675,7 @@ export default function AlmanacApp({
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 self-start sm:self-auto">
               <button
                 type="button"
                 aria-label="Previous month"
@@ -678,7 +685,7 @@ export default function AlmanacApp({
                     return { year: d.getFullYear(), month: d.getMonth() };
                   })
                 }
-                className={`p-2 rounded-xl border cursor-pointer ${
+                className={`min-w-[40px] min-h-[40px] p-2 rounded-xl border flex items-center justify-center active:scale-[0.98] transition cursor-pointer ${
                   darkMode
                     ? 'border-slate-700 hover:bg-slate-800'
                     : 'border-slate-200 hover:bg-slate-100'
@@ -693,7 +700,7 @@ export default function AlmanacApp({
                   setCalendarMonth({ year: now.getFullYear(), month: now.getMonth() });
                   setSelectedDate(getLocalDateKey(now));
                 }}
-                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 cursor-pointer"
+                className="min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/25 active:scale-[0.98] transition cursor-pointer"
               >
                 Today
               </button>
@@ -706,7 +713,7 @@ export default function AlmanacApp({
                     return { year: d.getFullYear(), month: d.getMonth() };
                   })
                 }
-                className={`p-2 rounded-xl border cursor-pointer ${
+                className={`min-w-[40px] min-h-[40px] p-2 rounded-xl border flex items-center justify-center active:scale-[0.98] transition cursor-pointer ${
                   darkMode
                     ? 'border-slate-700 hover:bg-slate-800'
                     : 'border-slate-200 hover:bg-slate-100'
@@ -717,8 +724,40 @@ export default function AlmanacApp({
             </div>
           </div>
 
+          {/* Layer Dot Legend */}
+          <div
+            className={`flex flex-wrap items-center gap-x-3.5 gap-y-1.5 px-3 py-2 mb-3 rounded-xl border text-xs ${
+              darkMode
+                ? 'bg-slate-800/40 border-slate-800 text-slate-300'
+                : 'bg-slate-50 border-slate-200/80 text-slate-600'
+            }`}
+          >
+            <span className="inline-flex items-center gap-1.5 font-semibold">
+              <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 shrink-0" />
+              Almanac
+            </span>
+            <span className="inline-flex items-center gap-1.5 font-semibold">
+              <span className="w-2.5 h-2.5 rounded-full bg-purple-600 shrink-0" />
+              Cadence
+            </span>
+            <span className="inline-flex items-center gap-1.5 font-semibold">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 shrink-0" />
+              Bloom
+            </span>
+            <span className="inline-flex items-center gap-1.5 font-semibold">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
+              Ledger
+            </span>
+            {activeProfile.allowedApps.includes('floodgate') && (
+              <span className="inline-flex items-center gap-1.5 font-semibold">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0" />
+                Floodgate
+              </span>
+            )}
+          </div>
+
           {/* Weekday Headers */}
-          <div className="grid grid-cols-7 gap-1.5 text-center text-xs font-bold opacity-60 mb-2">
+          <div className="grid grid-cols-7 gap-1 sm:gap-1.5 text-center text-xs font-bold text-slate-500 dark:text-slate-400 mb-2">
             {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
               <div key={d} className="py-1">
                 {d}
@@ -727,10 +766,10 @@ export default function AlmanacApp({
           </div>
 
           {/* Days Grid */}
-          <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+          <div className="grid grid-cols-7 gap-1 sm:gap-2">
             {calendarCells.map((cell, idx) => {
               if (!cell) {
-                return <div key={`empty-${idx}`} className="h-20 sm:h-24 rounded-2xl" />;
+                return <div key={`empty-${idx}`} className="h-16 sm:h-24 rounded-2xl" />;
               }
               const {
                 dayNumber,
@@ -755,12 +794,52 @@ export default function AlmanacApp({
                 floodgateLog?.bleedingSeverity &&
                 floodgateLog.bleedingSeverity !== 'none';
 
+              const mobileDots = [];
+              dayEvents.forEach((evt) => {
+                mobileDots.push({
+                  key: `evt-${evt.id}`,
+                  colorClass: 'bg-indigo-600',
+                  label: evt.title
+                });
+              });
+              if (showCadenceLayer && (amDone || pmDone || isBottleExpiry)) {
+                mobileDots.push({
+                  key: 'cadence',
+                  colorClass: 'bg-purple-600',
+                  label: catName
+                });
+              }
+              if (
+                showBloomLayer &&
+                (hasBloomActivity || bloomMoltsOnDay.length > 0 || isProjectedMolt)
+              ) {
+                mobileDots.push({
+                  key: 'bloom',
+                  colorClass: 'bg-emerald-600',
+                  label: mantisName
+                });
+              }
+              if (showLedgerLayer && ledgerDue.length > 0) {
+                mobileDots.push({
+                  key: 'ledger',
+                  colorClass: 'bg-amber-500',
+                  label: 'Ledger'
+                });
+              }
+              if (showFloodgateLayer && (hasFloodgateBleed || floodgateLog?.hasClots)) {
+                mobileDots.push({
+                  key: 'floodgate',
+                  colorClass: 'bg-rose-500',
+                  label: 'Floodgate'
+                });
+              }
+
               return (
                 <button
                   key={dateStr}
                   type="button"
                   onClick={() => setSelectedDate(dateStr)}
-                  className={`h-20 sm:h-24 p-1.5 sm:p-2 rounded-2xl border flex flex-col justify-between text-left transition relative cursor-pointer ${
+                  className={`min-h-[4.25rem] sm:h-24 p-1 sm:p-2 rounded-2xl border flex flex-col justify-between text-left transition relative cursor-pointer active:scale-[0.98] ${
                     isSelected
                       ? 'ring-2 ring-indigo-600 border-indigo-600 bg-indigo-500/10'
                       : darkMode
@@ -770,26 +849,26 @@ export default function AlmanacApp({
                 >
                   <div className="flex items-center justify-between w-full">
                     <span
-                      className={`text-xs font-extrabold w-6 h-6 rounded-full flex items-center justify-center ${
+                      className={`text-[11px] sm:text-xs font-extrabold w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center ${
                         isToday ? 'bg-indigo-600 text-white' : ''
                       }`}
                     >
                       {dayNumber}
                     </span>
 
-                    {/* Overlay Mini Dots */}
-                    <div className="flex items-center gap-1">
+                    {/* Overlay Mini Dots (sm+ header; mobile uses crisp layer dots below) */}
+                    <div className="hidden sm:flex items-center gap-1">
                       {showCadenceLayer && (amDone || pmDone) && (
                         <span
                           className={`w-2 h-2 rounded-full ${
-                            amDone && pmDone ? 'bg-emerald-500' : 'bg-amber-400'
+                            amDone && pmDone ? 'bg-purple-600' : 'bg-amber-400'
                           }`}
                           title={`${catName}: ${amDone && pmDone ? 'AM & PM given' : '1 dose given'}`}
                         />
                       )}
                       {showBloomLayer && hasBloomActivity && (
                         <span
-                          className="w-2 h-2 rounded-full bg-lime-500"
+                          className="w-2 h-2 rounded-full bg-emerald-500"
                           title={`${mantisName}: Care logged`}
                         />
                       )}
@@ -801,7 +880,7 @@ export default function AlmanacApp({
                       )}
                       {showFloodgateLayer && floodgateLog?.hasClots && (
                         <span
-                          className="w-2 h-2 rounded-full bg-purple-600"
+                          className="w-2 h-2 rounded-full bg-rose-700"
                           title="Floodgate: Clots logged"
                         />
                       )}
@@ -814,8 +893,24 @@ export default function AlmanacApp({
                     </div>
                   </div>
 
-                  {/* Event Pills inside cell */}
-                  <div className="space-y-0.5 w-full overflow-hidden">
+                  {/* Mobile (<sm): Crisp colour-coded layer dots (up to 4 + +N badge) */}
+                  <div className="flex sm:hidden flex-wrap items-center gap-1 w-full pt-1">
+                    {mobileDots.slice(0, 4).map((dot) => (
+                      <span
+                        key={dot.key}
+                        className={`w-2 h-2 rounded-full shrink-0 ${dot.colorClass}`}
+                        title={dot.label}
+                      />
+                    ))}
+                    {mobileDots.length > 4 && (
+                      <span className="text-[11px] font-extrabold leading-none text-slate-600 dark:text-slate-300">
+                        +{mobileDots.length - 4}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Desktop (sm+): Full text pills inside cell */}
+                  <div className="hidden sm:block space-y-0.5 w-full overflow-hidden">
                     {dayEvents.slice(0, 2).map((evt) => {
                       const cat =
                         EVENT_CATEGORIES.find((c) => c.id === evt.category) ||
@@ -824,7 +919,7 @@ export default function AlmanacApp({
                       return (
                         <div
                           key={evt.id}
-                          className={`w-full text-[10px] font-bold px-1.5 py-0.5 rounded truncate ${cat.color}`}
+                          className={`w-full text-[11px] font-bold px-1.5 py-0.5 rounded truncate ${cat.color}`}
                         >
                           {isRec ? '🔄 ' : ''}
                           {evt.title}
@@ -832,12 +927,12 @@ export default function AlmanacApp({
                       );
                     })}
                     {dayEvents.length > 2 && (
-                      <div className="text-[9px] font-bold opacity-70 pl-1">
+                      <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300 pl-1">
                         +{dayEvents.length - 2} more
                       </div>
                     )}
                     {showCadenceLayer && isBottleExpiry && (
-                      <div className="w-full text-[9px] font-bold px-1 py-0.5 rounded bg-amber-500 text-slate-950 truncate">
+                      <div className="w-full text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 truncate">
                         🐾 Bottle Expiry
                       </div>
                     )}
@@ -845,13 +940,13 @@ export default function AlmanacApp({
                       bloomMoltsOnDay.map((m) => (
                         <div
                           key={m.id}
-                          className="w-full text-[9px] font-bold px-1 py-0.5 rounded bg-lime-600 text-white truncate"
+                          className="w-full text-[11px] font-bold px-1.5 py-0.5 rounded bg-emerald-700 text-white truncate"
                         >
                           🦋 {m.fromInstar}&rarr;{m.toInstar}
                         </div>
                       ))}
                     {showBloomLayer && isProjectedMolt && bloomMoltsOnDay.length === 0 && (
-                      <div className="w-full text-[9px] font-bold px-1 py-0.5 rounded bg-lime-500/20 text-lime-800 dark:text-lime-200 truncate">
+                      <div className="w-full text-[11px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 truncate">
                         🌿 Est. Molt
                       </div>
                     )}
@@ -864,14 +959,14 @@ export default function AlmanacApp({
 
         {/* 4-Column Selected Day Inspector */}
         <div
-          className={`lg:col-span-4 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between space-y-4 ${
+          className={`xl:col-span-4 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between space-y-4 ${
             darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90'
           }`}
         >
           <div className="space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-              <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="min-w-0">
+                <span className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
                   Selected Date
                 </span>
                 <h3 className="text-base font-extrabold">
@@ -881,7 +976,7 @@ export default function AlmanacApp({
               <button
                 type="button"
                 onClick={openAddEventModal}
-                className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                className="min-h-[40px] px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 active:scale-[0.98] transition cursor-pointer shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Add Event</span>
@@ -890,7 +985,7 @@ export default function AlmanacApp({
 
             {/* 1. Native Almanac Events for Selected Date */}
             <div className="space-y-2.5">
-              <div className="text-xs font-bold uppercase tracking-wider opacity-60">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Scheduled Events ({selectedCellData.dayEvents.length})
               </div>
               {selectedCellData.dayEvents.length > 0 ? (
@@ -910,27 +1005,27 @@ export default function AlmanacApp({
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-1 mb-1">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5 mb-1">
                             <span
-                              className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-md ${cat.badge}`}
+                              className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded-md ${cat.badge}`}
                             >
                               {cat.label} • {evt.assignedTo || 'Household'}
                             </span>
                             {isRec && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300">
-                                <Repeat className="w-2.5 h-2.5" />
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">
+                                <Repeat className="w-3 h-3" />
                                 {recMeta?.shortLabel || evt.recurrence}
                               </span>
                             )}
                           </div>
-                          <h4 className="font-bold text-sm">{evt.title}</h4>
+                          <h4 className="font-bold text-sm break-words">{evt.title}</h4>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           <button
                             type="button"
                             onClick={() => openEditEventModal(evt)}
-                            className="p-1 text-slate-400 hover:text-indigo-500 cursor-pointer"
+                            className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-200/70 dark:hover:bg-slate-700 active:scale-[0.98] transition cursor-pointer"
                             title="Edit event"
                             aria-label="Edit event"
                           >
@@ -939,7 +1034,7 @@ export default function AlmanacApp({
                           <button
                             type="button"
                             onClick={() => setConfirmDeleteEvent(evt)}
-                            className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
+                            className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 active:scale-[0.98] transition cursor-pointer"
                             title={isRec ? 'Delete entire recurring series' : 'Delete event'}
                             aria-label={isRec ? 'Delete entire recurring series' : 'Delete event'}
                           >
@@ -949,27 +1044,31 @@ export default function AlmanacApp({
                       </div>
 
                       {evt.time && (
-                        <div className="text-xs text-slate-500 flex items-center gap-1">
+                        <div className="text-xs text-slate-600 dark:text-slate-300 flex items-center gap-1">
                           <Clock className="w-3.5 h-3.5" /> {evt.time}
                         </div>
                       )}
-                      {evt.notes && <p className="text-xs opacity-80">{evt.notes}</p>}
+                      {evt.notes && (
+                        <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed break-words">
+                          {evt.notes}
+                        </p>
+                      )}
 
                       {isRec && (
-                        <div className="flex items-center justify-between pt-1.5 border-t border-slate-200/60 dark:border-slate-700 text-[11px]">
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-slate-200/60 dark:border-slate-700 text-xs">
                           <button
                             type="button"
                             onClick={() =>
                               handleSkipSingleOccurrence(evt.id, selectedDate)
                             }
-                            className="font-semibold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
+                            className="min-h-[40px] inline-flex items-center px-2 -mx-2 rounded-xl py-1 font-semibold text-amber-700 dark:text-amber-300 hover:underline cursor-pointer"
                           >
                             Skip this date only
                           </button>
                           <button
                             type="button"
                             onClick={() => setConfirmDeleteEvent(evt)}
-                            className="font-semibold text-rose-500 hover:underline cursor-pointer"
+                            className="min-h-[40px] inline-flex items-center px-2 -mx-2 rounded-xl py-1 font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer"
                           >
                             Delete series
                           </button>
@@ -984,7 +1083,7 @@ export default function AlmanacApp({
                             onClick={() =>
                               onOpenFloodgate({ tab: 'insights', date: selectedDate })
                             }
-                            className="w-full mt-1 py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                            className="w-full min-h-[40px] mt-1 py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 active:scale-[0.98] transition cursor-pointer"
                           >
                             <Stethoscope className="w-3.5 h-3.5" />
                             <span>Open Printable GP Symptom Report</span>
@@ -994,9 +1093,14 @@ export default function AlmanacApp({
                   );
                 })
               ) : (
-                <p className="text-xs text-slate-500 italic">
-                  No household events scheduled on this date.
-                </p>
+                <EmptyStateCard
+                  accent="indigo"
+                  darkMode={darkMode}
+                  icon={CalendarIcon}
+                  title="No household events scheduled"
+                  description="Tap Add Event to log an appointment, bin collection, or reminder for this date."
+                  className="p-4 sm:p-5"
+                />
               )}
             </div>
 
@@ -1006,17 +1110,17 @@ export default function AlmanacApp({
                 className={`p-3.5 rounded-2xl border space-y-1.5 text-xs ${
                   darkMode
                     ? 'bg-slate-800/40 border-slate-800'
-                    : 'bg-purple-50/50 border-purple-200/70'
+                    : 'bg-purple-50/60 border-purple-200/70'
                 }`}
               >
-                <div className="flex items-center justify-between font-bold text-purple-700 dark:text-purple-300">
-                  <span className="flex items-center gap-1.5">
-                    <Cat className="w-3.5 h-3.5" /> {catName}&apos;s Medication
+                <div className="flex items-center justify-between gap-2 font-bold text-purple-700 dark:text-purple-300">
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <Cat className="w-3.5 h-3.5 shrink-0" /> {catName}&apos;s Medication
                   </span>
                   <button
                     type="button"
                     onClick={() => onNavigateApp('cadence')}
-                    className="underline text-[11px] cursor-pointer"
+                    className="min-h-[40px] inline-flex items-center px-2 -mr-2 rounded-xl underline text-xs font-semibold cursor-pointer shrink-0"
                   >
                     Open Cadence
                   </button>
@@ -1029,7 +1133,7 @@ export default function AlmanacApp({
                 <div className="grid grid-cols-2 gap-2 pt-1">
                   <div className="p-2 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-200/60 dark:border-slate-700">
                     <div className="font-bold">Morning</div>
-                    <div className="text-[11px] opacity-80">
+                    <div className="text-xs text-slate-600 dark:text-slate-300">
                       {selectedCellData.cadenceLog?.morning?.given
                         ? `✓ ${selectedCellData.cadenceLog.morning.givenBy}`
                         : 'Not logged'}
@@ -1037,7 +1141,7 @@ export default function AlmanacApp({
                   </div>
                   <div className="p-2 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-200/60 dark:border-slate-700">
                     <div className="font-bold">Evening</div>
-                    <div className="text-[11px] opacity-80">
+                    <div className="text-xs text-slate-600 dark:text-slate-300">
                       {selectedCellData.cadenceLog?.evening?.given
                         ? `✓ ${selectedCellData.cadenceLog.evening.givenBy}`
                         : 'Not logged'}
@@ -1053,24 +1157,24 @@ export default function AlmanacApp({
                 className={`p-3.5 rounded-2xl border space-y-1.5 text-xs ${
                   darkMode
                     ? 'bg-slate-800/40 border-slate-800'
-                    : 'bg-lime-50/60 border-lime-200/70'
+                    : 'bg-emerald-50/60 border-emerald-200/70'
                 }`}
               >
-                <div className="flex items-center justify-between font-bold text-lime-700 dark:text-lime-300">
-                  <span className="flex items-center gap-1.5">
-                    <Flower2 className="w-3.5 h-3.5" /> {mantisName}&apos;s Habitat (Bloom)
+                <div className="flex items-center justify-between gap-2 font-bold text-emerald-700 dark:text-emerald-300">
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <Flower2 className="w-3.5 h-3.5 shrink-0" /> {mantisName}&apos;s Habitat (Bloom)
                   </span>
                   <button
                     type="button"
                     onClick={() => onNavigateApp('bloom')}
-                    className="underline text-[11px] cursor-pointer"
+                    className="min-h-[40px] inline-flex items-center px-2 -mr-2 rounded-xl underline text-xs font-semibold cursor-pointer shrink-0"
                   >
                     Open Bloom
                   </button>
                 </div>
 
                 {selectedCellData.bloomMoltsOnDay.length > 0 && (
-                  <div className="p-2 rounded-xl bg-lime-600 text-white font-bold">
+                  <div className="p-2 rounded-xl bg-emerald-700 text-white font-bold">
                     🎉 Molted:{' '}
                     {selectedCellData.bloomMoltsOnDay
                       .map((m) => `${m.fromInstar} → ${m.toInstar}`)
@@ -1080,7 +1184,7 @@ export default function AlmanacApp({
 
                 {selectedCellData.isProjectedMolt &&
                   selectedCellData.bloomMoltsOnDay.length === 0 && (
-                    <div className="p-2 rounded-xl bg-lime-500/15 border border-lime-500/30 font-semibold">
+                    <div className="p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 font-semibold">
                       🌿 Projected next molt window (~{bloomSummary.avgInterMoltDays}d cycle)
                     </div>
                   )}
@@ -1088,7 +1192,7 @@ export default function AlmanacApp({
                 <div className="grid grid-cols-2 gap-2 pt-0.5">
                   <div className="p-2 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-200/60 dark:border-slate-700">
                     <div className="font-bold">Misting</div>
-                    <div className="text-[11px] opacity-80">
+                    <div className="text-xs text-slate-600 dark:text-slate-300">
                       {(selectedCellData.bloomLog?.mists || []).length > 0
                         ? `✓ ${selectedCellData.bloomLog.mists.length} mist(s)`
                         : 'None logged'}
@@ -1096,7 +1200,7 @@ export default function AlmanacApp({
                   </div>
                   <div className="p-2 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-200/60 dark:border-slate-700">
                     <div className="font-bold">Feeding</div>
-                    <div className="text-[11px] opacity-80">
+                    <div className="text-xs text-slate-600 dark:text-slate-300">
                       {(selectedCellData.bloomLog?.feedings || []).length > 0
                         ? selectedCellData.bloomLog.feedings
                             .map((f) =>
@@ -1118,19 +1222,19 @@ export default function AlmanacApp({
                 className={`p-3.5 rounded-2xl border space-y-1.5 text-xs ${
                   darkMode
                     ? 'bg-slate-800/40 border-rose-900/50'
-                    : 'bg-rose-50/50 border-rose-200/70'
+                    : 'bg-rose-50/60 border-rose-200/70'
                 }`}
               >
-                <div className="flex items-center justify-between font-bold text-rose-700 dark:text-rose-300">
-                  <span className="flex items-center gap-1.5">
-                    <Heart className="w-3.5 h-3.5" /> Floodgate Cycle Log
+                <div className="flex items-center justify-between gap-2 font-bold text-rose-700 dark:text-rose-300">
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <Heart className="w-3.5 h-3.5 shrink-0" /> Floodgate Cycle Log
                   </span>
                   <button
                     type="button"
                     onClick={() =>
                       onOpenFloodgate({ tab: 'log', date: selectedDate })
                     }
-                    className="underline text-[11px] cursor-pointer"
+                    className="min-h-[40px] inline-flex items-center px-2 -mr-2 rounded-xl underline text-xs font-semibold cursor-pointer shrink-0"
                   >
                     {selectedCellData.floodgateLog ? 'Edit Day' : 'Log Day'}
                   </button>
@@ -1148,7 +1252,9 @@ export default function AlmanacApp({
                     )}
                   </div>
                 ) : (
-                  <div className="opacity-70">No symptom entry logged for this date.</div>
+                  <div className="text-slate-600 dark:text-slate-300">
+                    No symptom entry logged for this date.
+                  </div>
                 )}
               </div>
             )}
@@ -1158,26 +1264,26 @@ export default function AlmanacApp({
               <div
                 className={`p-3.5 rounded-2xl border space-y-1.5 text-xs ${
                   darkMode
-                    ? 'bg-amber-950/30 border-amber-800/60'
-                    : 'bg-amber-50 border-amber-200'
+                    ? 'bg-slate-800/40 border-amber-900/50'
+                    : 'bg-amber-50/60 border-amber-200/70'
                 }`}
               >
-                <div className="flex items-center justify-between font-bold text-amber-700 dark:text-amber-300">
-                  <span>💷 Ledger Bills &amp; Paydays:</span>
+                <div className="flex items-center justify-between gap-2 font-bold text-amber-800 dark:text-amber-300">
+                  <span className="min-w-0">💷 Ledger Bills &amp; Paydays:</span>
                   <button
                     type="button"
                     onClick={() => onNavigateApp('ledger')}
-                    className="underline text-[11px] cursor-pointer"
+                    className="min-h-[40px] inline-flex items-center px-2 -mr-2 rounded-xl underline text-xs font-semibold cursor-pointer shrink-0"
                   >
                     Open Ledger
                   </button>
                 </div>
                 {selectedCellData.ledgerDue.map((it) => (
-                  <div key={it.id} className="flex items-center justify-between font-medium">
-                    <span>
+                  <div key={it.id} className="flex items-center justify-between gap-2 font-medium">
+                    <span className="min-w-0 break-words">
                       • {it.title} ({it.kind})
                     </span>
-                    <span className="font-bold">{formatGBP(it.amount)}</span>
+                    <span className="font-bold shrink-0">{formatGBP(it.amount)}</span>
                   </div>
                 ))}
               </div>
@@ -1187,340 +1293,333 @@ export default function AlmanacApp({
       </div>
 
       {/* ADD / EDIT EVENT MODAL */}
-      {addModalOpen && (
-        <div
-          onClick={() => {
-            setAddModalOpen(false);
-            setEditingEventId(null);
-            setEditingEventOriginal(null);
-          }}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={editingEventId ? 'Edit Almanac Event' : 'Add Almanac Event'}
-            onClick={(e) => e.stopPropagation()}
-            className={`max-w-md w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-3 sm:space-y-4 ${
-              darkMode
-                ? 'bg-slate-900 border-slate-800 text-slate-100'
-                : 'bg-white border-slate-200 text-slate-800'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-base sm:text-lg font-extrabold">
-                  {editingEventId ? 'Edit Almanac Event' : 'Add Almanac Event'}
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Date: {formatDateFriendly(dateInput || selectedDate)}
-                </p>
-              </div>
-              <button
-                type="button"
-                aria-label="Close event modal"
-                onClick={() => {
-                  setAddModalOpen(false);
-                  setEditingEventId(null);
-                  setEditingEventOriginal(null);
-                }}
-                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 shrink-0 cursor-pointer"
+      <ModalShell
+        isOpen={addModalOpen}
+        onClose={() => {
+          setAddModalOpen(false);
+          setEditingEventId(null);
+          setEditingEventOriginal(null);
+          setFormError('');
+        }}
+        title={editingEventId ? 'Edit Almanac Event' : 'Add Almanac Event'}
+        subtitle={`Date: ${formatDateFriendly(dateInput || selectedDate)}`}
+        icon={CalendarIcon}
+        accent="indigo"
+        darkMode={darkMode}
+        maxWidthClass="max-w-md"
+        ariaLabel={editingEventId ? 'Edit Almanac Event' : 'Add Almanac Event'}
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setAddModalOpen(false);
+                setEditingEventId(null);
+                setEditingEventOriginal(null);
+                setFormError('');
+              }}
+              className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.98] transition cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="almanac-event-form"
+              disabled={isSaving}
+              className="min-h-[40px] px-5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer"
+            >
+              {isSaving ? 'Saving...' : editingEventId ? 'Save Changes' : 'Save Event'}
+            </button>
+          </div>
+        }
+      >
+        <form id="almanac-event-form" onSubmit={handleSaveEvent} className="space-y-3.5">
+          {editingEventId &&
+            editingEventOriginal?.recurrence &&
+            editingEventOriginal.recurrence !== 'none' && (
+              <div
+                className={`p-3 rounded-2xl border space-y-2 ${
+                  darkMode
+                    ? 'bg-slate-800/60 border-slate-700'
+                    : 'bg-indigo-50/60 border-indigo-200'
+                }`}
               >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveEvent} className="space-y-3">
-              {editingEventId &&
-                editingEventOriginal?.recurrence &&
-                editingEventOriginal.recurrence !== 'none' && (
-                  <div
-                    className={`p-2.5 sm:p-3 rounded-2xl border space-y-1.5 ${
-                      darkMode
-                        ? 'bg-slate-800/60 border-slate-700'
-                        : 'bg-indigo-50/60 border-indigo-200'
-                    }`}
-                  >
-                    <div className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-                      Repeating Event — Apply Changes To:
-                    </div>
-                    <div className="grid grid-cols-1 gap-1.5">
-                      {[
-                        {
-                          id: 'single',
-                          label: `This occurrence only (${selectedDate})`,
-                          desc: 'Updates only this date; keeps past & future dates unchanged'
-                        },
-                        {
-                          id: 'future',
-                          label: 'This & future occurrences',
-                          desc:
-                            selectedDate > editingEventOriginal.date
-                              ? 'Preserves past occurrences and updates from this date onwards'
-                              : 'Updates the repeating series from this date onwards'
-                        }
-                      ].map((opt) => (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => {
-                            setRepeatEditScope(opt.id);
-                            if (opt.id === 'single') {
-                              setRecurrenceInput('none');
-                            } else if (editingEventOriginal?.recurrence) {
-                              setRecurrenceInput(editingEventOriginal.recurrence);
-                            }
-                          }}
-                          className={`p-2 rounded-xl border text-left transition cursor-pointer ${
-                            repeatEditScope === opt.id
-                              ? 'bg-indigo-600 text-white border-indigo-600'
-                              : darkMode
-                                ? 'bg-slate-900 border-slate-700 text-slate-300'
-                                : 'bg-white border-slate-200 text-slate-700'
-                          }`}
-                        >
-                          <div className="text-xs font-bold leading-snug">{opt.label}</div>
-                          <div
-                            className={`text-[11px] leading-snug ${
-                              repeatEditScope === opt.id ? 'text-indigo-100' : 'opacity-70'
-                            }`}
-                          >
-                            {opt.desc}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
-                  Event Title
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={titleInput}
-                  onChange={(e) => setTitleInput(e.target.value)}
-                  placeholder="e.g., Vet Booster, GP Consultation, Bin Collection..."
-                  className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
-                    Date
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={dateInput}
-                    onChange={(e) => setDateInput(e.target.value)}
-                    className="w-full px-2.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  />
+                <div className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                  Repeating Event — Apply Changes To:
                 </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
-                    Time
-                  </label>
-                  <input
-                    type="time"
-                    value={timeInput}
-                    onChange={(e) => setTimeInput(e.target.value)}
-                    className="w-full px-2.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  />
-                </div>
-                <div className="col-span-2 sm:col-span-1">
-                  <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
-                    For Who?
-                  </label>
-                  <select
-                    value={assignedToInput}
-                    onChange={(e) => setAssignedToInput(e.target.value)}
-                    className="w-full px-2.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                  >
-                    <option value="Both">Both ({partner1Name} &amp; {partner2Name})</option>
-                    <option value={partner1Name}>{partner1Name}</option>
-                    <option value={partner2Name}>{partner2Name}</option>
-                    <option value="Pets">Pets</option>
-                    {!['Both', partner1Name, partner2Name, 'Pets'].includes(assignedToInput) &&
-                      assignedToInput && (
-                        <option value={assignedToInput}>{assignedToInput}</option>
-                      )}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
-                  Category
-                </label>
-                <div className="flex flex-wrap gap-1.5">
-                  {EVENT_CATEGORIES.map((cat) => (
+                <div className="grid grid-cols-1 gap-1.5">
+                  {[
+                    {
+                      id: 'single',
+                      label: `This occurrence only (${selectedDate})`,
+                      desc: 'Updates only this date; keeps past & future dates unchanged'
+                    },
+                    {
+                      id: 'future',
+                      label: 'This & future occurrences',
+                      desc:
+                        selectedDate > editingEventOriginal.date
+                          ? 'Preserves past occurrences and updates from this date onwards'
+                          : 'Updates the repeating series from this date onwards'
+                    }
+                  ].map((opt) => (
                     <button
-                      key={cat.id}
+                      key={opt.id}
                       type="button"
                       onClick={() => {
-                        setCategoryInput(cat.id);
-                        if (!editingEventId && cat.id === 'bins' && recurrenceInput === 'none') {
-                          setRecurrenceInput('weekly');
-                        }
-                        if (
-                          !editingEventId &&
-                          cat.id === 'medical' &&
-                          activeProfile.allowedApps.includes('floodgate')
-                        ) {
-                          setLinkGpReportInput(true);
+                        setRepeatEditScope(opt.id);
+                        if (opt.id === 'single') {
+                          setRecurrenceInput('none');
+                        } else if (editingEventOriginal?.recurrence) {
+                          setRecurrenceInput(editingEventOriginal.recurrence);
                         }
                       }}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer ${
-                        categoryInput === cat.id
-                          ? cat.color
+                      className={`min-h-[40px] p-2.5 rounded-xl border text-left active:scale-[0.99] transition cursor-pointer ${
+                        repeatEditScope === opt.id
+                          ? 'bg-indigo-600 text-white border-indigo-600'
                           : darkMode
-                            ? 'bg-slate-800 border-slate-700 text-slate-300'
-                            : 'bg-slate-100 border-slate-200 text-slate-700'
+                            ? 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                       }`}
                     >
-                      {cat.label}
+                      <div className="text-xs font-bold leading-snug">{opt.label}</div>
+                      <div
+                        className={`text-xs leading-snug mt-0.5 ${
+                          repeatEditScope === opt.id
+                            ? 'text-indigo-100'
+                            : 'text-slate-500 dark:text-slate-400'
+                        }`}
+                      >
+                        {opt.desc}
+                      </div>
                     </button>
                   ))}
                 </div>
               </div>
+            )}
 
-              {(() => {
-                const isEditingRecurringSingle = Boolean(
-                  editingEventId &&
-                    editingEventOriginal?.recurrence &&
-                    editingEventOriginal.recurrence !== 'none' &&
-                    repeatEditScope === 'single'
-                );
-                return (
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
-                      Repeat / Recurrence
-                    </label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {RECURRENCE_OPTIONS.map((rec) => (
-                        <button
-                          key={rec.id}
-                          type="button"
-                          disabled={isEditingRecurringSingle}
-                          onClick={() => setRecurrenceInput(rec.id)}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1 ${
-                            isEditingRecurringSingle
-                              ? 'opacity-45 cursor-not-allowed'
-                              : 'cursor-pointer'
-                          } ${
-                            recurrenceInput === rec.id
-                              ? 'bg-indigo-600 text-white border-indigo-600'
-                              : darkMode
-                                ? 'bg-slate-800 border-slate-700 text-slate-300'
-                                : 'bg-slate-100 border-slate-200 text-slate-700'
-                          }`}
-                        >
-                          {rec.id !== 'none' && <Repeat className="w-3 h-3" />}
-                          <span>{rec.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                    {isEditingRecurringSingle && (
-                      <p className="text-[11px] text-slate-500 mt-1">
-                        Disabled while editing a single occurrence — choose &ldquo;This &amp; future occurrences&rdquo; above to change the repeat rule.
-                      </p>
-                    )}
-                  </div>
-                );
-              })()}
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
+              Event Title
+            </label>
+            <input
+              type="text"
+              required
+              value={titleInput}
+              onChange={(e) => {
+                setTitleInput(e.target.value);
+                if (formError) setFormError('');
+              }}
+              placeholder="e.g., Vet Booster, GP Consultation, Bin Collection..."
+              className={getFieldClass('indigo', formError ? 'min-w-0 border-rose-500' : 'min-w-0')}
+            />
+            {formError && (
+              <p role="alert" className="text-xs font-semibold text-rose-600 dark:text-rose-400 mt-1">
+                {formError}
+              </p>
+            )}
+          </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider opacity-70 mb-1">
-                  Notes (Optional)
-                </label>
-                <textarea
-                  rows={2}
-                  value={notesInput}
-                  onChange={(e) => setNotesInput(e.target.value)}
-                  placeholder="Extra details or preparation reminders..."
-                  className="w-full px-3.5 py-2 rounded-xl text-sm border bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700"
-                />
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="min-w-0">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
+                Date
+              </label>
+              <input
+                type="date"
+                required
+                value={dateInput}
+                onChange={(e) => setDateInput(e.target.value)}
+                className={getFieldClass('indigo', 'min-w-0')}
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
+                Time
+              </label>
+              <input
+                type="time"
+                value={timeInput}
+                onChange={(e) => setTimeInput(e.target.value)}
+                className={getFieldClass('indigo', 'min-w-0')}
+              />
+            </div>
+            <div className="sm:col-span-2 min-w-0">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
+                For Who?
+              </label>
+              <select
+                value={assignedToInput}
+                onChange={(e) => {
+                  const nextAssignee = e.target.value;
+                  setAssignedToInput(nextAssignee);
+                  if (
+                    !editingEventId &&
+                    !gpLinkManual &&
+                    categoryInput === 'medical' &&
+                    activeProfile.allowedApps.includes('floodgate')
+                  ) {
+                    setLinkGpReportInput(
+                      nextAssignee === partner2Name || nextAssignee === 'Partner 2'
+                    );
+                  }
+                }}
+                className={getFieldClass('indigo', 'min-w-0')}
+              >
+                <option value="Both">Both ({partner1Name} &amp; {partner2Name})</option>
+                <option value={partner1Name}>{partner1Name}</option>
+                <option value={partner2Name}>{partner2Name}</option>
+                <option value="Pets">Pets</option>
+                {!['Both', partner1Name, partner2Name, 'Pets'].includes(assignedToInput) &&
+                  assignedToInput && (
+                    <option value={assignedToInput}>{assignedToInput}</option>
+                  )}
+              </select>
+            </div>
+          </div>
 
-              {activeProfile.allowedApps.includes('floodgate') && (
-                <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer pt-1">
-                  <input
-                    type="checkbox"
-                    checked={linkGpReportInput}
-                    onChange={(e) => setLinkGpReportInput(e.target.checked)}
-                    className="rounded accent-rose-600"
-                  />
-                  <span>Attach quick-launch button for Floodgate Printable GP Report (keeps event private to {partner2Name})</span>
-                </label>
-              )}
-
-              <div className="flex items-center justify-end gap-2 pt-2">
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
+              Category
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {EVENT_CATEGORIES.map((cat) => (
                 <button
+                  key={cat.id}
                   type="button"
                   onClick={() => {
-                    setAddModalOpen(false);
-                    setEditingEventId(null);
-                    setEditingEventOriginal(null);
+                    setCategoryInput(cat.id);
+                    if (!editingEventId && cat.id === 'bins' && recurrenceInput === 'none') {
+                      setRecurrenceInput('weekly');
+                    }
+                    if (
+                      !editingEventId &&
+                      !gpLinkManual &&
+                      activeProfile.allowedApps.includes('floodgate')
+                    ) {
+                      if (cat.id === 'medical') {
+                        setLinkGpReportInput(
+                          assignedToInput === partner2Name || assignedToInput === 'Partner 2'
+                        );
+                      } else {
+                        setLinkGpReportInput(false);
+                      }
+                    }
                   }}
-                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 cursor-pointer"
+                  className={`min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold border active:scale-[0.98] transition cursor-pointer ${
+                    categoryInput === cat.id
+                      ? cat.color
+                      : darkMode
+                        ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                        : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200/70'
+                  }`}
                 >
-                  Cancel
+                  {cat.label}
                 </button>
-                <button
-                  type="submit"
-                  disabled={isSaving}
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  {isSaving ? 'Saving...' : editingEventId ? 'Save Changes' : 'Save Event'}
-                </button>
-              </div>
-            </form>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+
+          {(() => {
+            const isEditingRecurringSingle = Boolean(
+              editingEventId &&
+                editingEventOriginal?.recurrence &&
+                editingEventOriginal.recurrence !== 'none' &&
+                repeatEditScope === 'single'
+            );
+            return (
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
+                  Repeat / Recurrence
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {RECURRENCE_OPTIONS.map((rec) => (
+                    <button
+                      key={rec.id}
+                      type="button"
+                      disabled={isEditingRecurringSingle}
+                      onClick={() => setRecurrenceInput(rec.id)}
+                      className={`min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1 transition ${
+                        isEditingRecurringSingle
+                          ? 'opacity-45 cursor-not-allowed'
+                          : 'active:scale-[0.98] cursor-pointer'
+                      } ${
+                        recurrenceInput === rec.id
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : darkMode
+                            ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                            : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200/70'
+                      }`}
+                    >
+                      {rec.id !== 'none' && <Repeat className="w-3 h-3" />}
+                      <span>{rec.label}</span>
+                    </button>
+                  ))}
+                </div>
+                {isEditingRecurringSingle && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5">
+                    Disabled while editing a single occurrence — choose &ldquo;This &amp; future occurrences&rdquo; above to change the repeat rule.
+                  </p>
+                )}
+              </div>
+            );
+          })()}
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
+              Notes (Optional)
+            </label>
+            <textarea
+              rows={2}
+              value={notesInput}
+              onChange={(e) => setNotesInput(e.target.value)}
+              placeholder="Extra details or preparation reminders..."
+              className={getFieldClass('indigo', 'min-w-0')}
+            />
+          </div>
+
+          {activeProfile.allowedApps.includes('floodgate') && (
+            <label className="min-h-[40px] flex items-center gap-2 text-xs font-semibold cursor-pointer pt-1">
+              <input
+                type="checkbox"
+                checked={linkGpReportInput}
+                onChange={(e) => {
+                  setLinkGpReportInput(e.target.checked);
+                  setGpLinkManual(true);
+                }}
+                className="w-4 h-4 rounded accent-rose-600 shrink-0"
+              />
+              <span>Attach quick-launch button for Floodgate Printable GP Report (keeps event private to {partner2Name})</span>
+            </label>
+          )}
+        </form>
+      </ModalShell>
 
       {/* DELETE EVENT / SERIES CONFIRMATION MODAL */}
-      {confirmDeleteEvent && (
-        <div
-          onClick={() => setConfirmDeleteEvent(null)}
-          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 no-print"
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={
-              confirmDeleteEvent.recurrence && confirmDeleteEvent.recurrence !== 'none'
-                ? 'Delete Entire Recurring Series'
-                : 'Delete Almanac Event'
-            }
-            onClick={(e) => e.stopPropagation()}
-            className={`max-w-sm w-full rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl border space-y-4 ${
-              darkMode
-                ? 'bg-slate-900 border-slate-800 text-slate-100'
-                : 'bg-white border-slate-200 text-slate-800'
-            }`}
-          >
-            <div className="space-y-1">
-              <h3 className="text-base font-extrabold text-rose-600 dark:text-rose-400">
-                {confirmDeleteEvent.recurrence && confirmDeleteEvent.recurrence !== 'none'
-                  ? 'Delete Entire Recurring Series?'
-                  : 'Delete Almanac Event?'}
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                {confirmDeleteEvent.recurrence && confirmDeleteEvent.recurrence !== 'none'
-                  ? `This will remove "${confirmDeleteEvent.title}" across all past and future dates. (Use "Skip this date only" to hide just ${selectedDate}.)`
-                  : `Remove "${confirmDeleteEvent.title}" from ${confirmDeleteEvent.date}?`}
-              </p>
-            </div>
+      <ModalShell
+        isOpen={Boolean(confirmDeleteEvent)}
+        onClose={() => setConfirmDeleteEvent(null)}
+        title={
+          confirmDeleteEvent?.recurrence && confirmDeleteEvent.recurrence !== 'none'
+            ? 'Delete Entire Recurring Series?'
+            : 'Delete Almanac Event?'
+        }
+        icon={Trash2}
+        accent="rose"
+        darkMode={darkMode}
+        maxWidthClass="max-w-sm"
+        ariaLabel={
+          confirmDeleteEvent?.recurrence && confirmDeleteEvent.recurrence !== 'none'
+            ? 'Delete Entire Recurring Series'
+            : 'Delete Almanac Event'
+        }
+        footer={
+          confirmDeleteEvent ? (
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setConfirmDeleteEvent(null)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 cursor-pointer"
+                className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.98] transition cursor-pointer"
               >
                 Cancel
               </button>
@@ -1531,14 +1630,22 @@ export default function AlmanacApp({
                   setConfirmDeleteEvent(null);
                   await handleDeleteEvent(targetId);
                 }}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer"
+                className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white active:scale-[0.98] transition cursor-pointer"
               >
                 Delete
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          ) : null
+        }
+      >
+        {confirmDeleteEvent && (
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            {confirmDeleteEvent.recurrence && confirmDeleteEvent.recurrence !== 'none'
+              ? `This will remove "${confirmDeleteEvent.title}" across all past and future dates. (Use "Skip this date only" to hide just ${selectedDate}.)`
+              : `Remove "${confirmDeleteEvent.title}" from ${confirmDeleteEvent.date}?`}
+          </p>
+        )}
+      </ModalShell>
     </main>
   );
 }
