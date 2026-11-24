@@ -17,6 +17,8 @@ RUN apk add --no-cache tzdata
 
 COPY --from=builder /app/dist ./dist
 COPY package.json server.js ./
+COPY server ./server
+COPY shared ./shared
 RUN mkdir -p /app/data
 
 EXPOSE 80

@@ -1,20 +1,47 @@
-export const getLocalDateKey = (dateObj = new Date()) => {
-  const year = dateObj.getFullYear();
-  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-  const day = String(dateObj.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
+import {
+  VALID_DATE_KEY_RE,
+  getLocalDateKey,
+  parseLocalDateKey,
+  shiftDateKey,
+  getMondayOfWeek,
+  getCalendarWeekDays,
+  formatWeekRangeLabel,
+  buildMonthGrid
+} from '../../shared/dateUtils.js';
+import {
+  DEFAULT_PROFILES,
+  VALID_APP_IDS,
+  inferProfileIdFromName,
+  resolveProfileDisplayName,
+  isAlmanacEventVisibleToProfile
+} from '../../shared/profileUtils.js';
+import {
+  createDefaultCadenceSettings,
+  createDefaultBloomSettings,
+  DEFAULT_FLOODGATE_SETTINGS,
+  DEFAULT_LEDGER_DATA,
+  DEFAULT_BEACON_INFO
+} from '../../shared/defaults.js';
 
-export const parseLocalDateKey = (dateKey) => {
-  if (!dateKey || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return new Date();
-  const [y, m, d] = dateKey.split('-').map(Number);
-  return new Date(y, m - 1, d);
-};
-
-export const shiftDateKey = (dateKey, deltaDays) => {
-  const dt = parseLocalDateKey(dateKey);
-  dt.setDate(dt.getDate() + deltaDays);
-  return getLocalDateKey(dt);
+export {
+  VALID_DATE_KEY_RE,
+  getLocalDateKey,
+  parseLocalDateKey,
+  shiftDateKey,
+  getMondayOfWeek,
+  getCalendarWeekDays,
+  formatWeekRangeLabel,
+  buildMonthGrid,
+  DEFAULT_PROFILES,
+  VALID_APP_IDS,
+  inferProfileIdFromName,
+  resolveProfileDisplayName,
+  isAlmanacEventVisibleToProfile,
+  createDefaultCadenceSettings,
+  createDefaultBloomSettings,
+  DEFAULT_FLOODGATE_SETTINGS,
+  DEFAULT_LEDGER_DATA,
+  DEFAULT_BEACON_INFO
 };
 
 export const formatFriendlyDate = (dateKey, todayKey = getLocalDateKey(new Date())) => {
@@ -27,43 +54,6 @@ export const formatFriendlyDate = (dateKey, todayKey = getLocalDateKey(new Date(
     day: 'numeric',
     month: 'short'
   });
-};
-
-export const getMondayOfWeek = (dateInput = new Date()) => {
-  const d =
-    typeof dateInput === 'string' ? parseLocalDateKey(dateInput) : new Date(dateInput);
-  const dayOfWeek = d.getDay();
-  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-  d.setDate(d.getDate() + diffToMonday);
-  return getLocalDateKey(d);
-};
-
-export const getCalendarWeekDays = (mondayKey, todayKey) => {
-  const days = [];
-  for (let i = 0; i < 7; i++) {
-    const dayKey = shiftDateKey(mondayKey, i);
-    if (!todayKey || dayKey <= todayKey) {
-      days.push(dayKey);
-    }
-  }
-  return days.reverse();
-};
-
-export const formatWeekRangeLabel = (mondayKey) => {
-  const monDate = parseLocalDateKey(mondayKey);
-  const sunDate = parseLocalDateKey(shiftDateKey(mondayKey, 6));
-  const sameYear = monDate.getFullYear() === sunDate.getFullYear();
-  const monStr = monDate.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    ...(sameYear ? {} : { year: 'numeric' })
-  });
-  const sunStr = sunDate.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric'
-  });
-  return `${monStr} – ${sunStr}`;
 };
 
 export const formatTimeDisplay = (isoString) => {
@@ -191,47 +181,6 @@ export const WEEKDAY_OPTIONS = [
   { id: 6, label: 'Saturday', shortLabel: 'Sat' },
   { id: 7, label: 'Sunday', shortLabel: 'Sun' }
 ];
-
-export const createDefaultBloomSettings = (dateObj = new Date()) => {
-  const todayKey = getLocalDateKey(dateObj);
-  return {
-    mantisName: 'Mantis',
-    speciesPreset: 'spiny_flower',
-    commonName: 'Spiny Flower Mantis',
-    scientificName: 'Pseudocreobotra wahlbergii',
-    sex: 'Unsexed',
-    pronouns: 'they/them',
-    currentInstar: 'L2',
-    arrivalDate: todayKey,
-    hatchDate: '',
-    currentColorMorph: 'Spiky creamy-white & dark banded nymph',
-    lifecycleStatus: 'normal',
-    premoltStartedAt: null,
-    hardeningUntil: null,
-    hardeningHours: 36,
-    livePreyInside: false,
-    livePreyNote: '',
-    dayTempMinC: 25,
-    dayTempMaxC: 28,
-    nightTempMinC: 20,
-    humidityMinPct: 50,
-    humidityMaxPct: 65,
-    mistTargetHours: 24,
-    typicalInterMoltDays: 14,
-    enclosureInfo: {
-      currentSizeLabel: 'Ventilated Nymph Cup / Mini Tall Enclosure',
-      meshType: 'Soft nylon / fabric mesh (tarsal-safe)',
-      substrate: 'Paper towel / coco fibre + climbing twigs & blossoms',
-      lastDeepCleanDate: todayKey,
-      currentBodyLengthMm: 10,
-      enclosureHeightMm: 110,
-      enclosureWidthMm: 75
-    },
-    caregivers: ['Partner 1', 'Partner 2', 'Caregiver'],
-    careNote:
-      'Mist one enclosure wall lightly once daily for drinking droplets—never spray the mantis directly, and let the enclosure dry between mists (Spiny Flower Mantises need cross-ventilation!). Do NOT offer live prey during Premolt Watch or Post-Molt Hardening.'
-  };
-};
 
 export const DEFAULT_BLOOM_SETTINGS = createDefaultBloomSettings();
 
@@ -465,25 +414,6 @@ export function computeBloomSummary(bloomSnapshot, now = new Date()) {
     }
   };
 }
-
-export const isAlmanacEventVisibleToProfile = (
-  evt,
-  activeProfile,
-  partner2Name = 'Partner 2'
-) => {
-  if (!evt) return false;
-  if (activeProfile?.id === 'partner2') return true;
-  if (evt.linkToGpReport) return false;
-  if (
-    evt.category === 'medical' &&
-    (evt.assignedToProfileId === 'partner2' ||
-      evt.assignedTo === 'Partner 2' ||
-      (partner2Name && evt.assignedTo === partner2Name))
-  ) {
-    return false;
-  }
-  return true;
-};
 
 export const doesAlmanacEventOccurOnDate = (evt, targetDateStr) => {
   if (!evt || !evt.date || !targetDateStr) return false;
@@ -727,33 +657,101 @@ export const computeLedgerSettlement = (monthExpenses = [], partner1JointShare =
   };
 };
 
-export const inferProfileIdFromName = (profiles = [], rawName = '') => {
-  const lower = String(rawName || '').trim().toLowerCase();
-  if (!lower || lower === 'both' || lower === 'pets' || lower === 'household') {
-    return null;
-  }
-  for (const prof of profiles || []) {
-    if (!prof || typeof prof.id !== 'string') continue;
-    const pName = String(prof.name || '').trim().toLowerCase();
-    const pCaregiver = String(prof.caregiverName || '').trim().toLowerCase();
-    if (
-      lower === prof.id.toLowerCase() ||
-      (pName && lower === pName) ||
-      (pCaregiver && lower === pCaregiver)
-    ) {
-      return prof.id;
-    }
-  }
-  if (lower === 'partner 1' || lower === 'partner1') return 'partner1';
-  if (lower === 'partner 2' || lower === 'partner2') return 'partner2';
-  if (lower === 'caregiver') return 'caregiver';
-  return null;
+export const downloadTextFile = (
+  filename,
+  content,
+  mimeType = 'text/plain;charset=utf-8'
+) => {
+  if (typeof document === 'undefined') return;
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
-export const resolveProfileDisplayName = (profiles = [], profileId, fallbackName = '') => {
-  if (profileId) {
-    const match = (profiles || []).find((p) => p && p.id === profileId);
-    if (match?.name) return match.name;
-  }
-  return fallbackName;
+export const computeBottleStatus = (
+  settings = {},
+  todayKey = getLocalDateKey(new Date())
+) => {
+  const openedStr = settings?.bottleOpenedDate || todayKey;
+  const shelfLife = Number(settings?.bottleShelfLifeDays) || 180;
+  const openedDate = parseLocalDateKey(openedStr);
+  const expiryDate = new Date(openedDate.getTime());
+  expiryDate.setDate(expiryDate.getDate() + shelfLife);
+
+  const todayMidnight = parseLocalDateKey(todayKey);
+  const diffDaysOpen = Math.max(
+    0,
+    Math.round((todayMidnight.getTime() - openedDate.getTime()) / (1000 * 60 * 60 * 24))
+  );
+  const daysRemaining = Math.round(
+    (expiryDate.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24)
+  );
+  const percentUsed = Math.min(100, Math.max(0, Math.round((diffDaysOpen / shelfLife) * 100)));
+  const fmt = (dt) =>
+    dt.toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    });
+
+  return {
+    openedDateFormatted: fmt(openedDate),
+    expiryDateFormatted: fmt(expiryDate),
+    expiryFormatted: fmt(expiryDate),
+    diffDaysOpen,
+    daysRemaining,
+    percentUsed,
+    isExpired: daysRemaining <= 0,
+    isExpiringSoon: daysRemaining > 0 && daysRemaining <= 14,
+    isAlert: daysRemaining <= 14
+  };
+};
+
+export const formatShortPreyLabel = (preyLabel = '') =>
+  String(preyLabel || '').split(' (')[0].trim();
+
+export const formatDateFriendlyEnGB = (
+  dateStr,
+  todayKey = getLocalDateKey(new Date())
+) => {
+  if (!dateStr) return '';
+  if (dateStr === todayKey) return 'Today';
+  if (dateStr === shiftDateKey(todayKey, -1)) return 'Yesterday';
+  if (dateStr === shiftDateKey(todayKey, 1)) return 'Tomorrow';
+  return parseLocalDateKey(dateStr).toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  });
+};
+
+export const formatShortDateEnGB = (dateStr, { includeYear = false } = {}) => {
+  if (!dateStr) return '';
+  return parseLocalDateKey(dateStr).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    ...(includeYear ? { year: 'numeric' } : {})
+  });
+};
+
+export const buildTimestampForDate = (dateKey, timeStr = '12:00') => {
+  if (!dateKey) return new Date().toISOString();
+  const safeTime = /^\d{2}:\d{2}$/.test(String(timeStr || '')) ? timeStr : '12:00';
+  const [hh, mm] = safeTime.split(':').map(Number);
+  const dt = parseLocalDateKey(dateKey);
+  dt.setHours(hh, mm, 0, 0);
+  return Number.isFinite(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
+};
+
+export const clampFiniteNumber = (rawValue, min, max, fallback) => {
+  const num = Number(rawValue);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(max, Math.max(min, num));
 };

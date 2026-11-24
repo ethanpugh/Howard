@@ -1,6 +1,72 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ============================================================================
+   1. SEMANTIC THEME TOKENS (Warm Beige default / Softened Slate Dark)
+   ============================================================================ */
+:root,
+html.warm {
+  --surface-page: #f2ece1;
+  --surface-card: #faf6ee;
+  --surface-subtle: #f4efe4;
+  --surface-muted: #e6decb;
+  --surface-raised: #dfd5c1;
+  --surface-hover: #ebe3d3;
+  --surface-hover-strong: #ddd2bd;
+  --surface-input: #f6f1e6;
+  --surface-tray: #e6decb;
+  --surface-header: rgba(248, 243, 233, 0.94);
+  --surface-pill: rgba(248, 243, 233, 0.92);
+  --border-subtle: #e2d9c5;
+  --border-strong: #d4c8b0;
+  --text-primary: #2c2520;
+  --text-secondary: #4a4037;
+  --text-muted: #5c5146;
+  --text-placeholder: #736659;
+  --pill-shadow: 0 14px 34px -6px rgba(44, 37, 32, 0.22), 0 4px 12px -2px rgba(44, 37, 32, 0.12);
+  --ring-contrast: #faf6ee;
+}
+
+html.dark {
+  --surface-page: #1a2232;
+  --surface-card: #243044;
+  --surface-subtle: #2f3e56;
+  --surface-muted: #3b4d6b;
+  --surface-raised: #475a78;
+  --surface-hover: #344560;
+  --surface-hover-strong: #435675;
+  --surface-input: #1c2638;
+  --surface-tray: #1c2637;
+  --surface-header: rgba(30, 41, 59, 0.94);
+  --surface-pill: rgba(30, 41, 59, 0.92);
+  --border-subtle: #3d4f6d;
+  --border-strong: #4b5e7d;
+  --text-primary: #f8fafc;
+  --text-secondary: #e2e8f0;
+  --text-muted: #a3b3c9;
+  --text-placeholder: #94a3b8;
+  --pill-shadow: 0 18px 38px -6px rgba(8, 13, 23, 0.65), 0 6px 16px -2px rgba(8, 13, 23, 0.42);
+  --ring-contrast: #243044;
+}
+
+@theme inline {
+  --color-surface-page: var(--surface-page);
+  --color-surface-card: var(--surface-card);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-hover-strong: var(--surface-hover-strong);
+  --color-surface-input: var(--surface-input);
+  --color-surface-tray: var(--surface-tray);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-text-placeholder: var(--text-placeholder);
+}
+
 @layer base {
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]) {
@@ -8,369 +74,56 @@
   }
 }
 
-/* ============================================================================
-   1. SOFTENED SLATE DARK MODE (html.dark) — MORE LEGIBLE & LESS PITCH-BLACK
-============================================================================ */
-html.dark,
-html.dark body,
-html.dark #root > div {
-  background-color: #1a2232 !important;
-  color: #f8fafc !important;
-  color-scheme: dark;
+html,
+body,
+#root > div {
+  background-color: var(--surface-page);
+  color: var(--text-primary);
 }
 
-/* Sticky Top Header & Tablet/Desktop Rail */
-html.dark header,
-html.dark aside.howard-rail {
-  background-color: rgba(30, 41, 59, 0.94) !important;
-  border-color: #3b4b66 !important;
+html.dark { color-scheme: dark; }
+html.warm { color-scheme: light; }
+
+header,
+aside.howard-rail {
+  background-color: var(--surface-header);
+  border-color: var(--border-strong);
 }
 
-html.dark .howard-floating-pill {
-  background-color: rgba(30, 41, 59, 0.92) !important;
-  border-color: #4b5e7d !important;
-  box-shadow: 0 18px 38px -6px rgba(8, 13, 23, 0.65), 0 6px 16px -2px rgba(8, 13, 23, 0.42) !important;
+.howard-floating-pill {
+  background-color: var(--surface-pill);
+  border-color: var(--border-strong);
+  box-shadow: var(--pill-shadow);
 }
 
-/* Main Cards & Primary Containers (lifts slate-900 / stone-900 to a lighter slate) */
-html.dark .bg-slate-900:not([class*="dark:bg-"]),
-html.dark .bg-stone-900:not([class*="dark:bg-"]),
-html.dark .dark\:bg-slate-900,
-html.dark .dark\:bg-stone-900,
-html.dark .bg-slate-900\/40,
-html.dark .dark\:bg-slate-900\/40,
-html.dark .bg-slate-900\/60,
-html.dark .bg-slate-900\/70,
-html.dark .bg-slate-900\/90,
-html.dark .dark\:bg-slate-900\/90,
-html.dark .bg-stone-900\/80 {
-  background-color: #243044 !important;
-}
-
-/* Secondary Surfaces, Nested Cards & Strips (lifts slate-800 / stone-800) */
-html.dark .bg-slate-800:not([class*="dark:bg-"]),
-html.dark .bg-stone-800:not([class*="dark:bg-"]),
-html.dark .dark\:bg-slate-800,
-html.dark .dark\:bg-stone-800,
-html.dark .bg-slate-800\/40,
-html.dark .bg-slate-800\/50,
-html.dark .bg-slate-800\/60,
-html.dark .bg-slate-800\/70,
-html.dark .bg-slate-800\/80,
-html.dark .bg-slate-800\/90,
-html.dark .dark\:bg-slate-800\/50,
-html.dark .dark\:bg-slate-800\/60,
-html.dark .dark\:bg-slate-800\/70,
-html.dark .dark\:bg-slate-800\/80,
-html.dark .bg-stone-800\/40,
-html.dark .bg-stone-800\/50,
-html.dark .bg-stone-800\/60,
-html.dark .bg-stone-800\/70,
-html.dark .bg-stone-800\/80,
-html.dark .bg-stone-800\/90 {
-  background-color: #2f3e56 !important;
-}
-
-/* Elevated Pills, Badges & Secondary Dark Buttons on #2f3e56 Strips */
-html.dark .bg-slate-700:not([class*="dark:bg-"]),
-html.dark .dark\:bg-slate-700 {
-  background-color: #3b4d6b !important;
-}
-
-html.dark .dark\:bg-slate-600 {
-  background-color: #475a78 !important;
-}
-
-/* Deep Surfaces & App Switcher Track (lifts slate-950 / stone-950 when not a modal backdrop) */
-html.dark .bg-slate-950:not(.fixed):not([class*="dark:bg-"]),
-html.dark .dark\:bg-slate-950:not(.fixed),
-html.dark .bg-slate-950\/70,
-html.dark .dark\:bg-slate-950\/70,
-html.dark .bg-slate-950\/60:not(.fixed),
-html.dark .bg-stone-950\/70,
-html.dark .bg-stone-950\/50 {
-  background-color: #1c2637 !important;
-}
-
-/* Explicit Dark Hover Surfaces (after base surfaces so hover feedback stays crisp) */
-html.dark .hover\:bg-slate-900:hover {
-  background-color: #1e293b !important;
-}
-
-html.dark .hover\:bg-slate-800:hover,
-html.dark .dark\:hover\:bg-slate-800:hover,
-html.dark .hover\:bg-slate-800\/60:hover,
-html.dark .dark\:hover\:bg-slate-800\/60:hover,
-html.dark .hover\:bg-slate-800\/80:hover,
-html.dark .dark\:hover\:bg-slate-800\/80:hover,
-html.dark .dark\:hover\:bg-slate-800\/70:hover {
-  background-color: #344560 !important;
-}
-
-html.dark .hover\:bg-slate-700:hover,
-html.dark .dark\:hover\:bg-slate-700:hover {
-  background-color: #435675 !important;
-}
-
-html.dark .dark\:hover\:bg-slate-600:hover {
-  background-color: #4f6485 !important;
-}
-
-/* Form Inputs, Selects & Textareas in Dark Mode (keep focus ring/border intact) */
+/* Form Input Theme Normalization (preserves utility focus border colors) */
 html.dark input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 html.dark select,
-html.dark textarea {
-  background-color: #1c2638 !important;
-  color: #f8fafc !important;
+html.dark textarea,
+html.warm input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+html.warm select,
+html.warm textarea {
+  background-color: var(--surface-input);
+  color: var(--text-primary);
 }
 
 html.dark input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not(:focus),
 html.dark select:not(:focus),
-html.dark textarea:not(:focus) {
-  border-color: #4b5e7d !important;
-}
-
-html.dark input::placeholder,
-html.dark textarea::placeholder {
-  color: #94a3b8 !important;
-}
-
-/* Boost Muted Secondary Text & Borders while preserving visual hierarchy (AA >= 4.5:1) */
-html.dark .text-slate-500:not(:hover):not([class*="dark:text-"]),
-html.dark .dark\:text-slate-500:not(:hover),
-html.dark .text-stone-500:not(:hover) {
-  color: #a3b3c9 !important;
-}
-
-html.dark .text-slate-400:not(:hover):not([class*="dark:text-"]),
-html.dark .dark\:text-slate-400:not(:hover),
-html.dark .text-stone-400:not(:hover) {
-  color: #b6c4d8 !important;
-}
-
-html.dark .text-slate-300:not(:hover):not([class*="dark:text-"]),
-html.dark .dark\:text-slate-300:not(:hover),
-html.dark .text-stone-300:not(:hover) {
-  color: #e2e8f0 !important;
-}
-
-html.dark .border-slate-800,
-html.dark .border-stone-800,
-html.dark [class*="border-slate-800/"],
-html.dark [class*="border-stone-800/"],
-html.dark .border-slate-700,
-html.dark .border-stone-700,
-html.dark [class*="border-slate-700/"],
-html.dark [class*="border-stone-700/"],
-html.dark .dark\:border-slate-600,
-html.dark .divide-slate-800 > :not(:last-child),
-html.dark .dark\:divide-slate-800 > :not(:last-child) {
-  border-color: #3d4f6d !important;
-}
-
-html.dark .hover\:border-sky-500\/50:hover {
-  border-color: rgba(14, 165, 233, 0.5) !important;
-}
-
-html.dark .hover\:border-purple-400:hover {
-  border-color: #c084fc !important;
-}
-
-html.dark .dark\:ring-slate-900 {
-  --tw-ring-color: #243044 !important;
-}
-
-/* ============================================================================
-   2. WARM BEIGE / PARCHMENT LIGHTNESS MODE (html.warm)
-============================================================================ */
-html.warm,
-html.warm body,
-html.warm #root > div {
-  background-color: #f2ece1 !important;
-  color: #2c2520 !important;
-  color-scheme: light;
-}
-
-/* Sticky Top Header & Tablet/Desktop Rail */
-html.warm header,
-html.warm aside.howard-rail {
-  background-color: rgba(248, 243, 233, 0.94) !important;
-  border-color: #dfd5c3 !important;
-}
-
-html.warm .howard-floating-pill {
-  background-color: rgba(248, 243, 233, 0.92) !important;
-  border-color: #d4c8b0 !important;
-  box-shadow: 0 14px 34px -6px rgba(44, 37, 32, 0.22), 0 4px 12px -2px rgba(44, 37, 32, 0.12) !important;
-}
-
-/* Main Cards & White Surfaces -> Soft Parchment Cream */
-html.warm .bg-white,
-html.warm .bg-white\/70,
-html.warm .bg-white\/80,
-html.warm .bg-white\/90,
-html.warm .bg-white\/95 {
-  background-color: #faf6ee !important;
-}
-
-/* Secondary Surfaces & Subtle Panels -> Warm Sand / Oatmeal */
-html.warm .bg-slate-50\/40 {
-  background-color: #f4efe4 !important;
-}
-
-html.warm .bg-slate-50,
-html.warm .bg-stone-50,
-html.warm .bg-slate-50\/60,
-html.warm .bg-slate-50\/70,
-html.warm .bg-slate-50\/80,
-html.warm .bg-slate-50\/90,
-html.warm .bg-stone-50\/60,
-html.warm .bg-stone-50\/70,
-html.warm .bg-stone-50\/80,
-html.warm .bg-stone-50\/90 {
-  background-color: #efe8da !important;
-}
-
-html.warm .bg-slate-100,
-html.warm .bg-stone-100,
-html.warm .bg-slate-100\/70,
-html.warm .bg-slate-100\/80,
-html.warm .bg-slate-100\/90,
-html.warm .bg-stone-100\/80,
-html.warm .bg-stone-100\/90,
-html.warm .bg-slate-200\/60,
-html.warm .bg-slate-200\/70,
-html.warm .bg-stone-200\/70 {
-  background-color: #e6decb !important;
-}
-
-html.warm .bg-slate-200,
-html.warm .bg-stone-200,
-html.warm .bg-slate-200\/80,
-html.warm .bg-stone-200\/80 {
-  background-color: #dfd5c1 !important;
-}
-
-html.warm .bg-slate-300,
-html.warm .bg-stone-300 {
-  background-color: #cbbda4 !important;
-}
-
-/* Explicit Warm Hover Surfaces (placed AFTER base rules so hover states stay responsive) */
-html.warm .hover\:bg-white:hover,
-html.warm .hover\:bg-white\/80:hover {
-  background-color: #fffcf6 !important;
-}
-
-html.warm .hover\:bg-slate-50:hover,
-html.warm .hover\:bg-stone-50:hover {
-  background-color: #f3ecdf !important;
-}
-
-html.warm .hover\:bg-slate-100:hover,
-html.warm .hover\:bg-stone-100:hover,
-html.warm .hover\:bg-slate-100\/80:hover {
-  background-color: #ebe3d3 !important;
-}
-
-html.warm .hover\:bg-slate-200:hover,
-html.warm .hover\:bg-stone-200:hover,
-html.warm .hover\:bg-slate-200\/60:hover,
-html.warm .hover\:bg-slate-200\/70:hover,
-html.warm .hover\:bg-slate-200\/80:hover {
-  background-color: #ddd2bd !important;
-}
-
-html.warm .hover\:bg-sky-50:hover {
-  background-color: #e0f2fe !important;
-}
-
-html.warm .hover\:bg-rose-50\/50:hover {
-  background-color: rgba(255, 228, 230, 0.65) !important;
-}
-
-/* Form Inputs, Selects & Textareas (preserve focus borders) */
-html.warm input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
-html.warm select,
-html.warm textarea {
-  background-color: #f6f1e6 !important;
-  color: #2c2520 !important;
-}
-
+html.dark textarea:not(:focus),
 html.warm input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not(:focus),
 html.warm select:not(:focus),
 html.warm textarea:not(:focus) {
-  border-color: #d4c8b0 !important;
+  border-color: var(--border-strong);
 }
 
-html.warm input::placeholder,
-html.warm textarea::placeholder {
-  color: #736659 !important;
-}
-
-/* Warm Typography & AA Muted Labels */
-html.warm .text-slate-800,
-html.warm .text-slate-900,
-html.warm .text-stone-800,
-html.warm .text-stone-900 {
-  color: #2c2520 !important;
-}
-
-html.warm .text-slate-600:not(:hover),
-html.warm .text-slate-700:not(:hover),
-html.warm .text-stone-600:not(:hover),
-html.warm .text-stone-700:not(:hover) {
-  color: #4a4037 !important;
-}
-
-html.warm .text-slate-500:not(:hover),
-html.warm .text-stone-500:not(:hover),
-html.warm .text-slate-400:not(:hover),
-html.warm .text-stone-400:not(:hover) {
-  color: #5c5146 !important;
-}
-
-html.warm .hover\:text-sky-800:hover {
-  color: #075985 !important;
-}
-
-/* Warm Dividers & Borders */
-html.warm [class*="border-slate-100"],
-html.warm [class*="border-slate-200"],
-html.warm [class*="border-stone-200"],
-html.warm .divide-slate-100 > :not(:last-child),
-html.warm .divide-slate-200 > :not(:last-child),
-html.warm .divide-slate-200\/60 > :not(:last-child),
-html.warm .divide-stone-200 > :not(:last-child) {
-  border-color: #e2d9c5 !important;
-}
-
-html.warm [class*="border-slate-300"],
-html.warm [class*="border-stone-300"] {
-  border-color: #d4c8b0 !important;
-}
-
-html.warm .hover\:border-sky-300:hover {
-  border-color: #7dd3fc !important;
-}
-
-html.warm .hover\:border-purple-400:hover {
-  border-color: #c084fc !important;
-}
-
-html.warm .ring-white {
-  --tw-ring-color: #faf6ee !important;
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-placeholder);
 }
 
 @keyframes howard-fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .animate-fade-in {
@@ -389,28 +142,16 @@ html.warm .ring-white {
 }
 
 @media print {
-  .no-print {
-    display: none !important;
-  }
-  .print-only {
-    display: block !important;
-  }
-  .overflow-x-auto {
-    overflow: visible !important;
-  }
-  .print-block {
-    display: block !important;
-  }
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+  .overflow-x-auto { overflow: visible !important; }
+  .print-block { display: block !important; }
   .print-avoid-break {
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  thead {
-    display: table-header-group;
-  }
-  tr {
-    break-inside: avoid;
-  }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
   html,
   html.dark,
   html.warm,
