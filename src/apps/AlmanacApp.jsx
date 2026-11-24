@@ -1021,7 +1021,7 @@ export default function AlmanacApp({
                           </div>
                           <h4 className="font-bold text-sm break-words">{evt.title}</h4>
                         </div>
-                        <div className="flex items-center gap-1 shrink-0">
+                        <div className="flex items-center gap-1 shrink-0 -mt-1 -mr-1">
                           <button
                             type="button"
                             onClick={() => openEditEventModal(evt)}
@@ -1061,14 +1061,14 @@ export default function AlmanacApp({
                             onClick={() =>
                               handleSkipSingleOccurrence(evt.id, selectedDate)
                             }
-                            className="min-h-[40px] inline-flex items-center px-2 -mx-2 rounded-xl py-1 font-semibold text-amber-700 dark:text-amber-300 hover:underline cursor-pointer"
+                            className="min-h-[40px] -my-2 inline-flex items-center px-2 -mx-2 rounded-xl py-1 font-semibold text-amber-700 dark:text-amber-300 hover:underline cursor-pointer"
                           >
                             Skip this date only
                           </button>
                           <button
                             type="button"
                             onClick={() => setConfirmDeleteEvent(evt)}
-                            className="min-h-[40px] inline-flex items-center px-2 -mx-2 rounded-xl py-1 font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer"
+                            className="min-h-[40px] -my-2 inline-flex items-center px-2 -mx-2 rounded-xl py-1 font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer"
                           >
                             Delete series
                           </button>
@@ -1107,7 +1107,7 @@ export default function AlmanacApp({
             {/* 2. Cadence Overlay Summary */}
             {showCadenceLayer && (
               <div
-                className={`p-3.5 rounded-2xl border space-y-1.5 text-xs ${
+                className={`p-3.5 rounded-2xl border space-y-2.5 text-xs ${
                   darkMode
                     ? 'bg-slate-800/40 border-slate-800'
                     : 'bg-purple-50/60 border-purple-200/70'
@@ -1120,7 +1120,7 @@ export default function AlmanacApp({
                   <button
                     type="button"
                     onClick={() => onNavigateApp('cadence')}
-                    className="min-h-[40px] inline-flex items-center px-2 -mr-2 rounded-xl underline text-xs font-semibold cursor-pointer shrink-0"
+                    className="min-h-[40px] -my-2.5 inline-flex items-center px-2 -mr-2 rounded-xl underline text-xs font-semibold cursor-pointer shrink-0"
                   >
                     Open Cadence
                   </button>
@@ -1130,7 +1130,7 @@ export default function AlmanacApp({
                     🐾 Bottle Expiry Date — open a fresh bottle &amp; update the opened date in Cadence
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-2 pt-1">
+                <div className="grid grid-cols-2 gap-2">
                   <div className="p-2 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-200/60 dark:border-slate-700">
                     <div className="font-bold">Morning</div>
                     <div className="text-xs text-slate-600 dark:text-slate-300">
@@ -1154,7 +1154,7 @@ export default function AlmanacApp({
             {/* 2B. Bloom Overlay Summary */}
             {showBloomLayer && (
               <div
-                className={`p-3.5 rounded-2xl border space-y-1.5 text-xs ${
+                className={`p-3.5 rounded-2xl border space-y-2.5 text-xs ${
                   darkMode
                     ? 'bg-slate-800/40 border-slate-800'
                     : 'bg-emerald-50/60 border-emerald-200/70'
@@ -1167,7 +1167,7 @@ export default function AlmanacApp({
                   <button
                     type="button"
                     onClick={() => onNavigateApp('bloom')}
-                    className="min-h-[40px] inline-flex items-center px-2 -mr-2 rounded-xl underline text-xs font-semibold cursor-pointer shrink-0"
+                    className="min-h-[40px] -my-2.5 inline-flex items-center px-2 -mr-2 rounded-xl underline text-xs font-semibold cursor-pointer shrink-0"
                   >
                     Open Bloom
                   </button>
@@ -1189,7 +1189,7 @@ export default function AlmanacApp({
                     </div>
                   )}
 
-                <div className="grid grid-cols-2 gap-2 pt-0.5">
+                <div className="grid grid-cols-2 gap-2">
                   <div className="p-2 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-200/60 dark:border-slate-700">
                     <div className="font-bold">Misting</div>
                     <div className="text-xs text-slate-600 dark:text-slate-300">
@@ -1219,7 +1219,7 @@ export default function AlmanacApp({
             {/* 3. Floodgate Overlay Summary (Partner 2 only) */}
             {showFloodgateLayer && activeProfile.allowedApps.includes('floodgate') && (
               <div
-                className={`p-3.5 rounded-2xl border space-y-1.5 text-xs ${
+                className={`p-3.5 rounded-2xl border space-y-2.5 text-xs ${
                   darkMode
                     ? 'bg-slate-800/40 border-rose-900/50'
                     : 'bg-rose-50/60 border-rose-200/70'
@@ -1234,13 +1234,13 @@ export default function AlmanacApp({
                     onClick={() =>
                       onOpenFloodgate({ tab: 'log', date: selectedDate })
                     }
-                    className="min-h-[40px] inline-flex items-center px-2 -mr-2 rounded-xl underline text-xs font-semibold cursor-pointer shrink-0"
+                    className="min-h-[40px] -my-2.5 inline-flex items-center px-2 -mr-2 rounded-xl underline text-xs font-semibold cursor-pointer shrink-0"
                   >
                     {selectedCellData.floodgateLog ? 'Edit Day' : 'Log Day'}
                   </button>
                 </div>
                 {selectedCellData.floodgateLog ? (
-                  <div className="space-y-1 pt-1">
+                  <div className="space-y-1">
                     <div className="capitalize font-semibold">
                       Bleeding: {selectedCellData.floodgateLog.bleedingSeverity} • Pain:{' '}
                       {selectedCellData.floodgateLog.painScore}/10
@@ -1262,30 +1262,32 @@ export default function AlmanacApp({
             {/* 4. Ledger Bills & Paydays Overlay */}
             {showLedgerLayer && selectedCellData.ledgerDue.length > 0 && (
               <div
-                className={`p-3.5 rounded-2xl border space-y-1.5 text-xs ${
+                className={`p-3.5 rounded-2xl border space-y-2.5 text-xs ${
                   darkMode
                     ? 'bg-slate-800/40 border-amber-900/50'
                     : 'bg-amber-50/60 border-amber-200/70'
                 }`}
               >
                 <div className="flex items-center justify-between gap-2 font-bold text-amber-800 dark:text-amber-300">
-                  <span className="min-w-0">💷 Ledger Bills &amp; Paydays:</span>
+                  <span className="min-w-0">💷 Ledger Bills &amp; Paydays</span>
                   <button
                     type="button"
                     onClick={() => onNavigateApp('ledger')}
-                    className="min-h-[40px] inline-flex items-center px-2 -mr-2 rounded-xl underline text-xs font-semibold cursor-pointer shrink-0"
+                    className="min-h-[40px] -my-2.5 inline-flex items-center px-2 -mr-2 rounded-xl underline text-xs font-semibold cursor-pointer shrink-0"
                   >
                     Open Ledger
                   </button>
                 </div>
-                {selectedCellData.ledgerDue.map((it) => (
-                  <div key={it.id} className="flex items-center justify-between gap-2 font-medium">
-                    <span className="min-w-0 break-words">
-                      • {it.title} ({it.kind})
-                    </span>
-                    <span className="font-bold shrink-0">{formatGBP(it.amount)}</span>
-                  </div>
-                ))}
+                <div className="space-y-1.5">
+                  {selectedCellData.ledgerDue.map((it) => (
+                    <div key={it.id} className="flex items-center justify-between gap-2 font-medium">
+                      <span className="min-w-0 break-words">
+                        • {it.title} ({it.kind})
+                      </span>
+                      <span className="font-bold shrink-0">{formatGBP(it.amount)}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

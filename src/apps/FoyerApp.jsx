@@ -765,14 +765,14 @@ export default function FoyerApp({
       ==================================================================== */}
       {activeProfile.id === 'caregiver' ? (
         <section
-          className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-4 ${
+          className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs space-y-3 sm:space-y-4 ${
             darkMode
               ? 'bg-slate-900 border-slate-800'
               : 'bg-white border-slate-200/90'
           }`}
         >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-start sm:items-center justify-between gap-2.5">
+            <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
               <div
                 className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${MODULE_ACCENTS.sky.iconBg}`}
               >
@@ -790,9 +790,13 @@ export default function FoyerApp({
             <button
               type="button"
               onClick={() => onNavigateApp('beacon')}
-              className="min-h-[44px] px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-800 text-white text-xs font-bold inline-flex items-center cursor-pointer shrink-0 self-start sm:self-auto active:scale-[0.98] transition"
+              aria-label="Open Full Beacon Guide"
+              title="Open Full Beacon Guide"
+              className="min-h-[40px] px-2.5 sm:px-3 py-1.5 rounded-xl border border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 inline-flex items-center gap-1 text-xs font-bold text-sky-800 dark:text-sky-300 cursor-pointer shrink-0 whitespace-nowrap active:scale-[0.98] transition"
             >
-              Open Full Guide &rarr;
+              <span className="sm:hidden">Open</span>
+              <span className="hidden sm:inline">Full Guide</span>
+              <ArrowRight className="w-3.5 h-3.5 shrink-0" />
             </button>
           </div>
 
@@ -892,15 +896,15 @@ export default function FoyerApp({
         >
           {/* ALMANAC UPCOMING AGENDA CARD */}
           <section
-            className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between space-y-4 ${
+            className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between space-y-3 sm:space-y-4 ${
               darkMode
                 ? 'bg-slate-900 border-slate-800'
                 : 'bg-white border-slate-200/90'
             }`}
           >
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <div className="space-y-3 sm:space-y-4">
+              <div className="flex items-start sm:items-center justify-between gap-2.5">
+                <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
                   <div
                     className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${MODULE_ACCENTS.indigo.iconBg}`}
                   >
@@ -916,9 +920,12 @@ export default function FoyerApp({
                 <button
                   type="button"
                   onClick={() => onNavigateApp('almanac')}
-                  className="min-h-[40px] inline-flex items-center px-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer shrink-0"
+                  aria-label="Open Almanac Calendar"
+                  title="Open Almanac Calendar"
+                  className="min-h-[40px] px-2.5 py-1.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 inline-flex items-center gap-1 text-xs font-bold text-indigo-800 dark:text-indigo-300 cursor-pointer shrink-0 whitespace-nowrap active:scale-[0.98] transition"
                 >
-                  Open Calendar &rarr;
+                  <span>Open</span>
+                  <ArrowRight className="w-3.5 h-3.5 shrink-0" />
                 </button>
               </div>
 
@@ -987,15 +994,15 @@ export default function FoyerApp({
 
           {/* LEDGER FINANCES & BILLS CARD */}
           <section
-            className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between space-y-4 ${
+            className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between space-y-3 sm:space-y-4 ${
               darkMode
                 ? 'bg-slate-900 border-slate-800'
                 : 'bg-white border-slate-200/90'
             }`}
           >
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <div className="space-y-3 sm:space-y-4">
+              <div className="flex items-start sm:items-center justify-between gap-2.5">
+                <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
                   <div
                     className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${MODULE_ACCENTS.amber.iconBg}`}
                   >
@@ -1011,9 +1018,12 @@ export default function FoyerApp({
                 <button
                   type="button"
                   onClick={() => onNavigateApp('ledger')}
-                  className="min-h-[40px] inline-flex items-center px-2 text-xs font-bold text-amber-700 dark:text-amber-400 hover:underline cursor-pointer shrink-0"
+                  aria-label="Open Ledger Finances"
+                  title="Open Ledger Finances"
+                  className="min-h-[40px] px-2.5 py-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 inline-flex items-center gap-1 text-xs font-bold text-amber-800 dark:text-amber-300 cursor-pointer shrink-0 whitespace-nowrap active:scale-[0.98] transition"
                 >
-                  Open Ledger &rarr;
+                  <span>Open</span>
+                  <ArrowRight className="w-3.5 h-3.5 shrink-0" />
                 </button>
               </div>
 
@@ -1110,30 +1120,42 @@ export default function FoyerApp({
           {/* PARTNER 2'S PRIVATE FLOODGATE QUICK CARD (ONLY SHOWN FOR PARTNER 2) */}
           {activeProfile.allowedApps.includes('floodgate') && (
             <section
-              className={`md:col-span-2 xl:col-span-1 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between space-y-4 ${
+              className={`md:col-span-2 xl:col-span-1 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-xs flex flex-col justify-between space-y-3 sm:space-y-4 ${
                 darkMode
                   ? 'bg-slate-900 border-rose-900/50'
                   : 'bg-rose-50/40 border-rose-200/80'
               }`}
             >
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <div className="space-y-3 sm:space-y-4">
+                <div className="flex items-start sm:items-center justify-between gap-2.5">
+                  <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
                     <div
                       className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${MODULE_ACCENTS.rose.iconBg}`}
                     >
                       <Heart className="w-5 h-5" />
                     </div>
                     <div className="min-w-0">
-                      <h3 className="font-extrabold text-base">Floodgate Journal</h3>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <h3 className="font-extrabold text-base">Floodgate Journal</h3>
+                        <span className="text-[11px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-300 shrink-0">
+                          Private
+                        </span>
+                      </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400">
                         {partner2Name}&apos;s private cycle, clot &amp; pain log
                       </p>
                     </div>
                   </div>
-                  <span className="text-[11px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-300 shrink-0">
-                    Private
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onOpenFloodgate({ tab: 'log', date: todayKey })}
+                    aria-label="Open Floodgate Journal"
+                    title="Open Floodgate Journal"
+                    className="min-h-[40px] px-2.5 py-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 inline-flex items-center gap-1 text-xs font-bold text-rose-800 dark:text-rose-300 cursor-pointer shrink-0 whitespace-nowrap active:scale-[0.98] transition"
+                  >
+                    <span>Open</span>
+                    <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+                  </button>
                 </div>
 
                 {partner2TodayLog ? (
