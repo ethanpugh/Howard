@@ -1,135 +1,144 @@
-<div align="center">
+# Howard
 
-# 🎩 Howard — Self-Hosted Household Suite
+Self-hosted household hub for daily routines, pet and mantis care, shared calendars, household bills, and clinical symptom logs.
 
-**A unified, real-time household platform integrating daily briefings, pet medication tracking, mantis habitat & growth logs, clinical symptom tracking, shared calendars, household bookkeeping, and sitter guides.**
+[![React 19](https://img.shields.io/badge/React-19-149eca?style=flat-square)](https://react.dev/)
+[![Vite 8](https://img.shields.io/badge/Vite-8-646cff?style=flat-square)](https://vite.dev/)
+[![Tailwind CSS v4](https://img.shields.io/badge/Tailwind_CSS-v4-06b6d4?style=flat-square)](https://tailwindcss.com/)
+[![Node 22 SQLite](https://img.shields.io/badge/SQLite-Node_22_Built--in-003b57?style=flat-square)](https://nodejs.org/api/sqlite.html)
+[![Docker](https://img.shields.io/badge/Docker-Node_22_Alpine-2496ed?style=flat-square)](https://www.docker.com/)
 
-[![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
-[![Vite](https://img.shields.io/badge/Vite-8-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vite.dev/)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
-[![SQLite](https://img.shields.io/badge/SQLite-Node_22_Built--in-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://nodejs.org/api/sqlite.html)
-[![Docker](https://img.shields.io/badge/Docker-Node_22_Alpine-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+## Overview
 
-</div>
+Howard combines seven household tools inside a single Node.js 22 Docker container on port `5170`, stored in one local SQLite database (`node:sqlite`, unflagged). Connected phones, tablets, and desktops stay in sync over Server-Sent Events (SSE) push with a 3-second polling fallback (30-second keepalive when SSE is active), plus gzip compression and ETag/304 caching on static assets.
 
----
+The interface adapts across phones, tablets, and desktops using a collapsible sidebar rail on desktop, a `Ctrl+K` / `Cmd+K` Bento module switcher, and a floating bottom capsule on mobile. Two built-in themes (**Warm Beige** and **Softened Dark**) are driven by semantic CSS tokens with dedicated print styling for GP consultation reports.
 
-## 📖 Overview
+## Modules
 
-**Howard** brings seven self-hosted household tools together under a single lightweight Docker container and port (`:5170`), backed by zero-dependency **Node.js 22.13+** (`node:sqlite`, unflagged) databases and 2.5-second live Wi-Fi synchronisation across phones and tablets.
-
-### 🧩 Included Household Modules
-
-| Module | Description |
+| Module | What it handles |
 | :--- | :--- |
-| **🏠 Foyer** | **Morning Briefing & Fast Actions:** Time-aware daily dashboard with one-tap Morning/Evening pet medication dose buttons, one-tap **Bloom** mantis enclosure misting & premolt/hardening safety alerts, automatic bottle expiry warnings, upcoming **Almanac** agenda, and **Ledger** upcoming bills & monthly spend. |
-| **🐾 Cadence** | **Pet Medication Tracker:** Twice-daily anti-double-dose status banner, bottle shelf-life progress bar, and weekly adherence history—automatically pre-selecting the active Howard profile. |
-| **🌸 Bloom** | **Flower Mantis Growth, Feeding & Habitat Tracker:** Daily anti-double-mist & abdomen plumpness feeding log, Premolt Watch & post-molt exoskeleton hardening lockouts, instar/molt milestone timeline, live feeder culture alerts, and enclosure molting clearance calculator. |
-| **📅 Almanac** | **Unified Household Calendar:** Shared events & appointments with live toggleable overlays for **pet medication adherence**, **bottle expiry date**, **Bloom mantis molts & care**, **Ledger billing days & paydays**, and **Partner 2's Floodgate cycle & printable GP reports**. |
-| **🌊 Floodgate** | **Private Cycle & Clinical Symptom Tracker:** Flow severity, blood clot counts/sizes, 0–10 pain scale, bowel/GI flare-ups, medication relief tracking, pattern insights, and printable specialist/GP consultation summaries. |
-| **💷 Ledger** | **Household Bookkeeping, Subscriptions & Expenses:** Track day-to-day expenses, Direct Debits, subscriptions, and income streams separated between **Partner 1**, **Partner 2**, **Joint/Shared**, and **Unified** views with 50/50 or income-proportional splitting and CSV export. |
-| **🚨 Beacon** | **Emergency, Vet & House Guide:** Sitter-ready reference card for household pet care, feeding/supply locations, daytime & 24hr emergency vet numbers, household contacts, Wi-Fi (with HTTP-LAN clipboard fallback), bin collection, and utilities. |
+| **Foyer** | Daily briefing with quick actions for AM/PM pet medication doses, mantis enclosure misting, premolt/hardening alerts, upcoming Almanac dates, Ledger spend summaries, and uniform `[Open ->]` shortcuts across cards. |
+| **Cadence** | Twice-daily pet medication log with double-dose prevention, morning/evening adherence stats, bottle shelf-life and expiry countdown, and weekly Mon-Sun history. |
+| **Bloom** | Spiny flower mantis care tracker covering misting intervals, prey feeding and abdomen plumpness logs, Premolt Watch and post-molt exoskeleton hardening lockouts, instar progression, feeder culture alerts, and enclosure clearance checks. |
+| **Almanac** | Shared household calendar with recurring events and toggleable overlays for Cadence doses and bottle expiry, Bloom molts and care, Ledger bills and paydays, and Partner 2's private Floodgate cycle/GP entries. |
+| **Floodgate** | Private cycle and clinical symptom log recording flow intensity, clot size/count, 0 to 10 pain scores, GI symptoms, medication relief, pattern insights, and printable GP consultation reports. |
+| **Ledger** | Shared bookkeeping for day-to-day expenses, Direct Debits, subscriptions, and income across Partner 1, Partner 2, Joint, and Unified views, supporting 50/50 or income-proportional settlements and CSV export. |
+| **Beacon** | Reference guide for pet routines, supply locations, daytime and 24-hour emergency vet contacts, household contacts, Wi-Fi details with LAN-safe copy buttons, bin collection days, and utilities. |
 
----
+## Profiles & Privacy
 
-## 👤 Household Profiles & Optional PIN Locks
+Access adapts to the active household profile. **Partner 1** and **Partner 2** display names can be renamed in-app, while **Caregiver** stays fixed for sitter access:
 
-Howard tailors navigation and profile views based on who is holding the device (`Partner 1` and `Partner 2` display names are renameable in-app; `Caregiver` is fixed for sitter mode):
+* **Partner 1**: Full access to Foyer, Cadence, Bloom, Almanac, Ledger, and Beacon, plus full database export and JSON restore/merge permissions.
+* **Partner 2**: Full access to Foyer, Cadence, Bloom, Almanac, Floodgate, Ledger, and Beacon, plus full database export.
+* **Caregiver**: Always unlocked for guests and pet sitters; limits navigation to Caregiver Foyer, Cadence, Bloom, and read-only Beacon.
 
-* **⚡ Partner 1:** Access to **Foyer**, **Cadence**, **Bloom**, **Almanac**, **Ledger**, and **Beacon** (optional 4–8 digit PIN).
-* **🌸 Partner 2:** Access to **Foyer**, **Cadence**, **Bloom**, **Almanac**, **Floodgate**, **Ledger**, and **Beacon** (optional 4–8 digit PIN).
-* **🐾 Caregiver (Pet Sitter Mode):** Always unlocked for zero-friction sitter access—shows **Foyer** (simplified sitter view), **Cadence**, **Bloom**, and **Beacon** (read-only).
+### Security Model
 
-### 🔐 Security & Privacy Model
+Howard is built for trusted home LANs and private VPNs (such as Tailscale) rather than public multi-tenant hosting:
 
-Howard is intentionally designed for **trusted home LAN / Tailscale networks** rather than public internet multi-tenancy:
+* **Optional PIN Lock**: Partner 1 and Partner 2 can each set a 4 to 8 digit numeric PIN to stop casual switching on a shared kitchen tablet. These are lightweight device locks, not internet-facing authentication.
+* **Private Data Filtering**: Floodgate is strictly scoped to Partner 2 in both the workspace and API sync payloads. Partner 2 private events and GP-report-linked entries in Almanac are hidden from Partner 1 and Caregiver views.
 
-* **Lightweight Guest Blocking:** Profile PINs prevent casual browsing by guests or pet sitters when switching profiles on a shared kitchen tablet or household phone. They are lightweight device-level locks rather than cryptographic internet-facing authentication.
-* **Scoped Private Views:** **Floodgate** is scoped to **Partner 2**'s workspace and Calendar overlay. **Almanac** and **Foyer** keep Partner 1 and shared medical events visible while filtering out Partner 2-private and GP-report-linked entries in other profile views.
+## Database & Backups
 
----
+All modules persist atomically in `./data/howard.db` (`/app/data/howard.db` in Docker) using SQLite schema `user_version = 5` and `WAL` journal mode by default. On first boot with legacy separate databases (`cadence.db`, `bloom.db`, `floodgate.db`), Howard archives the old files into `./data/backups/legacy-4db-*/` and migrates their data into `howard.db`.
 
-## 💾 Unified Database Architecture & Daily Backups
+* **Daily Snapshots**: Howard writes compacted daily snapshots via `VACUUM INTO` to `./data/backups/YYYY-MM-DD/howard.db` and prunes snapshots older than 7 days. You can copy any dated snapshot directly without stopping the container.
+* **JSON Export & Restore**: Partner 1 and Partner 2 can download a full household JSON backup (including Floodgate) from the top-right Backstage Database dialog. Only Partner 1 can upload restores, supporting full Howard replacement (`mode: "replace"`) as well as merging standalone Cadence, Bloom, or Floodgate JSON exports (`mode: "merge"`). Every restore saves a pre-restore `VACUUM INTO` snapshot to `./data/backups/pre-restore-*/` first.
+* **Cold File Copy**: If copying `./data/howard.db` directly instead of using a dated snapshot, stop the container briefly so active `-wal`/`-shm` journals flush cleanly:
 
-Howard stores the entire household in a single atomic SQLite database inside `./data` (`/app/data` in Docker):
-* `./data/howard.db` — Unified SQLite database (`PRAGMA user_version = 5`) containing Profiles, Almanac calendar events, Ledger bookkeeping, Beacon house guide, Cadence pet medication logs, Bloom mantis habitat & growth logs, and Floodgate clinical symptom logs. Legacy 4-database setups (`cadence.db`, `bloom.db`, `floodgate.db`) automatically archive to `./data/backups/legacy-4db-*/` and consolidate on first boot.
+```bash
+docker compose stop
+# Copy ./data to your backup target
+docker compose start
+```
 
-> **Backup & Restore Access:** Both **Partner 1** and **Partner 2** can inspect live sync status and export the full household database (including Floodgate in its entirety) from the top-right Database menu. Only **Partner 1** can restore or merge JSON backups, and every restore automatically saves a pre-restore `VACUUM INTO` snapshot to `./data/backups/pre-restore-*/` inside a single SQLite transaction (`mode: "replace"` in the UI or `mode: "merge"` for standalone Cadence/Floodgate JSONs).
+## Project Structure
 
-### 📦 Automatic Daily Snapshots & Safe Folder Copies
+```text
+.
+├── server.js                  # CLI entrypoint booting createHowardApp()
+├── server/                    # Modular backend (SQLite db, migrations, cache, backup, HTTP/SSE, domain routes)
+├── shared/                    # Zero-dependency date, profile/RBAC, and default settings helpers shared by client & server
+├── src/
+│   ├── App.jsx                # Root app shell, theme state, and lazy-loaded module routing
+│   ├── index.css              # Tailwind v4 @theme semantic tokens, Warm Beige & Softened Dark palettes, print styles
+│   ├── components/HowardUI.jsx
+│   ├── components/shell/      # Header, desktop rail, mobile floating pill, Bento switcher, Profile & Backstage modals
+│   ├── hooks/                 # Live SSE sync (useHouseholdSync), action locks, week navigation
+│   ├── utils/                 # Shared helpers and apiClient
+│   └── apps/                  # 7 module workspaces and their decomposed tabs/modals
+└── tests/                     # Built-in node:test unit and SQLite server integration suites
+```
 
-Howard automatically creates clean daily SQLite snapshots inside `./data/backups/YYYY-MM-DD/howard.db` (pruning older daily snapshots after 7 days):
+## Getting Started (Docker)
 
-* **Quick Explorer / Finder Copy (No Downtime):** Copy any dated `howard.db` from `./data/backups/YYYY-MM-DD/` directly without stopping Docker—those snapshot files are cleanly compacted via `VACUUM INTO`.
-* **Cold Copy of Live `./data`:** If copying the live `./data/howard.db*` files directly, stop the container first so active `-wal`/`-shm` journals are flushed cleanly:
-  ```bash
-  docker compose stop
-  # Copy ./data to your backup drive
-  docker compose start
-  ```
+### Docker Compose (Recommended)
 
----
-
-## 🚀 Getting Started (Docker Deployment)
-
-### 1. Start with Docker Compose (Recommended)
-`docker-compose.yml` configures `TZ=Europe/London` by default so local daily boundaries, reminders, and recurring schedules align with your household timezone—adjust `TZ` before starting if needed.
+`docker-compose.yml` sets `TZ=Europe/London` by default so daily dose windows, calendar boundaries, and recurring bills align with your household timezone. Edit `TZ` before starting if needed.
 
 ```bash
 docker compose up -d --build
 ```
-Howard will be live at `http://localhost:5170` (or `http://<SERVER-LAN-IP>:5170` across your home Wi-Fi).
 
-### 2. Upgrading Howard (Preserving Data)
-Pull the latest changes and rebuild in place—your mounted `./data` databases and daily snapshots remain untouched:
+Open `http://localhost:5170` (or `http://<SERVER-LAN-IP>:5170` across your home network).
+
+### Upgrading
+
+Pull the latest changes and rebuild without touching `./data`:
+
 ```bash
 git pull
 docker compose up -d --build
 ```
 
-### 3. Optional Storage & NAS Configuration (`docker-compose.yml`)
-* **Docker Named Volume (`howard_data`):** Uncomment `howard_data:/app/data` and the top-level `volumes:` block in `docker-compose.yml` to keep SQLite databases on native Linux `ext4` storage under Docker Desktop.
-* **NAS / Network Share Mounts:** Uncomment `SQLITE_JOURNAL_MODE=TRUNCATE` in `docker-compose.yml` if `./data` is mounted over SMB/NFS where SQLite `WAL` file locking is unsupported.
+### Storage & NAS Notes (`docker-compose.yml`)
 
-### 4. Build & Run with `docker run`
+* **Docker Named Volume**: Uncomment `howard_data:/app/data` and the top-level `volumes:` block to keep SQLite on native Linux `ext4` under Docker Desktop.
+* **SMB / NFS Network Shares**: Uncomment `SQLITE_JOURNAL_MODE=TRUNCATE` if `./data` sits on a network mount where SQLite `WAL` shared-memory locking is unsupported.
+
+### Standalone `docker run`
+
 ```powershell
 docker build -t howard .
 docker run -d --name howard -p 5170:80 -e TZ=Europe/London -v "${PWD}/data:/app/data" --restart unless-stopped howard
 ```
 
-### 5. Windows Firewall Rule (Optional Home LAN Access)
+### Windows Firewall (Optional LAN Access)
+
 ```cmd
 netsh advfirewall firewall add rule name="Allow Howard 5170" dir=in action=allow protocol=TCP localport=5170 profile=any
 ```
 
----
+## Local Development
 
-## 🛠️ Local Development & Verification
-
-Requires **Node.js 22.13+** (for unflagged built-in `node:sqlite` support).
+Requires **Node.js 22.13+** for unflagged `node:sqlite`.
 
 ```bash
 npm ci
 ```
 
-**Terminal 1 — Start unified SQLite server on port `3001`:**
+Run the backend server and Vite dev server in separate terminals:
+
 ```powershell
-# Windows PowerShell
+# Terminal 1 (Windows PowerShell): unified API & SQLite server on port 3001
 $env:PORT=3001; npm start
 ```
-```bash
-# macOS / Linux / Git Bash
-PORT=3001 npm start
-```
 
-**Terminal 2 — Start Vite dev server on port `5170`:**
 ```bash
+# Terminal 1 (macOS / Linux / Git Bash)
+PORT=3001 npm start
+
+# Terminal 2: Vite dev server on port 5170 (proxies /api to 3001)
 npm run dev
 ```
 
-**Checks & Production Build:**
+Run checks and production builds:
+
 ```bash
-npm test          # Node built-in test runner (unit & SQLite server integration suite)
-npm run lint      # Oxlint static checks
-npm run build     # Production Vite bundle -> ./dist
+npm test       # Unit & SQLite server integration tests (node --test)
+npm run lint   # Static linting (oxlint)
+npm run build  # Production bundle -> ./dist
 ```
