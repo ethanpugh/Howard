@@ -79,6 +79,10 @@ export const DEFAULT_LEDGER_DATA = {
   expenses: []
 };
 
+export const DEFAULT_QUILL_SETTINGS = {
+  labels: []
+};
+
 export const DEFAULT_BEACON_INFO = {
   petCare: {
     summary: '',

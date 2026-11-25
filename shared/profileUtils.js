@@ -5,6 +5,7 @@ export const VALID_APP_IDS = new Set([
   'almanac',
   'floodgate',
   'ledger',
+  'quill',
   'beacon'
 ]);
 
@@ -17,7 +18,7 @@ export const DEFAULT_PROFILES = [
     badgeEmoji: '⚡',
     pinEnabled: false,
     pin: '',
-    allowedApps: ['foyer', 'cadence', 'bloom', 'almanac', 'ledger', 'beacon'],
+    allowedApps: ['foyer', 'cadence', 'bloom', 'almanac', 'ledger', 'quill', 'beacon'],
     caregiverName: 'Partner 1'
   },
   {
@@ -28,7 +29,7 @@ export const DEFAULT_PROFILES = [
     badgeEmoji: '🌸',
     pinEnabled: false,
     pin: '',
-    allowedApps: ['foyer', 'cadence', 'bloom', 'almanac', 'floodgate', 'ledger', 'beacon'],
+    allowedApps: ['foyer', 'cadence', 'bloom', 'almanac', 'floodgate', 'ledger', 'quill', 'beacon'],
     caregiverName: 'Partner 2'
   },
   {
@@ -40,7 +41,7 @@ export const DEFAULT_PROFILES = [
     pinEnabled: false,
     pin: '',
     lockedOutOfPin: true,
-    allowedApps: ['foyer', 'cadence', 'bloom', 'beacon'],
+    allowedApps: ['foyer', 'cadence', 'bloom', 'quill', 'beacon'],
     caregiverName: 'Caregiver'
   }
 ];

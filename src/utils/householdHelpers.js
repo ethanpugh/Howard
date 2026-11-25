@@ -20,7 +20,8 @@ import {
   createDefaultBloomSettings,
   DEFAULT_FLOODGATE_SETTINGS,
   DEFAULT_LEDGER_DATA,
-  DEFAULT_BEACON_INFO
+  DEFAULT_BEACON_INFO,
+  DEFAULT_QUILL_SETTINGS
 } from '../../shared/defaults.js';
 
 export {
@@ -41,7 +42,8 @@ export {
   createDefaultBloomSettings,
   DEFAULT_FLOODGATE_SETTINGS,
   DEFAULT_LEDGER_DATA,
-  DEFAULT_BEACON_INFO
+  DEFAULT_BEACON_INFO,
+  DEFAULT_QUILL_SETTINGS
 };
 
 export const formatFriendlyDate = (dateKey, todayKey = getLocalDateKey(new Date())) => {

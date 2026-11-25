@@ -5,9 +5,16 @@ import { DEFAULT_PROFILES } from '../shared/profileUtils.js';
 import {
   DEFAULT_BEACON_INFO,
   DEFAULT_FLOODGATE_SETTINGS,
+  DEFAULT_QUILL_SETTINGS,
   createDefaultBloomSettings,
   createDefaultCadenceSettings
 } from '../shared/defaults.js';
+import {
+  MAX_HOUSEHOLD_LABELS,
+  VALID_NOTE_COLORS,
+  normalizeQuillLabels,
+  validateAndNormalizeQuillNote
+} from './domains/quill.js';
 import {
   CURRENT_SCHEMA_VERSION,
   createHttpError,
@@ -111,6 +118,7 @@ export function buildFullBackupPayload(dbCtx, cache, { includeFloodgate = true }
   const cadenceState = cache.getCachedCadenceState();
   const bloomExportSettings = cache.readBloomSettings({ includeInternal: true }).settings;
   const bloomState = cache.getCachedBloomState();
+  const quillRaw = cache.getCachedQuillRawState();
 
   const payload = {
     app: 'Howard',
@@ -132,6 +140,10 @@ export function buildFullBackupPayload(dbCtx, cache, { includeFloodgate = true }
       logsByDate: bloomState.logsByDate,
       molts: bloomState.molts,
       feeders: bloomState.feeders
+    },
+    quill: {
+      settings: { labels: quillRaw.labels },
+      notes: quillRaw.notes
     }
   };
 
@@ -172,10 +184,11 @@ export function executeRestorePayload(dbCtx, cache, incoming) {
   const hasCadence = isPlainObject(incoming.cadence);
   const hasBloom = isPlainObject(incoming.bloom);
   const hasFloodgate = isPlainObject(incoming.floodgate);
-  if (!hasHoward && !hasCadence && !hasBloom && !hasFloodgate) {
+  const hasQuill = isPlainObject(incoming.quill);
+  if (!hasHoward && !hasCadence && !hasBloom && !hasFloodgate && !hasQuill) {
     throw createHttpError(
       400,
-      'Backup payload must include at least one howard, cadence, bloom, or floodgate section'
+      'Backup payload must include at least one howard, cadence, bloom, floodgate, or quill section'
     );
   }
 
@@ -341,6 +354,17 @@ export function executeRestorePayload(dbCtx, cache, incoming) {
                 record: { ...rec, date: dk },
                 updatedAt: typeof rec.updatedAt === 'string' ? rec.updatedAt : nowIso
               }))
+          : null
+      }
+    : null;
+
+  const quillPlan = hasQuill
+    ? {
+        labels: isPlainObject(incoming.quill.settings) && Array.isArray(incoming.quill.settings.labels)
+          ? normalizeQuillLabels(incoming.quill.settings.labels, MAX_HOUSEHOLD_LABELS)
+          : null,
+        notes: Array.isArray(incoming.quill.notes)
+          ? incoming.quill.notes.filter((n) => isPlainObject(n) && typeof n.id === 'string' && n.id.trim())
           : null
       }
     : null;
@@ -526,6 +550,96 @@ export function executeRestorePayload(dbCtx, cache, incoming) {
           }
         }
         dbCtx.stmts.floodgateUpsertLog.run(item.dateKey, JSON.stringify(item.record), item.updatedAt);
+      }
+    }
+
+    if (quillPlan?.labels) {
+      const currentLabels = isMerge
+        ? dbCtx.readHowardKey('quill_settings', DEFAULT_QUILL_SETTINGS).data?.labels || []
+        : [];
+      const mergedLabels = normalizeQuillLabels(
+        [...currentLabels, ...quillPlan.labels],
+        MAX_HOUSEHOLD_LABELS
+      );
+      dbCtx.stmts.howardUpsert.run('quill_settings', JSON.stringify({ labels: mergedLabels }), nowIso);
+    }
+    if (quillPlan?.notes) {
+      if (!isMerge) dbCtx.stmts.quillClearAll.run();
+      const restoredLabels = [];
+      for (let i = 0; i < quillPlan.notes.length; i++) {
+        const rawNote = quillPlan.notes[i];
+        const noteId = String(rawNote.id).trim();
+        const ownerPid =
+          rawNote.ownerProfileId === 'partner1' || rawNote.ownerProfileId === 'partner2'
+            ? rawNote.ownerProfileId
+            : 'partner1';
+        const validActor = (pid, fallback) =>
+          pid === 'partner1' || pid === 'partner2' || pid === 'caregiver' ? pid : fallback;
+        const createdByPid = validActor(rawNote.createdByProfileId, ownerPid);
+        const updatedByPid = validActor(rawNote.updatedByProfileId, ownerPid);
+
+        if (isMerge) {
+          const existingRow = dbCtx.stmts.quillGetById.get(noteId);
+          if (existingRow && existingRow.updated_at && rawNote.updatedAt && existingRow.updated_at > rawNote.updatedAt) {
+            continue;
+          }
+        }
+        const safeColor = VALID_NOTE_COLORS.has(rawNote.color) ? rawNote.color : 'default';
+        const validated = validateAndNormalizeQuillNote(
+          { ...rawNote, id: noteId, color: safeColor },
+          null,
+          {
+            callerProfile: ownerPid,
+            profilesById: effectiveMap,
+            nowIso: typeof rawNote.updatedAt === 'string' ? rawNote.updatedAt : nowIso,
+            defaultPosition: (i + 1) * 1000,
+            preserveOwner: true
+          }
+        );
+        if (validated.error) continue;
+        const rec = {
+          ...validated.record,
+          id: noteId,
+          ownerProfileId: ownerPid,
+          createdByProfileId: createdByPid,
+          createdBy:
+            effectiveMap[createdByPid]?.name ||
+            (typeof rawNote.createdBy === 'string' && rawNote.createdBy) ||
+            validated.record.createdBy,
+          updatedByProfileId: updatedByPid,
+          updatedBy:
+            effectiveMap[updatedByPid]?.name ||
+            (typeof rawNote.updatedBy === 'string' && rawNote.updatedBy) ||
+            validated.record.updatedBy,
+          revision: Number.isInteger(Number(rawNote.revision)) && Number(rawNote.revision) > 0
+            ? Number(rawNote.revision)
+            : 1,
+          createdAt: typeof rawNote.createdAt === 'string' ? rawNote.createdAt : nowIso,
+          updatedAt: typeof rawNote.updatedAt === 'string' ? rawNote.updatedAt : nowIso,
+          trashedAt:
+            validated.record.status === 'trashed'
+              ? typeof rawNote.trashedAt === 'string'
+                ? rawNote.trashedAt
+                : nowIso
+              : null
+        };
+        if (Array.isArray(rec.labels)) restoredLabels.push(...rec.labels);
+        dbCtx.stmts.quillUpsert.run(
+          rec.id,
+          rec.ownerProfileId,
+          rec.visibility,
+          rec.status,
+          rec.pinned ? 1 : 0,
+          rec.position,
+          rec.revision,
+          JSON.stringify(rec),
+          rec.updatedAt
+        );
+      }
+      if (restoredLabels.length > 0) {
+        const curLabels = dbCtx.readHowardKey('quill_settings', DEFAULT_QUILL_SETTINGS).data?.labels || [];
+        const nextLabels = normalizeQuillLabels([...curLabels, ...restoredLabels], MAX_HOUSEHOLD_LABELS);
+        dbCtx.stmts.howardUpsert.run('quill_settings', JSON.stringify({ labels: nextLabels }), nowIso);
       }
     }
   });

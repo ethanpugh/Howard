@@ -32,7 +32,7 @@ export function sanitizeProfilesForClient(profiles) {
     lockedOutOfPin: Boolean(p.lockedOutOfPin || p.id === 'caregiver'),
     allowedApps: Array.isArray(p.allowedApps)
       ? p.allowedApps
-      : ['foyer', 'cadence', 'bloom', 'beacon'],
+      : ['foyer', 'cadence', 'bloom', 'quill', 'beacon'],
     caregiverName: p.caregiverName || p.name
   }));
 }
@@ -449,5 +449,24 @@ export function resolveBeaconInfo(
       const resolvedName = resolveProfileDisplayName(map, c.profileId, c.name);
       return resolvedName === c.name ? c : { ...c, name: resolvedName };
     })
+  };
+}
+
+export function resolveQuillNote(note, profilesById) {
+  if (!isPlainObject(note)) return note;
+  const createdBy = note.createdByProfileId
+    ? resolveProfileDisplayName(profilesById, note.createdByProfileId, note.createdBy || '')
+    : note.createdBy || '';
+  const updatedBy = note.updatedByProfileId
+    ? resolveProfileDisplayName(profilesById, note.updatedByProfileId, note.updatedBy || '')
+    : note.updatedBy || '';
+  const ownerName = note.ownerProfileId
+    ? resolveProfileDisplayName(profilesById, note.ownerProfileId, note.ownerName || '')
+    : note.ownerName || '';
+  return {
+    ...note,
+    createdBy,
+    updatedBy,
+    ownerName
   };
 }

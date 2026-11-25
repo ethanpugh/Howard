@@ -6,6 +6,7 @@ import { runVersionedMigrations } from './server/migrations.js';
 import { createRuntimeCache } from './server/cache.js';
 import { runDailyBackupSnapshots } from './server/backup.js';
 import { createHttpServer } from './server/http.js';
+import { purgeExpiredTrashedNotes } from './server/domains/quill.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,13 +20,17 @@ export function createHowardApp({
   runVersionedMigrations(dbCtx);
 
   const cache = createRuntimeCache(dbCtx, { enableTimers });
+  purgeExpiredTrashedNotes(dbCtx, cache);
   const server = createHttpServer({ dbCtx, cache, distDir });
 
   let dailySnapshotTimer = null;
   let initialSnapshotTimer = null;
 
   if (enableTimers) {
-    dailySnapshotTimer = setInterval(() => runDailyBackupSnapshots(dbCtx), 6 * 3600 * 1000);
+    dailySnapshotTimer = setInterval(() => {
+      runDailyBackupSnapshots(dbCtx);
+      purgeExpiredTrashedNotes(dbCtx, cache);
+    }, 6 * 3600 * 1000);
     dailySnapshotTimer.unref?.();
   }
 

@@ -22,6 +22,7 @@ const BloomApp = lazy(() => import('./apps/BloomApp.jsx'));
 const AlmanacApp = lazy(() => import('./apps/AlmanacApp.jsx'));
 const FloodgateApp = lazy(() => import('./apps/FloodgateApp.jsx'));
 const LedgerApp = lazy(() => import('./apps/LedgerApp.jsx'));
+const QuillApp = lazy(() => import('./apps/QuillApp.jsx'));
 const BeaconApp = lazy(() => import('./apps/BeaconApp.jsx'));
 
 const ProfileSwitcherModal = lazy(() => import('./components/shell/ProfileSwitcherModal.jsx'));
@@ -33,6 +34,7 @@ const MemoBloomApp = React.memo(BloomApp);
 const MemoAlmanacApp = React.memo(AlmanacApp);
 const MemoFloodgateApp = React.memo(FloodgateApp);
 const MemoLedgerApp = React.memo(LedgerApp);
+const MemoQuillApp = React.memo(QuillApp);
 const MemoBeaconApp = React.memo(BeaconApp);
 
 const ACTIVE_PROFILE_STORAGE_KEY = 'howard-active-profile';
@@ -87,6 +89,7 @@ export default function App() {
   const [floodgateIntent, setFloodgateIntent] = useState(null);
   const [bloomIntent, setBloomIntent] = useState(null);
   const [almanacIntentDate, setAlmanacIntentDate] = useState(null);
+  const [quillIntent, setQuillIntent] = useState(null);
 
   const [profileModalOpen, setProfileModalOpen] = useState(
     () => !readStorage(ACTIVE_PROFILE_STORAGE_KEY, '')
@@ -125,6 +128,8 @@ export default function App() {
     floodgateSnapshot,
     bloomSnapshot,
     setBloomSnapshot,
+    quillSnapshot,
+    setQuillSnapshot,
     dbInfo,
     markProfileUnlocked,
     fetchUnifiedSync
@@ -150,13 +155,18 @@ export default function App() {
 
   const [toast, setToast] = useState(null);
   const toastTimerRef = useRef(null);
-  const showToast = useCallback((text, type = 'success') => {
+  const showToast = useCallback((text, type = 'success', options = null) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    setToast({ text, type });
-    toastTimerRef.current = setTimeout(() => {
-      setToast((prev) => (prev?.text === text ? null : prev));
-      toastTimerRef.current = null;
-    }, 3200);
+    const actionLabel = options?.actionLabel || null;
+    const onAction = typeof options?.onAction === 'function' ? options.onAction : null;
+    setToast({ text, type, actionLabel, onAction });
+    toastTimerRef.current = setTimeout(
+      () => {
+        setToast((prev) => (prev?.text === text ? null : prev));
+        toastTimerRef.current = null;
+      },
+      actionLabel ? 5500 : 3200
+    );
   }, []);
 
   const { isPending: quickActionPending, runLocked: runQuickAction } = useActionLock();
@@ -185,6 +195,7 @@ export default function App() {
       setAlmanacIntentDate(null);
       setFloodgateIntent(null);
       setBloomIntent(null);
+      setQuillIntent(null);
       setActiveAppId(targetAppId);
       setAppLauncherOpen(false);
       scrollTopSafe();
@@ -218,7 +229,7 @@ export default function App() {
   }, [activeProfile.id]);
 
   const allowedApps = useMemo(() => {
-    const allowedIds = activeProfile?.allowedApps || ['foyer', 'cadence', 'bloom', 'beacon'];
+    const allowedIds = activeProfile?.allowedApps || ['foyer', 'cadence', 'bloom', 'quill', 'beacon'];
     return APP_REGISTRY.filter((app) => allowedIds.includes(app.id));
   }, [activeProfile]);
 
@@ -242,6 +253,7 @@ export default function App() {
         almanacEvents,
         floodgateSnapshot,
         ledgerData,
+        quillSnapshot,
         beaconInfo,
         activeProfile,
         profiles
@@ -254,6 +266,7 @@ export default function App() {
       almanacEvents,
       floodgateSnapshot,
       ledgerData,
+      quillSnapshot,
       beaconInfo,
       activeProfile,
       profiles
@@ -266,7 +279,7 @@ export default function App() {
   );
 
   useEffect(() => {
-    const allowedIds = activeProfile?.allowedApps || ['foyer', 'cadence', 'bloom', 'beacon'];
+    const allowedIds = activeProfile?.allowedApps || ['foyer', 'cadence', 'bloom', 'quill', 'beacon'];
     if (!allowedIds.includes(activeAppId)) setActiveAppId('foyer');
   }, [activeProfile, activeAppId]);
 
@@ -599,8 +612,22 @@ export default function App() {
     (dateStr) => {
       setBloomIntent(null);
       setFloodgateIntent(null);
+      setQuillIntent(null);
       setAlmanacIntentDate(dateStr);
       setActiveAppId('almanac');
+      setAppLauncherOpen(false);
+      scrollTopSafe();
+    },
+    [scrollTopSafe]
+  );
+
+  const openQuillWithIntent = useCallback(
+    (intent = {}) => {
+      setBloomIntent(null);
+      setFloodgateIntent(null);
+      setAlmanacIntentDate(null);
+      setQuillIntent({ ...intent, timestamp: Date.now() });
+      setActiveAppId('quill');
       setAppLauncherOpen(false);
       scrollTopSafe();
     },
@@ -618,11 +645,8 @@ export default function App() {
           aria-live="polite"
           className="fixed top-[max(1rem,env(safe-area-inset-top))] right-4 max-w-[calc(100vw-2rem)] z-[70] no-print animate-fade-in"
         >
-          <button
-            type="button"
-            onClick={() => setToast(null)}
-            title="Dismiss notification"
-            className={`w-full text-left flex items-center gap-2.5 px-4 py-3 rounded-2xl shadow-xl border text-xs sm:text-sm font-semibold cursor-pointer ${
+          <div
+            className={`w-full flex items-center gap-2.5 px-4 py-2.5 rounded-2xl shadow-xl border text-xs sm:text-sm font-semibold ${
               toast.type === 'error'
                 ? 'bg-rose-900 text-white border-rose-700'
                 : toast.type === 'info'
@@ -630,15 +654,35 @@ export default function App() {
                   : 'bg-slate-900 text-white border-slate-700 dark:bg-slate-800'
             }`}
           >
-            {toast.type === 'error' ? (
-              <AlertTriangle className="w-4 h-4 text-rose-300 shrink-0" />
-            ) : toast.type === 'info' ? (
-              <AlertTriangle className="w-4 h-4 text-amber-300 shrink-0" />
-            ) : (
-              <CheckCircle2 className="w-4 h-4 text-teal-400 shrink-0" />
+            <button
+              type="button"
+              onClick={() => setToast(null)}
+              title="Dismiss notification"
+              className="flex items-center gap-2.5 text-left min-w-0 flex-1 cursor-pointer"
+            >
+              {toast.type === 'error' ? (
+                <AlertTriangle className="w-4 h-4 text-rose-300 shrink-0" />
+              ) : toast.type === 'info' ? (
+                <AlertTriangle className="w-4 h-4 text-amber-300 shrink-0" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 text-teal-400 shrink-0" />
+              )}
+              <span className="min-w-0 break-words">{toast.text}</span>
+            </button>
+            {toast.actionLabel && toast.onAction && (
+              <button
+                type="button"
+                onClick={() => {
+                  const fn = toast.onAction;
+                  setToast(null);
+                  fn();
+                }}
+                className="px-2.5 py-1 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs shrink-0 cursor-pointer transition"
+              >
+                {toast.actionLabel}
+              </button>
             )}
-            <span className="min-w-0 break-words">{toast.text}</span>
-          </button>
+          </div>
         </div>
       )}
 
@@ -711,6 +755,7 @@ export default function App() {
                   almanacEvents={almanacEvents}
                   ledgerData={ledgerData}
                   beaconInfo={beaconInfo}
+                  quillSnapshot={quillSnapshot}
                   onNavigateApp={handleNavigateModule}
                   onQuickRecordDose={handleQuickRecordPetDose}
                   onQuickMistMantis={handleQuickMistMantis}
@@ -718,6 +763,7 @@ export default function App() {
                   onOpenFloodgate={openFloodgateWithIntent}
                   onOpenBloom={openBloomWithIntent}
                   onOpenAlmanacDate={openAlmanacOnDate}
+                  onOpenQuill={openQuillWithIntent}
                   onOpenProfileModal={openProfileModal}
                   quickActionPending={quickActionPending}
                 />
@@ -802,6 +848,24 @@ export default function App() {
                 />
               )}
 
+              {activeAppId === 'quill' && activeProfile.allowedApps.includes('quill') && (
+                <MemoQuillApp
+                  activeProfile={activeProfile}
+                  profiles={profiles}
+                  darkMode={darkMode}
+                  nowMs={nowMs}
+                  todayKey={todayKey}
+                  quillSnapshot={quillSnapshot}
+                  setQuillSnapshot={setQuillSnapshot}
+                  almanacEvents={almanacEvents}
+                  onMutateAlmanacEvents={handleMutateAlmanacEvents}
+                  onOpenAlmanacDate={openAlmanacOnDate}
+                  navigationIntent={quillIntent}
+                  onGlobalSync={handleMutationSync}
+                  showToast={showToast}
+                />
+              )}
+
               {activeAppId === 'beacon' && (
                 <MemoBeaconApp
                   activeProfile={activeProfile}
@@ -874,6 +938,7 @@ export default function App() {
             cadenceSnapshot={cadenceSnapshot}
             bloomSnapshot={bloomSnapshot}
             floodgateSnapshot={floodgateSnapshot}
+            quillSnapshot={quillSnapshot}
             onRestoredSync={() => fetchUnifiedSync({ force: true })}
             showToast={showToast}
           />

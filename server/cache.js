@@ -6,6 +6,7 @@ import {
 import {
   DEFAULT_BEACON_INFO,
   DEFAULT_FLOODGATE_SETTINGS,
+  DEFAULT_QUILL_SETTINGS,
   createDefaultCadenceSettings
 } from '../shared/defaults.js';
 import {
@@ -18,6 +19,7 @@ import {
   resolveBloomMoltRecord,
   resolveCadenceRecord,
   resolveCaregiverList,
+  resolveQuillNote,
   sanitizeProfilesForClient
 } from './domains/profileResolve.js';
 
@@ -27,7 +29,8 @@ export function createRuntimeCache(dbCtx, { enableTimers = true } = {}) {
     howard: 1,
     cadence: 1,
     bloom: 1,
-    floodgate: 1
+    floodgate: 1,
+    quill: 1
   };
 
   let rawProfilesCache = null; // { profilesList, profilesById, updatedAt }
@@ -40,6 +43,8 @@ export function createRuntimeCache(dbCtx, { enableTimers = true } = {}) {
   let cacheCadence = null;
   let cacheBloom = null;
   let cacheFloodgate = null;
+  let cacheQuillRaw = null;
+  let projectedQuillCache = new Map(); // profileId -> { rev, state }
 
   const sseClients = new Set();
 
@@ -349,10 +354,82 @@ export function createRuntimeCache(dbCtx, { enableTimers = true } = {}) {
     return cacheFloodgate;
   }
 
+  function getCachedQuillRawState() {
+    if (!cacheQuillRaw) {
+      const { profilesById } = getProfilesContext();
+      const settingsObj = dbCtx.readHowardKey('quill_settings', DEFAULT_QUILL_SETTINGS);
+      const labels = Array.isArray(settingsObj.data?.labels) ? settingsObj.data.labels : [];
+      const notes = [];
+      const latestNoteUpdate = dbCtx.readTableJsonRows(dbCtx.stmts.quillGetAll, (parsed, row) => {
+        const base = {
+          ...parsed,
+          id: row.id,
+          ownerProfileId: row.owner_profile_id,
+          visibility: row.visibility,
+          status: row.status,
+          pinned: Boolean(row.pinned),
+          position: Number(row.position),
+          revision: Number(row.revision),
+          updatedAt: parsed.updatedAt || row.updated_at
+        };
+        notes.push(resolveQuillNote(base, profilesById));
+      });
+      notes.sort(
+        (a, b) =>
+          Number(b.pinned) - Number(a.pinned) ||
+          Number(a.position) - Number(b.position) ||
+          (b.updatedAt || '').localeCompare(a.updatedAt || '')
+      );
+      const updatedAt =
+        latestNoteUpdate > (settingsObj.updatedAt || '')
+          ? latestNoteUpdate
+          : settingsObj.updatedAt || new Date().toISOString();
+      cacheQuillRaw = { notes, labels, updatedAt };
+    }
+    return cacheQuillRaw;
+  }
+
+  function projectQuillStateForProfile(activeProfile) {
+    const safeProfile =
+      activeProfile === 'partner1' || activeProfile === 'partner2' ? activeProfile : 'caregiver';
+    const cached = projectedQuillCache.get(safeProfile);
+    if (cached && cached.rev === domainRevisions.quill) {
+      return cached.state;
+    }
+
+    const raw = getCachedQuillRawState();
+    let projected;
+    if (safeProfile === 'caregiver') {
+      const visibleNotes = raw.notes.filter(
+        (n) => n.visibility === 'shared' && n.status === 'active' && Boolean(n.caregiverVisible)
+      );
+      const usedLabels = new Set();
+      for (const n of visibleNotes) {
+        for (const lbl of n.labels || []) usedLabels.add(lbl.toLowerCase());
+      }
+      projected = {
+        notes: visibleNotes,
+        labels: raw.labels.filter((l) => usedLabels.has(String(l).toLowerCase())),
+        updatedAt: raw.updatedAt
+      };
+    } else {
+      projected = {
+        notes: raw.notes.filter(
+          (n) => n.visibility === 'shared' || n.ownerProfileId === safeProfile
+        ),
+        labels: raw.labels,
+        updatedAt: raw.updatedAt
+      };
+    }
+
+    projectedQuillCache.set(safeProfile, { rev: domainRevisions.quill, state: projected });
+    return projected;
+  }
+
   function getSyncTokenForProfile(profileId) {
     const safeProfile = profileId || 'caregiver';
     const fgRev = safeProfile === 'partner2' ? domainRevisions.floodgate : 0;
-    return `${bootId}:${safeProfile}:${domainRevisions.howard}.${domainRevisions.cadence}.${domainRevisions.bloom}.${fgRev}`;
+    return `${bootId}:${safeProfile}:${domainRevisions.howard}.${domainRevisions.cadence}.${domainRevisions.bloom}.${fgRev}.${domainRevisions.quill}`;
   }
 
   function parseSyncToken(token, expectedProfile) {
@@ -364,14 +441,15 @@ export function createRuntimeCache(dbCtx, { enableTimers = true } = {}) {
       return null;
     }
     const revSegments = revPart.split('.');
-    if (revSegments.length !== 4) return null;
+    if (revSegments.length !== 5) return null;
     const nums = revSegments.map((s) => Number(s));
     if (nums.some((n) => !Number.isInteger(n) || n < 0)) return null;
     return {
       howard: nums[0],
       cadence: nums[1],
       bloom: nums[2],
-      floodgate: nums[3]
+      floodgate: nums[3],
+      quill: nums[4]
     };
   }
 
@@ -460,6 +538,12 @@ export function createRuntimeCache(dbCtx, { enableTimers = true } = {}) {
       domainRevisions.floodgate += 1;
       broadcastDomains.push('floodgate');
     }
+    if (domain === 'profiles' || domain === 'quill' || domain === 'all') {
+      cacheQuillRaw = null;
+      projectedQuillCache = new Map();
+      domainRevisions.quill += 1;
+      broadcastDomains.push('quill');
+    }
     if (broadcastDomains.length > 0) {
       broadcastSseEvent(broadcastDomains.length > 1 ? 'all' : broadcastDomains[0]);
     }
@@ -494,6 +578,8 @@ export function createRuntimeCache(dbCtx, { enableTimers = true } = {}) {
     getCachedBloomState,
     readFloodgateSettings,
     getCachedFloodgateState,
+    getCachedQuillRawState,
+    projectQuillStateForProfile,
     getSyncTokenForProfile,
     parseSyncToken,
     bumpRevision,

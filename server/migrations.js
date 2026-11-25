@@ -7,6 +7,7 @@ import {
   DEFAULT_BEACON_INFO,
   DEFAULT_FLOODGATE_SETTINGS,
   DEFAULT_LEDGER_DATA,
+  DEFAULT_QUILL_SETTINGS,
   createDefaultBloomSettings,
   createDefaultCadenceSettings
 } from '../shared/defaults.js';
@@ -72,7 +73,11 @@ export function writeLedgerItemsInTx(
   }
 }
 
-function normalizeProfilesAppsList(dbCtx, profiles, { ensureBloom = true, stripUnknown = false } = {}) {
+function normalizeProfilesAppsList(
+  dbCtx,
+  profiles,
+  { ensureBloom = true, ensureQuill = false, stripUnknown = false } = {}
+) {
   const nowIso = new Date().toISOString();
   if (!Array.isArray(profiles)) return false;
   let changed = false;
@@ -94,6 +99,12 @@ function normalizeProfilesAppsList(dbCtx, profiles, { ensureBloom = true, stripU
       const cadenceIdx = apps.indexOf('cadence');
       if (cadenceIdx !== -1) apps.splice(cadenceIdx + 1, 0, 'bloom');
       else apps.push('bloom');
+    }
+    if (ensureQuill && targetProfiles.has(prof.id) && !apps.includes('quill')) {
+      changed = true;
+      const beaconIdx = apps.indexOf('beacon');
+      if (beaconIdx !== -1) apps.splice(beaconIdx, 0, 'quill');
+      else apps.push('quill');
     }
     return { ...prof, allowedApps: apps };
   });
@@ -320,6 +331,11 @@ function ensureDefaultSeeds(dbCtx) {
     JSON.stringify(DEFAULT_FLOODGATE_SETTINGS),
     nowIso
   );
+  dbCtx.stmts.howardInsertIgnore.run(
+    'quill_settings',
+    JSON.stringify(DEFAULT_QUILL_SETTINGS),
+    nowIso
+  );
 }
 
 function migrateV4BackfillStableProfileIds(dbCtx) {
@@ -517,6 +533,29 @@ function migrateV5Hardening(dbCtx) {
   });
 }
 
+function migrateV6QuillNotes(dbCtx) {
+  dbCtx.runInTransaction(() => {
+    const profilesRow = dbCtx.stmts.howardGet.get('profiles');
+    if (profilesRow) {
+      try {
+        normalizeProfilesAppsList(dbCtx, JSON.parse(profilesRow.data), {
+          ensureBloom: true,
+          ensureQuill: true,
+          stripUnknown: true
+        });
+      } catch {
+        // ignore malformed JSON
+      }
+    }
+    dbCtx.stmts.howardInsertIgnore.run(
+      'quill_settings',
+      JSON.stringify(DEFAULT_QUILL_SETTINGS),
+      new Date().toISOString()
+    );
+    dbCtx.db.exec('PRAGMA user_version = 6;');
+  });
+}
+
 export function runVersionedMigrations(dbCtx) {
   const initialVersion = getSchemaVersion(dbCtx.db);
   if (initialVersion > CURRENT_SCHEMA_VERSION) {
@@ -559,5 +598,8 @@ export function runVersionedMigrations(dbCtx) {
   if (getSchemaVersion(dbCtx.db) < 5) {
     migrateV5Hardening(dbCtx);
     dbCtx.initLedgerStatements();
+  }
+  if (getSchemaVersion(dbCtx.db) < 6) {
+    migrateV6QuillNotes(dbCtx);
   }
 }

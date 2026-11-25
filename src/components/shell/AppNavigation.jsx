@@ -242,7 +242,7 @@ export function SidebarRail({
               <span
                 className={`hidden lg:inline-flex ml-auto px-2 py-0.5 rounded-full text-[11px] font-extrabold whitespace-nowrap ${
                   isActive
-                    ? 'bg-white/20 text-white'
+                    ? appItem.activeBadgeClass || 'bg-white/20 text-white'
                     : statusInfo.urgent
                       ? 'bg-amber-500/20 text-amber-800 dark:text-amber-300'
                       : 'bg-surface-muted text-text-secondary'
@@ -324,7 +324,7 @@ export function MobileFloatingPill({
             <span
               className={`px-1.5 py-0.5 rounded-full text-[11px] font-extrabold leading-none ${
                 activeAppId !== 'foyer'
-                  ? 'bg-black/20 text-white'
+                  ? activeAppMeta.activeBadgeClass || 'bg-black/20 text-white'
                   : 'bg-amber-500/20 text-amber-800 dark:text-amber-300'
               }`}
             >

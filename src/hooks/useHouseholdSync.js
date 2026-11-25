@@ -51,9 +51,13 @@ export function useHouseholdSync({
     molts: [],
     feeders: []
   }));
+  const [quillSnapshot, setQuillSnapshot] = useState(() => ({
+    notes: [],
+    labels: []
+  }));
   const [dbInfo, setDbInfo] = useState({
     file: 'data/howard.db',
-    schemaVersion: 5,
+    schemaVersion: 6,
     journalMode: 'WAL'
   });
 
@@ -142,12 +146,19 @@ export function useHouseholdSync({
                 logsByDate: data.cadence.logsByDate || {}
               });
             }
+            if (data.dbInfo) setDbInfo(data.dbInfo);
             if (data.bloom) {
               setBloomSnapshot({
                 settings: data.bloom.settings || DEFAULT_BLOOM_SETTINGS,
                 logsByDate: data.bloom.logsByDate || {},
                 molts: data.bloom.molts || [],
                 feeders: data.bloom.feeders || []
+              });
+            }
+            if (data.quill) {
+              setQuillSnapshot({
+                notes: Array.isArray(data.quill.notes) ? data.quill.notes : [],
+                labels: Array.isArray(data.quill.labels) ? data.quill.labels : []
               });
             }
             setFloodgateSnapshot({
@@ -202,6 +213,13 @@ export function useHouseholdSync({
           });
         }
 
+        if (data.quill) {
+          setQuillSnapshot({
+            notes: Array.isArray(data.quill.notes) ? data.quill.notes : [],
+            labels: Array.isArray(data.quill.labels) ? data.quill.labels : []
+          });
+        }
+
         if (targetProfile === 'partner2') {
           if (data.floodgate) {
             setFloodgateSnapshot({
@@ -242,6 +260,16 @@ export function useHouseholdSync({
   );
 
   useEffect(() => {
+    setQuillSnapshot((prev) => ({
+      ...prev,
+      notes: (prev.notes || []).filter((n) => {
+        if (!n) return false;
+        if (activeProfileId === 'caregiver') {
+          return n.visibility === 'shared' && n.status === 'active' && Boolean(n.caregiverVisible);
+        }
+        return n.visibility === 'shared' || n.ownerProfileId === activeProfileId;
+      })
+    }));
     syncTokenRef.current = '';
     fetchUnifiedSync({ force: true });
 
@@ -267,6 +295,9 @@ export function useHouseholdSync({
         eventSource.addEventListener('ready', (ev) => {
           sseConnectedRef.current = true;
           setSyncTransport('sse');
+          isConnectedRef.current = true;
+          setIsConnected(true);
+          setSyncError(null);
           schedulePollLoop(POLL_INTERVAL_SSE_MS);
           try {
             const parsed = JSON.parse(ev.data || '{}');
@@ -353,6 +384,8 @@ export function useHouseholdSync({
     setFloodgateSnapshot,
     bloomSnapshot,
     setBloomSnapshot,
+    quillSnapshot,
+    setQuillSnapshot,
     dbInfo,
     markProfileUnlocked,
     fetchUnifiedSync

@@ -218,8 +218,8 @@ async function requestJson(baseUrl, urlPath, { method = 'GET', body, headers = {
   return { status: res.status, json, text };
 }
 
-describe('1. SQLite Migrations & Schema v5 (runVersionedMigrations)', () => {
-  it('migrates v0 howard.db blobs and legacy 4-DB files into schema v5 with constraints', async (t) => {
+describe('1. SQLite Migrations & Schema v6 (runVersionedMigrations)', () => {
+  it('migrates v0 howard.db blobs and legacy 4-DB files into schema v6 with constraints', async (t) => {
     const nowIso = '2026-04-10T10:00:00.000Z';
 
     const srv = await startTestServer((dataDir) => {
@@ -452,14 +452,15 @@ describe('1. SQLite Migrations & Schema v5 (runVersionedMigrations)', () => {
 
     const health = await requestJson(srv.baseUrl, '/api/health');
     assert.equal(health.status, 200);
-    assert.equal(health.json.schemaVersion, 5);
+    assert.equal(health.json.schemaVersion, 6);
 
     const syncRes = await requestJson(srv.baseUrl, '/api/howard/sync?profile=partner2');
     assert.equal(syncRes.status, 200);
-    assert.equal(syncRes.json.dbInfo.schemaVersion, 5);
+    assert.equal(syncRes.json.dbInfo.schemaVersion, 6);
 
     const p1Profile = syncRes.json.howard.profiles.find((p) => p.id === 'partner1');
     assert.equal(p1Profile.allowedApps.includes('bloom'), true);
+    assert.equal(p1Profile.allowedApps.includes('quill'), true);
     assert.equal(p1Profile.allowedApps.includes('jot'), false);
 
     assert.equal(syncRes.json.howard.almanacEvents.length, 1);
@@ -507,7 +508,7 @@ describe('1. SQLite Migrations & Schema v5 (runVersionedMigrations)', () => {
     const db = new DatabaseSync(path.join(srv.dataDir, 'howard.db'));
     try {
       const versionRow = db.prepare('PRAGMA user_version').get();
-      assert.equal(versionRow.user_version, 5);
+      assert.equal(versionRow.user_version, 6);
 
       const staleStoreCount = db
         .prepare(
@@ -522,6 +523,7 @@ describe('1. SQLite Migrations & Schema v5 (runVersionedMigrations)', () => {
         'cadence_settings',
         'bloom_settings',
         'floodgate_settings',
+        'quill_settings',
         'beacon_info'
       ]) {
         const keyRow = db.prepare('SELECT key FROM howard_store WHERE key = ?').get(expectedKey);

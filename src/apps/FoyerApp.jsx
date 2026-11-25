@@ -9,9 +9,11 @@ import {
   Heart,
   Home,
   Phone,
+  Pin,
   ShieldAlert,
   Sparkles,
   Stethoscope,
+  StickyNote,
   UserCheck,
   Wallet
 } from 'lucide-react';
@@ -39,6 +41,7 @@ import {
   SubSurface
 } from '../components/HowardUI.jsx';
 import QuickDoseCard from './foyer/QuickDoseCard.jsx';
+import { getQuillColorMeta } from './quill/quillConstants.js';
 
 function FoyerApp({
   activeProfile,
@@ -53,6 +56,7 @@ function FoyerApp({
   almanacEvents,
   ledgerData,
   beaconInfo,
+  quillSnapshot,
   onNavigateApp,
   onQuickRecordDose,
   onQuickMistMantis,
@@ -60,6 +64,7 @@ function FoyerApp({
   onOpenFloodgate,
   onOpenBloom,
   onOpenAlmanacDate,
+  onOpenQuill,
   onOpenProfileModal,
   quickActionPending = false
 }) {
@@ -168,6 +173,34 @@ function FoyerApp({
 
   const partner2TodayLog = floodgateSnapshot?.logsByDate?.[todayKey] || null;
   const navigateCadence = useCallback(() => onNavigateApp('cadence'), [onNavigateApp]);
+
+  const foyerQuillSummary = useMemo(() => {
+    const all = (quillSnapshot?.notes || []).filter(
+      (n) => n && n.status === 'active' && n.visibility === 'shared'
+    );
+    const scoped =
+      activeProfile.id === 'caregiver' ? all.filter((n) => Boolean(n.caregiverVisible)) : all;
+    const pinnedFirst = [...scoped].sort(
+      (a, b) =>
+        Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) ||
+        Number(a.position ?? 0) - Number(b.position ?? 0)
+    );
+    return {
+      notes: pinnedFirst.slice(0, 3),
+      totalPinnedCount: scoped.filter((n) => Boolean(n.pinned)).length,
+      totalActiveCount: scoped.length
+    };
+  }, [quillSnapshot, activeProfile.id]);
+
+  const stripMarkdownPreview = (raw = '') =>
+    String(raw || '')
+      .replace(/^#{1,3}\s+/gm, '')
+      .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+      .replace(/\*([^*\n]+)\*/g, '$1')
+      .replace(/~~([^~\n]+)~~/g, '$1')
+      .replace(/`([^`\n]+)`/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .trim();
 
   return (
     <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4 space-y-4 sm:space-y-5">
@@ -362,8 +395,7 @@ function FoyerApp({
           <OpenModulePill
             accent="purple"
             onClick={navigateCadence}
-            desktopLabel="Full Cadence Tracker"
-            mobileLabel="Open"
+            label="Open"
             ariaLabel="Open Full Cadence Tracker & History"
             title="Open Full Cadence Tracker & History"
           />
@@ -428,8 +460,7 @@ function FoyerApp({
           <OpenModulePill
             accent="emerald"
             onClick={() => onNavigateApp('bloom')}
-            desktopLabel="Full Bloom Habitat"
-            mobileLabel="Open"
+            label="Open"
             ariaLabel="Open Full Bloom Habitat & Growth"
             title="Open Full Bloom Habitat & Growth"
           />
@@ -568,6 +599,7 @@ function FoyerApp({
 
       {/* 4. PROFILE-ADAPTIVE HOUSEHOLD GRID */}
       {activeProfile.id === 'caregiver' ? (
+        <div className="space-y-4 sm:space-y-5">
         <SectionCard className="space-y-3 sm:space-y-4">
           <div className="flex items-start sm:items-center justify-between gap-2.5">
             <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
@@ -584,8 +616,7 @@ function FoyerApp({
             <OpenModulePill
               accent="sky"
               onClick={() => onNavigateApp('beacon')}
-              desktopLabel="Full Guide"
-              mobileLabel="Open"
+              label="Open"
               ariaLabel="Open Full Beacon Guide"
               title="Open Full Beacon Guide"
             />
@@ -666,7 +697,78 @@ function FoyerApp({
             </SubSurface>
           </div>
         </SectionCard>
+
+        {foyerQuillSummary.notes.length > 0 && (
+          <SectionCard className="space-y-3 sm:space-y-4">
+            <div className="flex items-start sm:items-center justify-between gap-2.5">
+              <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+                <IconBadge icon={StickyNote} accent="yellow" />
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-extrabold text-base">Quill • House Notes</h3>
+                    <StatusPill accent="yellow">
+                      {foyerQuillSummary.totalActiveCount} house
+                    </StatusPill>
+                  </div>
+                  <p className="text-xs text-text-muted">
+                    Shared notes &amp; checklists left for pet sitting and guests
+                  </p>
+                </div>
+              </div>
+              <OpenModulePill
+                accent="yellow"
+                onClick={() => (onOpenQuill ? onOpenQuill({ tab: 'shared' }) : onNavigateApp('quill'))}
+                label="Open"
+                ariaLabel="Open Quill House Notes"
+                title="Open Quill House Notes"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {foyerQuillSummary.notes.map((note) => {
+                const col = getQuillColorMeta(note.color);
+                const items = Array.isArray(note.items) ? note.items : [];
+                const doneCount = items.filter((it) => it.checked).length;
+                return (
+                  <button
+                    key={note.id}
+                    type="button"
+                    onClick={() =>
+                      onOpenQuill
+                        ? onOpenQuill({ tab: 'shared', noteId: note.id })
+                        : onNavigateApp('quill')
+                    }
+                    className={`text-left p-3.5 rounded-2xl border transition hover:shadow-sm active:scale-[0.99] cursor-pointer space-y-1.5 ${col.cardClass}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${col.dotClass}`} />
+                        <span className="font-extrabold text-sm truncate">
+                          {note.title || 'Untitled note'}
+                        </span>
+                      </span>
+                      {note.pinned && (
+                        <Pin className="w-3.5 h-3.5 text-yellow-800 dark:text-yellow-300 shrink-0" />
+                      )}
+                    </div>
+                    {note.type === 'checklist' ? (
+                      <div className="text-xs text-text-muted font-semibold">
+                        Checklist: {doneCount}/{items.length} ticked
+                      </div>
+                    ) : (
+                      <p className="text-xs text-text-secondary line-clamp-2">
+                        {stripMarkdownPreview(note.body) || 'Empty note'}
+                      </p>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </SectionCard>
+        )}
+        </div>
       ) : (
+        <div className="space-y-4 sm:space-y-5">
         <div
           className={`grid grid-cols-1 md:grid-cols-2 ${
             activeProfile.allowedApps.includes('floodgate') ? 'xl:grid-cols-3' : ''
@@ -688,8 +790,7 @@ function FoyerApp({
                 <OpenModulePill
                   accent="indigo"
                   onClick={() => onNavigateApp('almanac')}
-                  desktopLabel="Open"
-                  mobileLabel="Open"
+                  label="Open"
                   ariaLabel="Open Almanac Calendar"
                   title="Open Almanac Calendar"
                 />
@@ -766,8 +867,7 @@ function FoyerApp({
                 <OpenModulePill
                   accent="amber"
                   onClick={() => onNavigateApp('ledger')}
-                  desktopLabel="Open"
-                  mobileLabel="Open"
+                  label="Open"
                   ariaLabel="Open Ledger Finances"
                   title="Open Ledger Finances"
                 />
@@ -866,8 +966,7 @@ function FoyerApp({
                   <OpenModulePill
                     accent="rose"
                     onClick={() => onOpenFloodgate({ tab: 'log', date: todayKey })}
-                    desktopLabel="Open"
-                    mobileLabel="Open"
+                    label="Open"
                     ariaLabel="Open Floodgate Journal"
                     title="Open Floodgate Journal"
                   />
@@ -921,6 +1020,95 @@ function FoyerApp({
               </div>
             </section>
           )}
+        </div>
+
+        {/* QUILL SHARED NOTES CARD */}
+        <SectionCard className="space-y-3 sm:space-y-4">
+          <div className="flex items-start sm:items-center justify-between gap-2.5">
+            <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+              <IconBadge icon={StickyNote} accent="yellow" />
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-extrabold text-base">Quill Shared Notes</h3>
+                  <StatusPill accent="yellow">
+                    {foyerQuillSummary.totalPinnedCount > 0
+                      ? `${foyerQuillSummary.totalPinnedCount} pinned`
+                      : 'Shared Board'}
+                  </StatusPill>
+                </div>
+                <p className="text-xs text-text-muted">
+                  Pinned household notes, shopping lists &amp; quick reminders
+                </p>
+              </div>
+            </div>
+            <OpenModulePill
+              accent="yellow"
+              onClick={() => (onOpenQuill ? onOpenQuill({ tab: 'shared' }) : onNavigateApp('quill'))}
+              label="Open"
+              ariaLabel="Open Quill Shared Board"
+              title="Open Quill Shared Board"
+            />
+          </div>
+
+          {foyerQuillSummary.notes.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {foyerQuillSummary.notes.map((note) => {
+                const col = getQuillColorMeta(note.color);
+                const items = Array.isArray(note.items) ? note.items : [];
+                const doneCount = items.filter((it) => it.checked).length;
+                return (
+                  <button
+                    key={note.id}
+                    type="button"
+                    onClick={() =>
+                      onOpenQuill
+                        ? onOpenQuill({ tab: 'shared', noteId: note.id })
+                        : onNavigateApp('quill')
+                    }
+                    className={`text-left p-3.5 rounded-2xl border transition hover:shadow-sm active:scale-[0.99] cursor-pointer space-y-1.5 ${col.cardClass}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${col.dotClass}`} />
+                        <span className="font-extrabold text-sm truncate">
+                          {note.title || 'Untitled note'}
+                        </span>
+                      </span>
+                      {note.pinned && (
+                        <Pin className="w-3.5 h-3.5 text-yellow-800 dark:text-yellow-300 shrink-0" />
+                      )}
+                    </div>
+                    {note.type === 'checklist' ? (
+                      <div className="text-xs text-text-muted font-semibold">
+                        Checklist: {doneCount}/{items.length} ticked
+                      </div>
+                    ) : (
+                      <p className="text-xs text-text-secondary line-clamp-2">
+                        {stripMarkdownPreview(note.body) || 'Empty note'}
+                      </p>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyStateCard
+              accent="yellow"
+              icon={StickyNote}
+              title="No shared notes yet"
+              description="Pin a note on Quill's Shared Board to surface it here on Foyer."
+              className="p-4 sm:p-5"
+            />
+          )}
+
+          <button
+            type="button"
+            onClick={() => (onOpenQuill ? onOpenQuill({ tab: 'shared' }) : onNavigateApp('quill'))}
+            className="w-full min-h-[44px] py-2.5 px-3 rounded-xl text-xs font-bold border border-border-strong text-text-secondary hover:bg-surface-hover transition active:scale-[0.98] cursor-pointer"
+          >
+            + Take a Note or View Shared Board
+          </button>
+        </SectionCard>
         </div>
       )}
     </main>

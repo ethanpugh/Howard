@@ -69,7 +69,8 @@ function parseBackupImportPayload(parsed) {
     (parsed.howard && typeof parsed.howard === 'object') ||
     (parsed.cadence && typeof parsed.cadence === 'object') ||
     (parsed.bloom && typeof parsed.bloom === 'object') ||
-    (parsed.floodgate && typeof parsed.floodgate === 'object')
+    (parsed.floodgate && typeof parsed.floodgate === 'object') ||
+    (parsed.quill && typeof parsed.quill === 'object')
   ) {
     return {
       bodyToSend: { ...parsed, mode: 'replace' },
@@ -93,6 +94,7 @@ export default function BackstageBackupModal({
   cadenceSnapshot,
   bloomSnapshot,
   floodgateSnapshot,
+  quillSnapshot,
   onRestoredSync,
   showToast
 }) {
@@ -143,7 +145,7 @@ export default function BackstageBackupModal({
         const restorePlan = parseBackupImportPayload(parsed);
         if (!restorePlan) {
           showToast(
-            'Backup file does not contain recognized Howard, Cadence, Bloom, or Floodgate data',
+            'Backup file does not contain recognized Howard, Cadence, Bloom, Floodgate, or Quill data',
             'error'
           );
           return;
@@ -245,6 +247,12 @@ export default function BackstageBackupModal({
               {activeProfile.id === 'partner2'
                 ? `${Object.keys(floodgateSnapshot.logsByDate || {}).length} days logged`
                 : 'Included in full database export'}
+            </code>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-1.5">
+            <span className="font-semibold">Quill:</span>
+            <code className="px-2 py-0.5 rounded bg-surface-muted font-mono break-all sm:break-normal">
+              {(quillSnapshot?.notes || []).length} notes, {(quillSnapshot?.labels || []).length} labels
             </code>
           </div>
         </div>

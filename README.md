@@ -20,7 +20,7 @@
 
 ## Overview
 
-Howard brings seven household tools together in one lightweight Docker container on port `5170`, backed by Node.js 22 built-in SQLite (`node:sqlite`, unflagged). Connected devices stay in sync across phones, tablets, and desktops via Server-Sent Events (SSE) push with a 3-second polling fallback (30-second keepalive when SSE is active), alongside in-memory gzip compression and ETag caching for static assets.
+Howard brings eight household tools together in one lightweight Docker container on port `5170`, backed by Node.js 22 built-in SQLite (`node:sqlite`, unflagged). Connected devices stay in sync across phones, tablets, and desktops via Server-Sent Events (SSE) push with a 3-second polling fallback (30-second keepalive when SSE is active), alongside in-memory gzip compression and ETag caching for static assets.
 
 The interface adapts across screen sizes with a collapsible sidebar rail on desktop, a `Ctrl+K` / `Cmd+K` quick module switcher, and a floating navigation pill on mobile. Both **Warm Beige** and **Softened Dark** themes are supported across every view, alongside dedicated print styling for clinical reports.
 
@@ -34,6 +34,7 @@ The interface adapts across screen sizes with a collapsible sidebar rail on desk
 | **Almanac** | Shared household calendar supporting recurring events and toggleable overlays for pet medication logs, bottle expiry dates, mantis molts and care, upcoming bills and paydays, and Partner 2's private cycle logs. |
 | **Floodgate** | Private cycle and clinical symptom log recording flow severity, clot counts and sizes, 0 to 10 pain scores, GI flare-ups, medication relief, cycle patterns, and printable GP consultation reports. |
 | **Ledger** | Household bookkeeping manager tracking day-to-day expenses, Direct Debits, subscriptions, and income across Partner 1, Partner 2, Joint, and Unified views with 50/50 or income-proportional settlements and CSV export. |
+| **Quill** | Keep-style tileable notes & shared household board with drag-and-drop ordering, checklists, Markdown-lite formatting, labels, 12 note colours, private per-partner boards, and optional Caregiver House Notes. |
 | **Beacon** | Caregiver and household reference card covering pet routines, supply locations, daytime and 24-hour emergency vet contacts, household contacts, Wi-Fi sharing, bin collection days, and utilities. |
 
 ---
@@ -42,9 +43,9 @@ The interface adapts across screen sizes with a collapsible sidebar rail on desk
 
 Access adapts to the active household profile. **Partner 1** and **Partner 2** display names can be renamed in-app, while **Caregiver** stays fixed for sitter access:
 
-* **Partner 1**: Full access to Foyer, Cadence, Bloom, Almanac, Ledger, and Beacon, plus full database export and JSON restore/merge permissions.
-* **Partner 2**: Full access to Foyer, Cadence, Bloom, Almanac, Floodgate, Ledger, and Beacon, plus full database export.
-* **Caregiver**: Always unlocked for guests and pet sitters; scopes navigation to Caregiver Foyer, Cadence, Bloom, and read-only Beacon.
+* **Partner 1**: Full access to Foyer, Cadence, Bloom, Almanac, Ledger, Quill, and Beacon, plus full database export and JSON restore/merge permissions.
+* **Partner 2**: Full access to Foyer, Cadence, Bloom, Almanac, Floodgate, Ledger, Quill, and Beacon, plus full database export.
+* **Caregiver**: Always unlocked for guests and pet sitters; scopes navigation to Caregiver Foyer, Cadence, Bloom, read-only Quill House Notes, and read-only Beacon.
 
 ### Security Model
 
@@ -57,7 +58,7 @@ Howard is designed for trusted home LANs and private VPNs (such as Tailscale) ra
 
 ## Database & Backups
 
-All modules persist atomically in `./data/howard.db` (`/app/data/howard.db` in Docker) using SQLite schema `user_version = 5` and `WAL` journal mode by default. Legacy multi-database setups (`cadence.db`, `bloom.db`, `floodgate.db`) archive automatically into `./data/backups/legacy-4db-*/` and consolidate on first boot.
+All modules persist atomically in `./data/howard.db` (`/app/data/howard.db` in Docker) using SQLite schema `user_version = 6` and `WAL` journal mode by default. Legacy multi-database setups (`cadence.db`, `bloom.db`, `floodgate.db`) archive automatically into `./data/backups/legacy-4db-*/` and consolidate on first boot.
 
 * **Daily Snapshots**: Compacted daily snapshots are written via `VACUUM INTO` to `./data/backups/YYYY-MM-DD/howard.db` and pruned after 7 days. Dated snapshot files can be copied safely without stopping Docker.
 * **JSON Export & Restore**: Partner 1 and Partner 2 can download a full household JSON backup (including Floodgate) from the Database Backstage menu. Only Partner 1 can upload restores, supporting full Howard replacement (`mode: "replace"`) and merging standalone Cadence, Bloom, or Floodgate JSON backups (`mode: "merge"`). Every restore saves a pre-restore `VACUUM INTO` snapshot to `./data/backups/pre-restore-*/` first.
@@ -84,7 +85,7 @@ docker compose start
 │   ├── components/shell/      # Header, desktop rail, mobile floating pill, Bento switcher, Profile & Backstage modals
 │   ├── hooks/                 # Live SSE sync (useHouseholdSync), action locks, week navigation
 │   ├── utils/                 # Shared helpers and apiClient
-│   └── apps/                  # 7 module workspaces and their decomposed tabs/modals
+│   └── apps/                  # 8 module workspaces and their decomposed tabs/modals
 └── tests/                     # Built-in node:test unit and SQLite server integration suites
 ```
 

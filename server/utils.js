@@ -3,7 +3,7 @@ import path from 'node:path';
 import { VALID_DATE_KEY_RE } from '../shared/dateUtils.js';
 
 export const LEGACY_DB_FILES = ['cadence.db', 'bloom.db', 'floodgate.db'];
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;
 export const VALID_LEDGER_KINDS = new Set(['expense', 'recurring', 'income']);
 export const VALID_LEDGER_OWNERS = new Set(['joint', 'partner1', 'partner2']);
 

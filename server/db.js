@@ -80,10 +80,23 @@ export function openDatabase(dataDir) {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS quill_notes (
+      id TEXT PRIMARY KEY,
+      owner_profile_id TEXT NOT NULL,
+      visibility TEXT NOT NULL CHECK (visibility IN ('shared', 'private')),
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived', 'trashed')),
+      pinned INTEGER NOT NULL DEFAULT 0,
+      position REAL NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1,
+      data TEXT NOT NULL CHECK (json_valid(data)),
+      updated_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_almanac_events_date_updated ON almanac_events (date_key ASC, updated_at ASC);
     CREATE INDEX IF NOT EXISTS idx_ledger_items_kind_updated ON ledger_items (kind, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_bloom_molt_logs_date_updated ON bloom_molt_logs (date_key DESC, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_bloom_feeder_cultures_updated ON bloom_feeder_cultures (updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_quill_notes_board ON quill_notes (visibility, owner_profile_id, status, pinned, position);
   `);
 
   const stmts = {
@@ -200,7 +213,29 @@ export function openDatabase(dataDir) {
       VALUES (?, ?, ?)
     `),
     floodgateDeleteLog: db.prepare('DELETE FROM floodgate_logs WHERE date_key = ?'),
-    floodgateClearLogs: db.prepare('DELETE FROM floodgate_logs')
+    floodgateClearLogs: db.prepare('DELETE FROM floodgate_logs'),
+
+    quillGetAll: db.prepare(
+      'SELECT id, owner_profile_id, visibility, status, pinned, position, revision, data, updated_at FROM quill_notes ORDER BY pinned DESC, position ASC, updated_at DESC'
+    ),
+    quillGetById: db.prepare(
+      'SELECT id, owner_profile_id, visibility, status, pinned, position, revision, data, updated_at FROM quill_notes WHERE id = ?'
+    ),
+    quillUpsert: db.prepare(`
+      INSERT INTO quill_notes (id, owner_profile_id, visibility, status, pinned, position, revision, data, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        owner_profile_id = excluded.owner_profile_id,
+        visibility = excluded.visibility,
+        status = excluded.status,
+        pinned = excluded.pinned,
+        position = excluded.position,
+        revision = excluded.revision,
+        data = excluded.data,
+        updated_at = excluded.updated_at
+    `),
+    quillDelete: db.prepare('DELETE FROM quill_notes WHERE id = ?'),
+    quillClearAll: db.prepare('DELETE FROM quill_notes')
   };
 
   function initLedgerStatements() {

@@ -8,6 +8,7 @@ import { handleHowardRoutes } from './domains/howard.js';
 import { handleCadenceRoutes } from './domains/cadence.js';
 import { handleFloodgateRoutes } from './domains/floodgate.js';
 import { handleBloomRoutes } from './domains/bloom.js';
+import { handleQuillRoutes } from './domains/quill.js';
 
 const MAX_JSON_BODY_BYTES = 1024 * 5120;
 
@@ -249,6 +250,7 @@ export function createHttpServer({ dbCtx, cache, distDir }) {
         if (await handleCadenceRoutes(ctx)) return;
         if (await handleFloodgateRoutes(ctx)) return;
         if (await handleBloomRoutes(ctx)) return;
+        if (await handleQuillRoutes(ctx)) return;
         return sendJson(res, 404, { error: 'API endpoint not found' });
       }
 

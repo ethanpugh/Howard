@@ -106,6 +106,21 @@ export const MODULE_ACCENTS = {
     focusVisibleRing:
       'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500',
     borderSoft: 'border-sky-500/35'
+  },
+  yellow: {
+    iconBg: 'bg-yellow-400/25 text-yellow-800 dark:bg-yellow-400/20 dark:text-yellow-300',
+    solidBtn: 'bg-yellow-400 hover:bg-yellow-500 text-slate-950',
+    activeTab: 'bg-yellow-400 text-slate-950 shadow-xs',
+    activeTabBadge: 'bg-slate-950/15 text-slate-950',
+    badge:
+      'bg-yellow-400/25 text-yellow-900 dark:bg-yellow-400/20 dark:text-yellow-300 border border-yellow-500/40',
+    openPill:
+      'border-yellow-500/45 bg-yellow-400/15 hover:bg-yellow-400/25 text-yellow-900 dark:text-yellow-300',
+    focusRing:
+      'focus:outline-hidden focus:ring-2 focus:ring-yellow-400 focus:border-yellow-500',
+    focusVisibleRing:
+      'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-yellow-400',
+    borderSoft: 'border-yellow-500/45'
   }
 };
 
@@ -188,30 +203,21 @@ export function StatusPill({ accent = 'teal', className = '', children }) {
 export function OpenModulePill({
   accent = 'teal',
   onClick,
-  desktopLabel = 'Open',
-  mobileLabel = 'Open',
+  label = 'Open',
   title,
   ariaLabel,
   className = ''
 }) {
   const accentMeta = getAccentMeta(accent);
-  const hasResponsiveText = desktopLabel !== mobileLabel;
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-label={ariaLabel || title || desktopLabel}
-      title={title || desktopLabel}
+      aria-label={ariaLabel || title || label}
+      title={title || label}
       className={`min-h-[40px] px-2.5 sm:px-3 py-1.5 rounded-xl border inline-flex items-center gap-1 text-xs font-bold cursor-pointer shrink-0 whitespace-nowrap active:scale-[0.98] transition ${accentMeta.openPill} ${accentMeta.focusVisibleRing} ${className}`.trim()}
     >
-      {hasResponsiveText ? (
-        <>
-          <span className="sm:hidden">{mobileLabel}</span>
-          <span className="hidden sm:inline">{desktopLabel}</span>
-        </>
-      ) : (
-        <span>{desktopLabel}</span>
-      )}
+      <span>{label}</span>
       <ArrowRight className="w-3.5 h-3.5 shrink-0" />
     </button>
   );
@@ -362,7 +368,7 @@ export function SegmentedTabs({
               <span
                 className={`px-1.5 py-0.5 rounded-full text-[11px] font-extrabold leading-none shrink-0 ${
                   isActive
-                    ? 'bg-black/20 text-white'
+                    ? accentMeta.activeTabBadge || 'bg-black/20 text-white'
                     : 'bg-surface-muted text-text-secondary'
                 }`}
               >

@@ -86,13 +86,15 @@ export async function handleHowardRoutes({
     const curC = cache.domainRevisions.cadence;
     const curB = cache.domainRevisions.bloom;
     const curF = activeProfile === 'partner2' ? cache.domainRevisions.floodgate : 0;
+    const curQ = cache.domainRevisions.quill;
 
     if (
       prev &&
       prev.howard === curH &&
       prev.cadence === curC &&
       prev.bloom === curB &&
-      prev.floodgate === curF
+      prev.floodgate === curF &&
+      prev.quill === curQ
     ) {
       helpers.sendJson(res, 200, { unchanged: true, syncToken });
       return true;
@@ -130,6 +132,10 @@ export async function handleHowardRoutes({
         payload.floodgate = cache.getCachedFloodgateState();
         changedDomains.push('floodgate');
       }
+      if (prev.quill !== curQ) {
+        payload.quill = cache.projectQuillStateForProfile(activeProfile);
+        changedDomains.push('quill');
+      }
       helpers.sendJson(res, 200, payload);
       return true;
     }
@@ -138,7 +144,8 @@ export async function handleHowardRoutes({
     const cadence = cache.getCachedCadenceState();
     const bloom = cache.getCachedBloomState();
     const floodgate = activeProfile === 'partner2' ? cache.getCachedFloodgateState() : null;
-    const changedDomains = ['howard', 'cadence', 'bloom'];
+    const quill = cache.projectQuillStateForProfile(activeProfile);
+    const changedDomains = ['howard', 'cadence', 'bloom', 'quill'];
     if (floodgate) changedDomains.push('floodgate');
 
     helpers.sendJson(res, 200, {
@@ -151,6 +158,7 @@ export async function handleHowardRoutes({
       cadence,
       bloom,
       floodgate,
+      quill,
       serverTime: new Date().toISOString()
     });
     return true;

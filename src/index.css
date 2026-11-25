@@ -97,22 +97,22 @@ aside.howard-rail {
 }
 
 /* Form Input Theme Normalization (preserves utility focus border colors) */
-html.dark input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
-html.dark select,
-html.dark textarea,
-html.warm input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
-html.warm select,
-html.warm textarea {
+html.dark input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not(.input-bare),
+html.dark select:not(.input-bare),
+html.dark textarea:not(.input-bare),
+html.warm input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not(.input-bare),
+html.warm select:not(.input-bare),
+html.warm textarea:not(.input-bare) {
   background-color: var(--surface-input);
   color: var(--text-primary);
 }
 
-html.dark input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not(:focus),
-html.dark select:not(:focus),
-html.dark textarea:not(:focus),
-html.warm input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not(:focus),
-html.warm select:not(:focus),
-html.warm textarea:not(:focus) {
+html.dark input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not(.input-bare):not(:focus),
+html.dark select:not(.input-bare):not(:focus),
+html.dark textarea:not(.input-bare):not(:focus),
+html.warm input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not(.input-bare):not(:focus),
+html.warm select:not(.input-bare):not(:focus),
+html.warm textarea:not(.input-bare):not(:focus) {
   border-color: var(--border-strong);
 }
 

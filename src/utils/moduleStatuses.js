@@ -1,4 +1,13 @@
-import { Home, Cat, Flower2, Calendar, Heart, Wallet, ShieldAlert } from 'lucide-react';
+import {
+  Home,
+  Cat,
+  Flower2,
+  Calendar,
+  Heart,
+  Wallet,
+  StickyNote,
+  ShieldAlert
+} from 'lucide-react';
 import {
   computeBottleStatus,
   doesAlmanacEventOccurOnDate,
@@ -57,6 +66,15 @@ export const APP_REGISTRY = [
     activeCardClass: 'border-amber-500 ring-2 ring-amber-500/25'
   },
   {
+    id: 'quill',
+    name: 'Quill',
+    subtitle: 'Notes & Shared Board',
+    icon: StickyNote,
+    accent: 'bg-yellow-400 text-slate-950',
+    activeBadgeClass: 'bg-slate-950/15 text-slate-950',
+    activeCardClass: 'border-yellow-500 ring-2 ring-yellow-400/35'
+  },
+  {
     id: 'beacon',
     name: 'Beacon',
     subtitle: 'House & Vet Guide',
@@ -74,6 +92,7 @@ export function computeModuleStatuses({
   almanacEvents,
   floodgateSnapshot,
   ledgerData,
+  quillSnapshot,
   beaconInfo,
   activeProfile,
   profiles
@@ -140,6 +159,24 @@ export function computeModuleStatuses({
       ? { label: `${dueSoonCount} due soon`, urgent: true }
       : { label: 'Synced', urgent: false };
 
+  const activeNotes = (quillSnapshot?.notes || []).filter((n) => n.status === 'active');
+  const caregiverNotes = activeNotes.filter(
+    (n) => n.visibility === 'shared' && Boolean(n.caregiverVisible)
+  );
+  const pinnedNotesCount = activeNotes.filter((n) => n.pinned).length;
+  const quillStatus =
+    activeProfile?.id === 'caregiver'
+      ? { label: caregiverNotes.length > 0 ? `${caregiverNotes.length} house` : 'None', urgent: false }
+      : {
+          label:
+            pinnedNotesCount > 0
+              ? `${pinnedNotesCount} pinned`
+              : activeNotes.length > 0
+                ? `${activeNotes.length} notes`
+                : 'Empty',
+          urgent: false
+        };
+
   const hasBeaconDetails = Boolean(
     beaconInfo?.vetInfo?.phone ||
       beaconInfo?.vetInfo?.emergencyPhone ||
@@ -154,6 +191,7 @@ export function computeModuleStatuses({
     almanac: almanacStatus,
     floodgate: floodgateStatus,
     ledger: ledgerStatus,
+    quill: quillStatus,
     beacon: beaconStatus
   };
 }
