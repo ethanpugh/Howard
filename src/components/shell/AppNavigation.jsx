@@ -43,8 +43,8 @@ export function HeaderBar({
   const pillStyle = PROFILE_PILL_STYLES[activeProfile.id] || PROFILE_PILL_STYLES.caregiver;
 
   return (
-    <header className="sticky top-0 z-40 w-full overflow-x-clip border-b backdrop-blur-md no-print">
-      <div className="w-full px-2.5 sm:px-4 lg:px-6 h-16 flex items-center justify-between gap-1.5 sm:gap-2">
+    <header className="sticky top-0 z-40 w-full h-16 overflow-x-clip border-b backdrop-blur-md no-print">
+      <div className="w-full px-2.5 sm:px-4 lg:px-6 h-full flex items-center justify-between gap-1.5 sm:gap-2">
         {/* Brand Logo + Live Sync Status */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <button
