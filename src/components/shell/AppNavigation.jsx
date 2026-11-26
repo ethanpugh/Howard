@@ -19,11 +19,11 @@ const QUICK_JUMP_SHORTCUT = IS_MAC_PLATFORM ? '⌘K' : 'Ctrl K';
 
 const PROFILE_PILL_STYLES = {
   partner2:
-    'bg-rose-50 dark:bg-rose-950/60 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 hover:bg-rose-100 dark:hover:bg-rose-900/60',
+    'bg-rose-500/12 border-rose-500/30 text-rose-800 dark:text-rose-200 hover:bg-rose-500/20',
   partner1:
-    'bg-teal-50 dark:bg-teal-950/60 border-teal-200 dark:border-teal-800 text-teal-800 dark:text-teal-200 hover:bg-teal-100 dark:hover:bg-teal-900/60',
+    'bg-teal-500/12 border-teal-500/30 text-teal-800 dark:text-teal-200 hover:bg-teal-500/20',
   caregiver:
-    'bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/60'
+    'bg-amber-500/15 border-amber-500/35 text-amber-900 dark:text-amber-200 hover:bg-amber-500/25'
 };
 
 export function HeaderBar({
@@ -93,13 +93,14 @@ export function HeaderBar({
           <button
             type="button"
             onClick={onOpenLauncher}
-            className="w-full flex items-center justify-between gap-2 px-3.5 py-2 rounded-2xl border border-border-strong bg-surface-subtle text-text-secondary hover:bg-surface-hover text-xs font-semibold transition cursor-pointer"
+            className="w-full min-h-[40px] flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl border border-border-strong bg-surface-subtle text-text-secondary hover:bg-surface-hover text-xs font-semibold transition cursor-pointer"
             title={`Open Bento Module Switcher (${QUICK_JUMP_SHORTCUT})`}
           >
             <span className="flex items-center gap-2 min-w-0 truncate">
               <LayoutGrid className="w-4 h-4 text-teal-700 dark:text-teal-400 shrink-0" />
               <span className="truncate">
-                Jump to module...{' '}
+                <span className="lg:hidden">Jump</span>
+                <span className="hidden lg:inline">Jump to module...</span>{' '}
                 <span className="text-text-muted font-normal">({activeAppMeta.name})</span>
               </span>
             </span>
@@ -125,7 +126,7 @@ export function HeaderBar({
             title="Switch Household Profile or Configure PIN"
           >
             <span>{activeProfile.badgeEmoji}</span>
-            <span className="max-w-[52px] min-[375px]:max-w-[88px] sm:max-w-[140px] truncate">
+            <span className="max-w-[76px] min-[375px]:max-w-[96px] sm:max-w-[140px] truncate">
               {activeProfile.name}
             </span>
             {activeProfile.pinEnabled && <Lock className="w-3 h-3 text-current shrink-0" />}
@@ -146,7 +147,7 @@ export function HeaderBar({
           <button
             type="button"
             onClick={onToggleTheme}
-            className="min-w-[40px] min-h-[40px] px-2 sm:px-2.5 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer bg-[#E9DFC8] border-[#D5C7A9] text-[#4A3B2C] hover:bg-[#DFD3B8] dark:bg-surface-subtle dark:border-border-strong dark:text-amber-300 dark:hover:bg-surface-hover"
+            className="min-w-[40px] min-h-[40px] px-2 sm:px-2.5 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer bg-surface-muted border-border-strong text-text-primary hover:bg-surface-hover-strong dark:bg-surface-subtle dark:border-border-strong dark:text-amber-300 dark:hover:bg-surface-hover"
             title={
               themeMode === 'warm'
                 ? 'Theme: Warm (Click for Dark)'

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Database, Download, FileText } from 'lucide-react';
-import { SectionCard, SubSurface } from '../../components/HowardUI.jsx';
+import { Button, SectionCard, SubSurface } from '../../components/HowardUI.jsx';
 import { downloadTextFile, escapeCSVCell } from '../../utils/householdHelpers.js';
 import {
   CLOT_SIZE_LABELS,
@@ -107,22 +107,24 @@ export default function ExportDataTab({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              accent="rose"
+              size="lg"
+              icon={Download}
               onClick={exportJSON}
-              className="min-h-[44px] flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold bg-slate-800 text-white hover:bg-slate-900 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white active:scale-[0.98] transition cursor-pointer"
             >
-              <Download className="w-4 h-4" />
-              <span>Export Floodgate JSON</span>
-            </button>
-            <button
-              type="button"
+              <span>Export JSON</span>
+            </Button>
+            <Button
+              variant="primary"
+              accent="rose"
+              size="lg"
+              icon={FileText}
               onClick={exportCSV}
-              className="min-h-[44px] flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 active:scale-[0.98] transition cursor-pointer"
             >
-              <FileText className="w-4 h-4" />
               <span>Export CSV (Excel)</span>
-            </button>
+            </Button>
           </div>
         </SectionCard>
 
@@ -152,13 +154,15 @@ export default function ExportDataTab({
             </div>
           </SubSurface>
 
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            accent="rose"
+            size="lg"
             onClick={onOpenBackupModal}
-            className="w-full min-h-[44px] py-3 rounded-2xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 active:scale-[0.98] transition cursor-pointer"
+            className="w-full"
           >
             Open Howard Status &amp; Backup Menu &rarr;
-          </button>
+          </Button>
         </SectionCard>
       </div>
     </div>

@@ -136,7 +136,7 @@ function NoteTile({
           className={`no-print absolute top-2.5 right-2.5 w-9 h-9 rounded-xl flex items-center justify-center active:scale-[0.98] transition cursor-pointer ${
             note.pinned
               ? 'bg-yellow-400 text-slate-950 shadow-xs'
-              : 'opacity-85 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 bg-black/5 dark:bg-white/10 text-text-secondary hover:bg-black/10 dark:hover:bg-white/20'
+              : 'opacity-90 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100 bg-black/5 dark:bg-white/10 text-text-secondary hover:bg-black/10 dark:hover:bg-white/20'
           }`}
         >
           <Pin className="w-3.5 h-3.5" />
@@ -248,7 +248,7 @@ function NoteTile({
           <div
             data-no-drag="true"
             onClick={(e) => e.stopPropagation()}
-            className="no-print relative flex items-center gap-0.5 opacity-95 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity shrink-0"
+            className="no-print relative flex items-center gap-0.5 opacity-95 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100 transition-opacity shrink-0"
           >
             {note.status === 'trashed' ? (
               <>

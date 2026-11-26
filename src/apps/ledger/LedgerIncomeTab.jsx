@@ -1,6 +1,6 @@
 import React from 'react';
 import { CheckCircle2, Edit3, Plus, Trash2, TrendingUp, Users } from 'lucide-react';
-import { SectionCard, SubSurface, EmptyStateCard } from '../../components/HowardUI.jsx';
+import { CardHeader, SectionCard, SubSurface, EmptyStateCard } from '../../components/HowardUI.jsx';
 import {
   formatGBP,
   getLedgerScheduleInfo,
@@ -29,7 +29,7 @@ export default function LedgerIncomeTab({
       {/* Income Streams List (7 cols) */}
       <SectionCard className="lg:col-span-7 space-y-3 sm:space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
+          <div className="min-w-0 flex-1">
             <h2 className="text-lg font-extrabold">
               Household Income ({selectedMonthLabel})
             </h2>
@@ -46,11 +46,11 @@ export default function LedgerIncomeTab({
               </strong>
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => onOpenNewIncome('one-off')}
-              className="min-h-[40px] px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-800 dark:text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1 active:scale-[0.98] transition cursor-pointer"
+              className="min-h-[40px] px-3 py-2 rounded-xl bg-orange-500/15 hover:bg-orange-500/25 text-orange-800 dark:text-orange-300 border border-orange-500/30 text-xs font-bold inline-flex items-center gap-1 whitespace-nowrap active:scale-[0.98] transition cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>One-Off Income</span>
@@ -58,7 +58,7 @@ export default function LedgerIncomeTab({
             <button
               type="button"
               onClick={() => onOpenNewIncome('monthly')}
-              className="min-h-[40px] px-3 py-2 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold flex items-center gap-1 active:scale-[0.98] transition cursor-pointer"
+              className="min-h-[40px] px-3 py-2 rounded-xl bg-orange-700 hover:bg-orange-800 text-white text-xs font-bold inline-flex items-center gap-1 whitespace-nowrap active:scale-[0.98] transition cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Recurring Salary</span>
@@ -94,7 +94,7 @@ export default function LedgerIncomeTab({
                       <span
                         className={`text-xs font-bold uppercase px-2 py-0.5 rounded-md ${
                           isOneOff
-                            ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300'
+                            ? 'bg-orange-500/15 text-orange-800 dark:text-orange-300'
                             : 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
                         }`}
                       >
@@ -140,7 +140,7 @@ export default function LedgerIncomeTab({
                     <button
                       type="button"
                       onClick={() => onOpenEditIncome(inc)}
-                      className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-text-muted hover:text-amber-700 dark:hover:text-amber-400 hover:bg-surface-hover active:scale-[0.98] transition cursor-pointer"
+                      className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-text-muted hover:text-orange-700 dark:hover:text-orange-400 hover:bg-surface-hover active:scale-[0.98] transition cursor-pointer"
                       title="Edit income"
                       aria-label={`Edit ${inc.title}`}
                     >
@@ -168,7 +168,7 @@ export default function LedgerIncomeTab({
           </div>
         ) : (
           <EmptyStateCard
-            accent="amber"
+            accent="orange"
             icon={TrendingUp}
             title={`No income streams match ${ownerMeta[perspective]?.label}`}
             description="Add recurring salaries or one-off payments to calculate monthly remainders."
@@ -176,7 +176,7 @@ export default function LedgerIncomeTab({
               <button
                 type="button"
                 onClick={() => onOpenNewIncome('monthly')}
-                className="min-h-[40px] px-4 py-2 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold active:scale-[0.98] transition cursor-pointer"
+                className="min-h-[40px] px-4 py-2 rounded-xl bg-orange-700 hover:bg-orange-800 text-white text-xs font-bold active:scale-[0.98] transition cursor-pointer"
               >
                 + Add Recurring Salary
               </button>
@@ -187,18 +187,13 @@ export default function LedgerIncomeTab({
 
       {/* Joint Bill Split Configuration (5 cols) */}
       <SectionCard className="lg:col-span-5 space-y-4">
-        <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-2xl bg-amber-500/15 text-amber-800 dark:text-amber-300 flex items-center justify-center shrink-0">
-            <Users className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-base font-extrabold">Joint Household Split Rule</h3>
-            <p className="text-xs text-text-muted">
-              How shared bills &amp; joint expenses are divided between {partner1Name} and{' '}
-              {partner2Name}
-            </p>
-          </div>
-        </div>
+        <CardHeader
+          icon={Users}
+          accent="orange"
+          titleAs="h3"
+          title="Joint Household Split Rule"
+          subtitle={`How shared bills & joint expenses are divided between ${partner1Name} and ${partner2Name}`}
+        />
 
         <div className="space-y-2.5">
           {[
@@ -221,14 +216,14 @@ export default function LedgerIncomeTab({
                 onClick={() => onChangeSplitRule(opt.id)}
                 className={`w-full p-4 rounded-2xl border text-left active:scale-[0.98] transition cursor-pointer ${
                   active
-                    ? 'ring-2 ring-amber-600 border-amber-600 bg-amber-500/10'
+                    ? 'ring-2 ring-orange-600 border-orange-600 bg-orange-500/10'
                     : 'bg-surface-subtle border-border-strong hover:bg-surface-hover'
                 }`}
               >
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-extrabold text-sm">{opt.title}</span>
                   {active && (
-                    <CheckCircle2 className="w-4 h-4 text-amber-700 dark:text-amber-400" />
+                    <CheckCircle2 className="w-4 h-4 text-orange-700 dark:text-orange-400" />
                   )}
                 </div>
                 <p className="text-xs text-text-muted leading-relaxed">{opt.desc}</p>
@@ -237,8 +232,8 @@ export default function LedgerIncomeTab({
           })}
         </div>
 
-        <SubSurface className="p-4 text-xs space-y-1.5 bg-amber-500/5 border-amber-500/20">
-          <div className="font-bold text-amber-800 dark:text-amber-300">
+        <SubSurface className="p-4 text-xs space-y-1.5 bg-orange-500/5 border-orange-500/20">
+          <div className="font-bold text-orange-800 dark:text-orange-300">
             Monthly Joint Contribution Target:
           </div>
           <div className="flex justify-between gap-2">

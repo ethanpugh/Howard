@@ -29,7 +29,11 @@ import { apiRequest } from '../utils/apiClient.js';
 import { useWeekNavigation } from '../hooks/useWeekNavigation.js';
 import { useActionLock } from '../hooks/useActionLock.js';
 import {
+  AlertBanner,
+  Button,
+  CardHeader,
   ModuleHeader,
+  ModulePage,
   SectionCard,
   StatusPill,
   SubSurface,
@@ -447,53 +451,53 @@ function CadenceApp({
 
     if (bothDone) {
       return {
-        theme: 'bg-emerald-700 text-white border-emerald-600 shadow-emerald-900/10',
-        badgeTheme: 'bg-emerald-900/80 text-emerald-50 border border-emerald-400/30',
-        iconWrapTheme: 'bg-white/15',
-        icon: <CheckCircle2 className="w-8 h-8 text-white shrink-0" />,
+        theme: 'bg-emerald-500/12 border-emerald-500/35 text-emerald-950 dark:text-emerald-100',
+        badgeTheme: 'bg-emerald-700 text-white',
+        iconWrapTheme: 'bg-emerald-700 text-white',
+        icon: <CheckCircle2 className="w-5 h-5 shrink-0" />,
         title: `All Done Today! Both of ${settings.catName}'s Doses Given`,
-        subtitle: `Morning given at ${formatTimeDisplay(morningDose.timestamp)} (${morningDose.givenBy}) • Evening given at ${formatTimeDisplay(eveningDose.timestamp)} (${eveningDose.givenBy})`,
+        subtitle: `AM ${formatTimeDisplay(morningDose.timestamp)} (${morningDose.givenBy}) • PM ${formatTimeDisplay(eveningDose.timestamp)} (${eveningDose.givenBy})`,
         warningText: 'DO NOT GIVE ANOTHER DOSE TODAY'
       };
     }
 
     if (onlyMorningDone) {
       return {
-        theme: 'bg-purple-600 text-white border-purple-500 shadow-purple-900/10',
-        badgeTheme: 'bg-purple-800/80 text-purple-50 border border-purple-400/30',
-        iconWrapTheme: 'bg-white/15',
+        theme: 'bg-purple-500/12 border-purple-500/35 text-text-primary',
+        badgeTheme: 'bg-purple-600 text-white',
+        iconWrapTheme: 'bg-purple-600 text-white',
         icon: isEveningWindow ? (
-          <Moon className="w-8 h-8 text-amber-200 shrink-0" />
+          <Moon className="w-5 h-5 shrink-0" />
         ) : (
-          <CheckCircle2 className="w-8 h-8 text-white shrink-0" />
+          <CheckCircle2 className="w-5 h-5 shrink-0" />
         ),
         title: isEveningWindow
           ? `Morning Done • Ready for ${settings.catName}'s Evening Dose`
           : `Morning Dose Given! Waiting until Evening`,
-        subtitle: `Morning dose (${settings.dosageLabel}) was given at ${formatTimeDisplay(morningDose.timestamp)} by ${morningDose.givenBy}.`,
-        warningText: `MORNING DOSE ALREADY GIVEN — NEXT DOSE AT ~${settings.eveningTargetTime}`
+        subtitle: `AM (${settings.dosageLabel}) given at ${formatTimeDisplay(morningDose.timestamp)} by ${morningDose.givenBy}.`,
+        warningText: `NEXT DOSE AT ~${settings.eveningTargetTime}`
       };
     }
 
     if (onlyEveningDone) {
       return {
-        theme: 'bg-amber-700 text-white border-amber-600 shadow-amber-900/10',
-        badgeTheme: 'bg-amber-900/75 text-amber-50 border border-amber-400/30',
-        iconWrapTheme: 'bg-white/15',
-        icon: <AlertTriangle className="w-8 h-8 text-white shrink-0" />,
+        theme: 'bg-amber-500/15 border-amber-500/45 text-amber-950 dark:text-amber-100',
+        badgeTheme: 'bg-amber-500 text-slate-950',
+        iconWrapTheme: 'bg-amber-500 text-slate-950',
+        icon: <AlertTriangle className="w-5 h-5 shrink-0" />,
         title: `Evening Dose Logged • Morning Dose Unchecked`,
-        subtitle: `Evening dose was given at ${formatTimeDisplay(eveningDose.timestamp)} by ${eveningDose.givenBy}.`,
+        subtitle: `Evening dose given at ${formatTimeDisplay(eveningDose.timestamp)} by ${eveningDose.givenBy}.`,
         warningText: 'EVENING DOSE ALREADY GIVEN TODAY'
       };
     }
 
     return {
-      theme: 'bg-amber-500 text-slate-950 border-amber-400 shadow-amber-900/10',
-      badgeTheme: 'bg-amber-950/15 text-slate-950 border border-amber-950/20',
-      iconWrapTheme: 'bg-amber-950/15',
-      icon: <Sun className="w-8 h-8 text-slate-950 shrink-0" />,
+      theme: 'bg-purple-500/10 border-purple-500/30 text-text-primary',
+      badgeTheme: 'bg-amber-500 text-slate-950',
+      iconWrapTheme: 'bg-purple-600 text-white',
+      icon: <Sun className="w-5 h-5 shrink-0" />,
       title: `No Doses Logged Yet Today for ${settings.catName}`,
-      subtitle: `Target schedule: Morning (${settings.morningTargetTime}) & Evening (${settings.eveningTargetTime}) • Dosage: ${settings.dosageLabel}`,
+      subtitle: `Target: AM ${settings.morningTargetTime} & PM ${settings.eveningTargetTime} • ${settings.dosageLabel}`,
       warningText: 'AWAITING MORNING DOSE'
     };
   }, [morningDose, eveningDose, settings, isEveningWindow]);
@@ -516,11 +520,12 @@ function CadenceApp({
   );
 
   return (
-    <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4 space-y-4 sm:space-y-5">
-      {/* CADENCE MODULE HEADER BAR */}
+    <ModulePage module="cadence">
+      {/* CADENCE MODULE HEADER BAR + MERGED ANTI-DOUBLE-DOSE STATUS STRIP */}
       <ModuleHeader
         accent="purple"
         icon={Cat}
+        shortTitle={`Cadence • ${settings.catName}`}
         title={
           <>
             Cadence • {settings.catName}&apos;s {settings.medicationName}
@@ -536,73 +541,78 @@ function CadenceApp({
         compactActions
         actions={
           canConfigure ? (
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              accent="purple"
+              size="md"
+              icon={Settings}
               onClick={() => setActiveModal({ type: 'settings' })}
-              className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:px-3.5 rounded-xl font-bold text-xs border bg-surface-subtle border-border-strong text-text-primary hover:bg-surface-hover transition active:scale-[0.98] cursor-pointer"
               title="Edit Household & Medication Settings"
               aria-label="Edit Household & Medication Settings"
             >
-              <Settings className="w-4 h-4 shrink-0" />
               <span className="hidden sm:inline">Medication Settings</span>
-            </button>
+            </Button>
           ) : null
+        }
+        footer={
+          <section
+            aria-label="Current Dose Status"
+            className={`rounded-2xl p-3 sm:p-3.5 border transition-colors duration-300 space-y-2 ${statusBanner.theme}`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-wider uppercase ${statusBanner.badgeTheme}`}
+              >
+                <ShieldAlert className="w-3 h-3 shrink-0" />
+                {statusBanner.warningText}
+              </span>
+
+              {lastDoseInfo && (
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-text-secondary tabular-nums">
+                  <Clock className="w-3.5 h-3.5 shrink-0" />
+                  Last: {formatDurationAgo(lastDoseInfo.timestamp, nowMs)} (
+                  {formatFriendlyDate(lastDoseInfo.dateKey, todayKey)} {lastDoseInfo.slotLabel})
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2.5 sm:gap-3">
+              <div
+                className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${statusBanner.iconWrapTheme}`}
+              >
+                {statusBanner.icon}
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-sm sm:text-base font-extrabold leading-snug">
+                  {statusBanner.title}
+                </h2>
+                <p className="text-xs text-text-secondary leading-snug tabular-nums">
+                  {statusBanner.subtitle}
+                </p>
+              </div>
+            </div>
+          </section>
         }
       />
 
       {/* SYNC ERROR NOTICE */}
       {syncError && (
-        <div className="p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-700 dark:text-rose-300 flex flex-wrap items-center justify-between gap-3 text-sm">
-          <div className="flex items-center gap-2.5">
-            <AlertTriangle className="w-5 h-5 shrink-0" />
-            <span>{syncError}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setSyncError(null)}
-            className="min-h-[40px] text-xs font-semibold px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 transition active:scale-[0.98] cursor-pointer"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {/* 1) CURRENT STATUS ANTI-DOUBLE-DOSE BANNER */}
-      <section
-        aria-label="Current Dose Status"
-        className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-lg transition-colors duration-300 ${statusBanner.theme}`}
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-          <span
-            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold tracking-wider uppercase w-fit ${statusBanner.badgeTheme}`}
-          >
-            <ShieldAlert className="w-3.5 h-3.5" />
-            {statusBanner.warningText}
-          </span>
-
-          {lastDoseInfo && (
-            <span
-              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium w-fit ${statusBanner.badgeTheme}`}
+        <AlertBanner
+          severity="danger"
+          icon={AlertTriangle}
+          title="Cadence Sync Error"
+          description={syncError}
+          action={
+            <Button
+              variant="dangerTinted"
+              size="sm"
+              onClick={() => setSyncError(null)}
             >
-              <Clock className="w-3.5 h-3.5" />
-              Last dose: {formatDurationAgo(lastDoseInfo.timestamp, nowMs)} (
-              {formatFriendlyDate(lastDoseInfo.dateKey, todayKey)} {lastDoseInfo.slotLabel})
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-start gap-3.5">
-          <div className={`p-2.5 rounded-2xl backdrop-blur-xs shrink-0 mt-0.5 ${statusBanner.iconWrapTheme}`}>
-            {statusBanner.icon}
-          </div>
-          <div className="space-y-1">
-            <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight leading-snug">
-              {statusBanner.title}
-            </h2>
-            <p className="text-sm sm:text-base leading-relaxed">{statusBanner.subtitle}</p>
-          </div>
-        </div>
-      </section>
+              Dismiss
+            </Button>
+          }
+        />
+      )}
 
       {/* 2) LARGE TAP-FRIENDLY MORNING & EVENING DOSE CARDS */}
       <section aria-label="Today's Doses" className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -632,54 +642,48 @@ function CadenceApp({
 
       {/* 3) MEDICATION BOTTLE OPEN DATE & DOSAGE */}
       <SectionCard aria-label="Bottle Shelf-Life & Dosage Tracker" className="space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <div
-              className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
-                bottleStatus.isExpired
-                  ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400'
-                  : bottleStatus.isExpiringSoon
-                    ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
-                    : 'bg-purple-500/15 text-purple-700 dark:text-purple-300'
-              }`}
-            >
-              <Droplets className="w-6 h-6" />
-            </div>
-            <div>
+        <CardHeader
+          icon={Droplets}
+          accent={bottleStatus.isExpired ? 'rose' : bottleStatus.isExpiringSoon ? 'amber' : 'purple'}
+          iconSize="lg"
+          titleAs="h3"
+          title={`${settings.medicationName} Bottle Tracker`}
+          badges={
+            <StatusPill accent="purple">
+              {settings.dosageLabel} • 2x Daily
+            </StatusPill>
+          }
+          subtitle={
+            <>
+              Opened <strong>{bottleStatus.openedDateFormatted}</strong> ({bottleStatus.diffDaysOpen}{' '}
+              days ago) • Discard after <strong>{bottleStatus.expiryDateFormatted}</strong>
+            </>
+          }
+          action={
+            canConfigure ? (
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="font-bold text-base">{settings.medicationName} Bottle Tracker</h3>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-600 text-white">
-                  {settings.dosageLabel} • 2x Daily
-                </span>
+                <Button
+                  variant="tinted"
+                  accent="purple"
+                  size="md"
+                  icon={RefreshCw}
+                  disabled={isSaving}
+                  onClick={() => setActiveModal({ type: 'newBottle' })}
+                >
+                  Opened New Bottle Today
+                </Button>
+                <Button
+                  variant="secondary"
+                  accent="purple"
+                  size="md"
+                  onClick={() => setActiveModal({ type: 'settings' })}
+                >
+                  Configure
+                </Button>
               </div>
-              <p className="text-xs text-text-muted mt-0.5">
-                Opened <strong>{bottleStatus.openedDateFormatted}</strong> ({bottleStatus.diffDaysOpen}{' '}
-                days ago) • Discard after <strong>{bottleStatus.expiryDateFormatted}</strong>
-              </p>
-            </div>
-          </div>
-
-          {canConfigure && (
-            <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
-              <button
-                type="button"
-                disabled={isSaving}
-                onClick={() => setActiveModal({ type: 'newBottle' })}
-                className="min-h-[40px] px-3.5 py-2 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-800 dark:text-purple-300 border border-purple-500/30 text-xs font-bold transition active:scale-[0.98] inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                Opened New Bottle Today
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveModal({ type: 'settings' })}
-                className="min-h-[40px] px-3.5 py-2 rounded-xl bg-surface-subtle hover:bg-surface-hover text-text-primary text-xs font-semibold transition active:scale-[0.98] cursor-pointer"
-              >
-                Configure
-              </button>
-            </div>
-          )}
-        </div>
+            ) : null
+          }
+        />
 
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold">
@@ -709,7 +713,13 @@ function CadenceApp({
                     ? 'bg-amber-500'
                     : 'bg-purple-500'
               }`}
-              style={{ width: `${bottleStatus.percentUsed}%` }}
+              style={{
+                width: `${
+                  bottleStatus.isExpired
+                    ? 100
+                    : Math.max(4, 100 - bottleStatus.percentUsed)
+                }%`
+              }}
             />
           </div>
         </div>
@@ -879,7 +889,7 @@ function CadenceApp({
           onConfirm={handleOpenNewBottleToday}
         />
       )}
-    </main>
+    </ModulePage>
   );
 }
 

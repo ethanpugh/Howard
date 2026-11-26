@@ -733,7 +733,9 @@ export default function NoteEditorModal({
             >
               <Home className="w-3.5 h-3.5" />
               <span>
-                {draft.caregiverVisible ? 'Visible to Caregiver (House Note)' : 'Hide from Caregiver'}
+                {draft.caregiverVisible
+                  ? 'Visible to Caregiver (House Note)'
+                  : 'Hidden from Caregiver (click to share)'}
               </span>
             </button>
           )}
@@ -780,7 +782,7 @@ export default function NoteEditorModal({
                       return { ...p, labels: [...cur, lbl] };
                     })
                   }
-                  className={`min-h-[34px] px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1 border active:scale-[0.98] cursor-pointer transition ${
+                  className={`min-h-[36px] px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1 border active:scale-[0.98] cursor-pointer transition ${
                     active
                       ? 'bg-yellow-400 text-slate-950 border-yellow-500'
                       : 'bg-surface-card border-border-strong text-text-secondary hover:bg-surface-hover'

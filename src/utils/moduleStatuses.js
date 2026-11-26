@@ -14,74 +14,33 @@ import {
   getLedgerScheduleInfo,
   isAlmanacEventVisibleToProfile
 } from './householdHelpers.js';
+import { MODULE_ACCENT_BY_ID, MODULE_THEMES } from './moduleThemes.js';
+
+function createRegistryEntry(id, name, subtitle, icon, extra = {}) {
+  const accentKey = MODULE_ACCENT_BY_ID[id] || 'teal';
+  const theme = MODULE_THEMES[accentKey] || MODULE_THEMES.teal;
+  return {
+    id,
+    name,
+    subtitle,
+    icon,
+    accentKey,
+    accent: theme.activeTab.replace(/\s*shadow-xs$/, ''),
+    ...(theme.activeBadgeClass ? { activeBadgeClass: theme.activeBadgeClass } : {}),
+    activeCardClass: theme.activeCardClass,
+    ...extra
+  };
+}
 
 export const APP_REGISTRY = [
-  {
-    id: 'foyer',
-    name: 'Foyer',
-    subtitle: 'Daily Briefing',
-    icon: Home,
-    accent: 'bg-teal-700 text-white',
-    activeCardClass: 'border-teal-500 ring-2 ring-teal-500/25'
-  },
-  {
-    id: 'cadence',
-    name: 'Cadence',
-    subtitle: 'Pet Meds',
-    icon: Cat,
-    accent: 'bg-purple-600 text-white',
-    activeCardClass: 'border-purple-500 ring-2 ring-purple-500/25'
-  },
-  {
-    id: 'bloom',
-    name: 'Bloom',
-    subtitle: 'Mantis Care',
-    icon: Flower2,
-    accent: 'bg-emerald-700 text-white',
-    activeCardClass: 'border-emerald-500 ring-2 ring-emerald-500/25'
-  },
-  {
-    id: 'almanac',
-    name: 'Almanac',
-    subtitle: 'Calendar',
-    icon: Calendar,
-    accent: 'bg-indigo-600 text-white',
-    activeCardClass: 'border-indigo-500 ring-2 ring-indigo-500/25'
-  },
-  {
-    id: 'floodgate',
-    name: 'Floodgate',
-    subtitle: 'Cycle & GP Log',
-    icon: Heart,
-    accent: 'bg-rose-600 text-white',
-    activeCardClass: 'border-rose-500 ring-2 ring-rose-500/25',
-    privateTo: 'partner2'
-  },
-  {
-    id: 'ledger',
-    name: 'Ledger',
-    subtitle: 'Finances & Bills',
-    icon: Wallet,
-    accent: 'bg-amber-700 text-white',
-    activeCardClass: 'border-amber-500 ring-2 ring-amber-500/25'
-  },
-  {
-    id: 'quill',
-    name: 'Quill',
-    subtitle: 'Notes & Shared Board',
-    icon: StickyNote,
-    accent: 'bg-yellow-400 text-slate-950',
-    activeBadgeClass: 'bg-slate-950/15 text-slate-950',
-    activeCardClass: 'border-yellow-500 ring-2 ring-yellow-400/35'
-  },
-  {
-    id: 'beacon',
-    name: 'Beacon',
-    subtitle: 'House & Vet Guide',
-    icon: ShieldAlert,
-    accent: 'bg-sky-700 text-white',
-    activeCardClass: 'border-sky-500 ring-2 ring-sky-500/25'
-  }
+  createRegistryEntry('foyer', 'Foyer', 'Daily Briefing', Home),
+  createRegistryEntry('cadence', 'Cadence', 'Pet Meds', Cat),
+  createRegistryEntry('bloom', 'Bloom', 'Mantis Care', Flower2),
+  createRegistryEntry('almanac', 'Almanac', 'Calendar', Calendar),
+  createRegistryEntry('floodgate', 'Floodgate', 'Cycle & GP Log', Heart, { privateTo: 'partner2' }),
+  createRegistryEntry('ledger', 'Ledger', 'Finances & Bills', Wallet),
+  createRegistryEntry('quill', 'Quill', 'Notes & Shared Board', StickyNote),
+  createRegistryEntry('beacon', 'Beacon', 'House & Vet Guide', ShieldAlert)
 ];
 
 export function computeModuleStatuses({

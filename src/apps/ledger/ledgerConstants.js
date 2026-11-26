@@ -17,16 +17,16 @@ export const OWNER_META = {
     label: 'Unified (Whole Household)',
     shortLabel: 'Unified',
     badgeEmoji: '🏠',
-    pillClass: 'bg-emerald-700 text-white border-emerald-700',
-    badgeClass: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+    pillClass: 'bg-orange-700 text-white border-orange-700',
+    badgeClass: 'bg-orange-500/15 text-orange-800 dark:text-orange-300'
   },
   joint: {
     id: 'joint',
     label: 'Joint / Shared Only',
-    shortLabel: 'Joint / Shared',
+    shortLabel: 'Joint',
     badgeEmoji: '🤝',
-    pillClass: 'bg-indigo-600 text-white border-indigo-600',
-    badgeClass: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300'
+    pillClass: 'bg-surface-raised text-text-primary border-border-strong',
+    badgeClass: 'bg-surface-muted text-text-secondary'
   },
   partner1: {
     id: 'partner1',

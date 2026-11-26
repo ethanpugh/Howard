@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Database, Download, Upload, Wifi } from 'lucide-react';
-import { ConfirmModal, ModalShell } from '../HowardUI.jsx';
+import { Button, ConfirmModal, ModalShell } from '../HowardUI.jsx';
 import { apiRequest } from '../../utils/apiClient.js';
 import { downloadTextFile, getLocalDateKey } from '../../utils/householdHelpers.js';
 import { useActionLock } from '../../hooks/useActionLock.js';
@@ -190,7 +190,7 @@ export default function BackstageBackupModal({
         title="Howard Household Backstage"
         subtitle="Unified SQLite database & household backup tools"
         icon={Database}
-        accent="emerald"
+        accent="teal"
         maxWidthClass="max-w-lg"
         ariaLabel="Howard Household Backstage"
       >
@@ -258,18 +258,20 @@ export default function BackstageBackupModal({
         </div>
 
         <div className="space-y-3">
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            accent="teal"
+            size="lg"
+            icon={Download}
             onClick={handleDownloadFullBackup}
-            className="w-full min-h-[44px] py-3 px-4 rounded-2xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm cursor-pointer transition active:scale-[0.98]"
+            className="w-full"
           >
-            <Download className="w-4 h-4 shrink-0" />
             <span>Download Full Database Backup (Entire DB incl. Floodgate)</span>
-          </button>
+          </Button>
 
           {activeProfile.id === 'partner1' && (
             <>
-              <label className="w-full min-h-[44px] py-3 px-4 rounded-2xl border border-dashed border-border-strong text-xs font-bold flex items-center justify-center gap-2 cursor-pointer hover:bg-surface-hover transition">
+              <label className="w-full min-h-[44px] py-3 px-4 rounded-xl border border-dashed border-border-strong text-xs font-bold flex items-center justify-center gap-2 cursor-pointer hover:bg-surface-hover transition">
                 <Upload className="w-4 h-4 text-teal-700 dark:text-teal-400 shrink-0" />
                 <span>Restore / Merge from Howard or Standalone Backup JSON</span>
                 <input

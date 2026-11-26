@@ -16,7 +16,7 @@ export const BLEEDING_LEVELS = [
     desc: 'Drops / pantyliner only',
     dotColor: 'bg-rose-300',
     pillClass:
-      'bg-rose-100 text-rose-900 border border-rose-300 dark:bg-rose-900/60 dark:text-rose-100 dark:border-rose-700'
+      'bg-rose-500/15 text-rose-900 border border-rose-500/30 dark:text-rose-100'
   },
   {
     id: 'light',
@@ -26,7 +26,7 @@ export const BLEEDING_LEVELS = [
     desc: 'Light flow, regular change',
     dotColor: 'bg-rose-400',
     pillClass:
-      'bg-rose-200 text-rose-950 border border-rose-300 dark:bg-rose-800/80 dark:text-rose-50 dark:border-rose-600'
+      'bg-rose-500/25 text-rose-950 border border-rose-500/40 dark:text-rose-50'
   },
   {
     id: 'medium',
@@ -88,7 +88,7 @@ export const PAIN_TYPES = [
 ];
 
 export const BOWEL_SEVERITIES = [
-  { id: 'none', label: 'None', score: 0, activeColor: 'bg-slate-700 text-white border-slate-700' },
+  { id: 'none', label: 'None', score: 0, activeColor: 'bg-surface-raised text-text-primary border-border-strong' },
   { id: 'mild', label: 'Mild', score: 1, activeColor: 'bg-amber-500 text-slate-950 border-amber-600' },
   {
     id: 'moderate',
@@ -125,7 +125,7 @@ export const PRESET_MEDICATIONS = [
 export const MED_EFFECTIVENESS = [
   { id: 'helped', label: 'Helped', activeClass: 'bg-emerald-600 text-white border-emerald-700' },
   { id: 'partial', label: 'Partial', activeClass: 'bg-amber-500 text-slate-950 border-amber-600' },
-  { id: 'none', label: 'No Relief', activeClass: 'bg-slate-600 text-white border-slate-700' }
+  { id: 'none', label: 'No Relief', activeClass: 'bg-surface-raised text-text-primary border-border-strong' }
 ];
 
 export const MED_EFFECTIVENESS_LABELS = Object.fromEntries(
@@ -159,10 +159,10 @@ export const FACTOR_LABEL_MAP = Object.fromEntries(EXTERNAL_FACTORS.map((f) => [
 export const getPainBadgeStyle = (score) => {
   const s = Number(score) || 0;
   if (s === 0) return 'bg-surface-muted text-text-secondary';
-  if (s <= 3) return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300';
-  if (s <= 6) return 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300';
-  if (s <= 8) return 'bg-orange-100 text-orange-900 dark:bg-orange-950 dark:text-orange-300';
-  return 'bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-300 font-bold';
+  if (s <= 3) return 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300';
+  if (s <= 6) return 'bg-amber-500/15 text-amber-800 dark:text-amber-300';
+  if (s <= 8) return 'bg-orange-500/15 text-orange-800 dark:text-orange-300';
+  return 'bg-rose-500/15 text-rose-800 dark:text-rose-300 font-bold';
 };
 
 export const getSafeOwnerSlug = (ownerName) => {

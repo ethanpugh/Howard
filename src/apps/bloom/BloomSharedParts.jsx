@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Trash2 } from 'lucide-react';
+import { Bug, Calendar, Droplets, Thermometer, Trash2, XCircle } from 'lucide-react';
 import { EmptyStateCard, getFieldClass } from '../../components/HowardUI.jsx';
 import { formatShortPreyLabel, formatTimeDisplay } from '../../utils/householdHelpers.js';
 import { ABDOMEN_LEVELS, BEHAVIOR_TAGS } from './bloomConstants.js';
@@ -66,10 +66,10 @@ export function CareEntryList({
           : cardRowClass
       }
     >
-      <span className="min-w-0 flex-1 break-words">
-        {isBackfill ? '💧 ' : null}
+      <span className="min-w-0 flex-1 break-words inline-flex items-center gap-1.5 flex-wrap">
+        {isBackfill && <Droplets className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />}
         <strong>{formatTimeDisplay(m.timestamp)}</strong> • {m.by}
-        {m.dropletDrinkObserved ? (isBackfill ? ' • Drank' : ' • 💧 Drank') : ''}
+        {m.dropletDrinkObserved ? ' • Drank droplets' : ''}
         {m.note ? ` — "${m.note}"` : ''}
       </span>
       <DeleteIconButton
@@ -102,12 +102,20 @@ export function CareEntryList({
             : cardRowClass
         }
       >
-        <span className="min-w-0 flex-1 break-words">
+        <span className="min-w-0 flex-1 break-words inline-flex items-center gap-1.5 flex-wrap">
           {isBackfill ? (
             <>
-              {f.outcome === 'refused'
-                ? `✗ Refused prey • ${f.by}`
-                : `🪰 ${f.count}× ${shortPrey} • ${f.by}`}
+              {f.outcome === 'refused' ? (
+                <>
+                  <XCircle className="w-3.5 h-3.5 text-amber-700 dark:text-amber-300 shrink-0" />
+                  <span>Refused prey • {f.by}</span>
+                </>
+              ) : (
+                <>
+                  <Bug className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                  <span>{f.count}× {shortPrey} • {f.by}</span>
+                </>
+              )}
               {f.abdomenAfter ? ` • Abdomen: ${f.abdomenAfter}` : ''}
               {f.note ? ` — "${f.note}"` : ''}
             </>
@@ -158,8 +166,8 @@ export function CareEntryList({
             : cardRowClass
         }
       >
-        <span className="min-w-0 flex-1 break-words">
-          {isBackfill ? '🌡️ ' : null}
+        <span className="min-w-0 flex-1 break-words inline-flex items-center gap-1.5 flex-wrap">
+          {isBackfill && <Thermometer className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 shrink-0" />}
           <strong>{timeStr}</strong> • {c.tempC != null ? `${c.tempC}°C` : '—'}
           {c.humidityPct != null ? ` • ${c.humidityPct}% RH` : ''}
           {c.by ? ` • ${c.by}` : ''}
@@ -236,9 +244,9 @@ export function AbdomenPicker({
         {onSaveOnly && (
           <button
             type="button"
-            disabled={disabled}
+            disabled={disabled || !value}
             onClick={onSaveOnly}
-            className="min-h-[40px] px-2.5 rounded-xl text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 hover:underline active:scale-[0.98] transition cursor-pointer shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
+            className="min-h-[40px] px-2.5 rounded-xl text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 hover:underline active:scale-[0.98] transition cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saveLabel}
           </button>
@@ -327,7 +335,7 @@ export function ClimateFields({
         disabled={isPending}
         className={
           compact
-            ? 'col-span-2 sm:col-span-1 min-h-[40px] px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer'
+            ? 'col-span-2 sm:col-span-1 min-h-[40px] px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer'
             : 'col-span-2 min-h-[40px] px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer'
         }
       >

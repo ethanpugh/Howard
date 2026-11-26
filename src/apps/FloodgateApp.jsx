@@ -16,8 +16,12 @@ import {
 } from '../utils/householdHelpers.js';
 import { apiRequest } from '../utils/apiClient.js';
 import {
+  AlertBanner,
+  Button,
   ModuleHeader,
+  ModulePage,
   SegmentedTabs,
+  StatusPill,
   ConfirmModal
 } from '../components/HowardUI.jsx';
 import {
@@ -524,17 +528,14 @@ function FloodgateApp({
         maxWidthClass="max-w-md"
       />
 
-      <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4 space-y-4 sm:space-y-5">
+      <ModulePage module="floodgate">
         <ModuleHeader
           accent="rose"
           icon={Heart}
+          shortTitle="Floodgate"
           title={`Floodgate • ${ownerName}'s Journal`}
           subtitle="Period, Blood Clots, Pain & Endometriosis Clinical Tracker"
-          badges={
-            <span className="text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full font-semibold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 whitespace-nowrap">
-              Private Module
-            </span>
-          }
+          badges={<StatusPill accent="rose">Private Module</StatusPill>}
           className="no-print"
           footer={
             <SegmentedTabs
@@ -551,7 +552,7 @@ function FloodgateApp({
                 },
                 {
                   id: 'insights',
-                  label: 'Insights & GP Report',
+                  label: 'GP Insights',
                   shortLabel: 'Insights',
                   icon: Stethoscope
                 },
@@ -562,40 +563,28 @@ function FloodgateApp({
         />
 
         {isDirty && (pendingNav || saveFailed) && (
-          <div
+          <AlertBanner
             role="alert"
-            className="no-print rounded-2xl p-3.5 sm:p-4 border border-rose-500/40 bg-rose-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-          >
-            <div className="flex items-start gap-2.5 text-xs text-rose-900 dark:text-rose-100">
-              <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-              <div className="space-y-0.5">
-                <div className="font-bold">
-                  Unable to save changes for {formatShortDateEnGB(selectedDate)}
-                </div>
-                <p className="text-rose-800 dark:text-rose-200">
-                  {pendingNav
-                    ? 'You can retry saving when reconnected, or discard your unsaved edits to leave this view.'
-                    : 'The server could not be reached. Retry saving or discard your unsaved edits.'}
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={retryPendingNavigation}
-                className="min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white active:scale-[0.98] transition cursor-pointer"
-              >
-                {pendingNav ? 'Retry Save & Continue' : 'Retry Save'}
-              </button>
-              <button
-                type="button"
-                onClick={discardPendingNavigation}
-                className="min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-bold border border-rose-500/40 bg-surface-card text-rose-800 dark:text-rose-200 hover:bg-rose-500/15 active:scale-[0.98] transition cursor-pointer"
-              >
-                Discard Unsaved Changes
-              </button>
-            </div>
-          </div>
+            severity="danger"
+            icon={AlertCircle}
+            className="no-print"
+            title={`Unable to save changes for ${formatShortDateEnGB(selectedDate)}`}
+            description={
+              pendingNav
+                ? 'You can retry saving when reconnected, or discard your unsaved edits to leave this view.'
+                : 'The server could not be reached. Retry saving or discard your unsaved edits.'
+            }
+            action={
+              <>
+                <Button variant="danger" size="md" onClick={retryPendingNavigation}>
+                  {pendingNav ? 'Retry Save & Continue' : 'Retry Save'}
+                </Button>
+                <Button variant="dangerTinted" size="md" onClick={discardPendingNavigation}>
+                  Discard Unsaved Changes
+                </Button>
+              </>
+            }
+          />
         )}
 
         {activeTab === 'log' && (
@@ -665,7 +654,7 @@ function FloodgateApp({
             showToast={showToast}
           />
         )}
-      </main>
+      </ModulePage>
     </>
   );
 }

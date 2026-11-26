@@ -99,7 +99,7 @@ function MasonrySection({
 
       <div
         data-quill-section={sectionKey}
-        className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-x-3 items-start min-h-[48px]"
+        className="grid grid-cols-1 min-[440px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-x-3 items-start min-h-[48px]"
         style={{ gridAutoRows: `${ROW_UNIT}px` }}
       >
         {notes.length === 0 && dragState ? (

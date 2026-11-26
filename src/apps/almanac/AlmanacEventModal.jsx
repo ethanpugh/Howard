@@ -39,8 +39,8 @@ export const EVENT_CATEGORIES = [
   {
     id: 'bins',
     label: 'Bins / Utilities',
-    color: 'bg-amber-500 text-slate-950',
-    badge: 'bg-amber-500/15 text-amber-800 dark:text-amber-300'
+    color: 'bg-cyan-700 text-white',
+    badge: 'bg-cyan-500/15 text-cyan-800 dark:text-cyan-300'
   },
   {
     id: 'social',

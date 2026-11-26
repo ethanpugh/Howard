@@ -25,6 +25,9 @@ html.warm {
   --text-placeholder: #736659;
   --pill-shadow: 0 14px 34px -6px rgba(44, 37, 32, 0.22), 0 4px 12px -2px rgba(44, 37, 32, 0.12);
   --ring-contrast: #faf6ee;
+  --status-ok: #047857;
+  --status-warn: #f59e0b;
+  --status-danger: #e11d48;
 }
 
 html.dark {
@@ -47,7 +50,78 @@ html.dark {
   --text-placeholder: #94a3b8;
   --pill-shadow: 0 18px 38px -6px rgba(8, 13, 23, 0.65), 0 6px 16px -2px rgba(8, 13, 23, 0.42);
   --ring-contrast: #243044;
+  --status-ok: #34d399;
+  --status-warn: #fbbf24;
+  --status-danger: #fb7185;
 }
+
+/* ============================================================================
+   1B. SCOPED MODULE IDENTITY TOKENS (<main data-module="...">)
+   ============================================================================ */
+[data-module="foyer"] {
+  --mod-accent: #0f766e;
+  --mod-accent-soft: rgba(20, 184, 166, 0.14);
+  --mod-accent-border: rgba(20, 184, 166, 0.35);
+  --mod-accent-text: #115e59;
+  --mod-accent-fg: #ffffff;
+}
+[data-module="cadence"] {
+  --mod-accent: #9333ea;
+  --mod-accent-soft: rgba(168, 85, 247, 0.14);
+  --mod-accent-border: rgba(168, 85, 247, 0.35);
+  --mod-accent-text: #6b21a8;
+  --mod-accent-fg: #ffffff;
+}
+[data-module="bloom"] {
+  --mod-accent: #047857;
+  --mod-accent-soft: rgba(16, 185, 129, 0.14);
+  --mod-accent-border: rgba(16, 185, 129, 0.35);
+  --mod-accent-text: #065f46;
+  --mod-accent-fg: #ffffff;
+}
+[data-module="almanac"] {
+  --mod-accent: #4f46e5;
+  --mod-accent-soft: rgba(99, 102, 241, 0.14);
+  --mod-accent-border: rgba(99, 102, 241, 0.35);
+  --mod-accent-text: #3730a3;
+  --mod-accent-fg: #ffffff;
+}
+[data-module="floodgate"] {
+  --mod-accent: #e11d48;
+  --mod-accent-soft: rgba(244, 63, 94, 0.14);
+  --mod-accent-border: rgba(244, 63, 94, 0.35);
+  --mod-accent-text: #9f1239;
+  --mod-accent-fg: #ffffff;
+}
+[data-module="ledger"] {
+  --mod-accent: #c2410c;
+  --mod-accent-soft: rgba(249, 115, 22, 0.14);
+  --mod-accent-border: rgba(249, 115, 22, 0.35);
+  --mod-accent-text: #9a3412;
+  --mod-accent-fg: #ffffff;
+}
+[data-module="quill"] {
+  --mod-accent: #facc15;
+  --mod-accent-soft: rgba(250, 204, 21, 0.2);
+  --mod-accent-border: rgba(234, 179, 8, 0.45);
+  --mod-accent-text: #713f12;
+  --mod-accent-fg: #020617;
+}
+[data-module="beacon"] {
+  --mod-accent: #0369a1;
+  --mod-accent-soft: rgba(14, 165, 233, 0.14);
+  --mod-accent-border: rgba(14, 165, 233, 0.35);
+  --mod-accent-text: #075985;
+  --mod-accent-fg: #ffffff;
+}
+html.dark [data-module="foyer"] { --mod-accent-text: #5eead4; }
+html.dark [data-module="cadence"] { --mod-accent-text: #d8b4fe; }
+html.dark [data-module="bloom"] { --mod-accent-text: #6ee7b7; }
+html.dark [data-module="almanac"] { --mod-accent-text: #a5b4fc; }
+html.dark [data-module="floodgate"] { --mod-accent-text: #fda4af; }
+html.dark [data-module="ledger"] { --mod-accent-text: #fdba74; }
+html.dark [data-module="quill"] { --mod-accent-text: #fde047; }
+html.dark [data-module="beacon"] { --mod-accent-text: #7dd3fc; }
 
 @theme inline {
   --color-surface-page: var(--surface-page);
@@ -71,6 +145,14 @@ html.dark {
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]) {
     cursor: pointer;
+  }
+
+  button:focus-visible,
+  [role="button"]:focus-visible,
+  a:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--mod-accent, #0f766e);
+    outline-offset: 2px;
   }
 }
 

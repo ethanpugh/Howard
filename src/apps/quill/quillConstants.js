@@ -14,7 +14,7 @@ export const QUILL_COLORS = [
     label: 'Default',
     cardClass: 'bg-surface-card border-border-subtle',
     swatchClass: 'bg-[#faf6ee] dark:bg-[#243044]',
-    dotClass: 'bg-amber-500'
+    dotClass: 'bg-yellow-400'
   },
   {
     key: 'coral',

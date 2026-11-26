@@ -12,6 +12,7 @@ import {
   Users,
   X
 } from 'lucide-react';
+import { IconBadge } from '../../components/HowardUI.jsx';
 import {
   QUILL_LIMITS,
   createChecklistItemId,
@@ -187,16 +188,14 @@ function QuickAddBar({
   if (!expanded) {
     return (
       <div className="w-full no-print">
-        <div className="rounded-2xl sm:rounded-3xl border border-border-subtle bg-surface-card shadow-xs px-3.5 sm:px-5 py-3 flex items-center justify-between gap-3 hover:border-yellow-500/50 transition">
+        <div className="rounded-2xl sm:rounded-3xl border border-border-subtle bg-surface-card shadow-xs px-3.5 sm:px-5 py-3 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 hover:border-yellow-500/50 transition">
           <button
             ref={triggerRef}
             type="button"
             onClick={() => openComposer('text')}
-            className="flex items-center gap-3 flex-1 min-w-0 text-left cursor-text group"
+            className="flex items-center gap-3 flex-1 min-w-[140px] text-left cursor-text group"
           >
-            <div className="w-9 h-9 rounded-xl bg-yellow-400/25 text-yellow-800 dark:bg-yellow-400/20 dark:text-yellow-300 flex items-center justify-center shrink-0">
-              <StickyNote className="w-4 h-4" />
-            </div>
+            <IconBadge icon={StickyNote} accent="yellow" size="sm" iconClassName="w-4 h-4" />
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold text-text-placeholder group-hover:text-text-secondary transition truncate">
                 Take a note...
@@ -333,7 +332,7 @@ function QuickAddBar({
                   type="button"
                   onClick={() => setItems((prev) => prev.filter((it) => it.id !== item.id))}
                   aria-label="Remove item"
-                  className="min-w-[32px] min-h-[32px] p-1 text-text-muted hover:text-rose-600 flex items-center justify-center active:scale-[0.98] cursor-pointer"
+                  className="min-w-[36px] min-h-[36px] p-1 text-text-muted hover:text-rose-600 flex items-center justify-center active:scale-[0.98] cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>

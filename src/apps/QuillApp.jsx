@@ -13,10 +13,12 @@ import {
   X
 } from 'lucide-react';
 import {
+  Button,
   ConfirmModal,
   EmptyStateCard,
   ModalShell,
   ModuleHeader,
+  ModulePage,
   SectionCard,
   SegmentedTabs,
   StatusPill,
@@ -550,7 +552,7 @@ function QuillApp({
   const partner2Name = profiles.find((p) => p.id === 'partner2')?.name || 'Partner 2';
 
   return (
-    <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4 space-y-4 sm:space-y-5">
+    <ModulePage module="quill">
       <div className="sr-only" aria-live="polite">
         {liveAnnouncement}
       </div>
@@ -558,6 +560,7 @@ function QuillApp({
       <ModuleHeader
         accent="yellow"
         icon={StickyNote}
+        shortTitle="Quill"
         title={isCaregiver ? 'Quill • House Notes' : 'Quill • Notes & Shared Board'}
         subtitle={
           isCaregiver
@@ -581,20 +584,21 @@ function QuillApp({
                 type="search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search notes (/)"
+                placeholder="Search notes..."
                 aria-label="Search notes"
                 className={getFieldClass('yellow', 'min-h-[40px] pl-9 pr-3', { compact: true })}
               />
             </div>
             {canEdit && (
-              <button
-                type="button"
+              <Button
+                variant="secondary"
+                accent="yellow"
+                size="md"
+                icon={Tag}
                 onClick={() => setLabelsModalOpen(true)}
-                className="min-h-[40px] px-3 py-1.5 rounded-xl border border-border-strong bg-surface-subtle hover:bg-surface-hover text-text-primary text-xs font-bold inline-flex items-center gap-1.5 active:scale-[0.98] cursor-pointer transition"
               >
-                <Tag className="w-4 h-4 text-yellow-800 dark:text-yellow-300" />
                 <span>Labels</span>
-              </button>
+              </Button>
             )}
           </div>
         }
@@ -618,7 +622,7 @@ function QuillApp({
                   <button
                     type="button"
                     onClick={() => setSelectedLabel('')}
-                    className={`min-h-[34px] px-3 py-1 rounded-full text-xs font-bold shrink-0 border active:scale-[0.98] cursor-pointer transition ${
+                    className={`min-h-[36px] px-3 py-1 rounded-full text-xs font-bold shrink-0 border active:scale-[0.98] cursor-pointer transition ${
                       !selectedLabel
                         ? 'bg-yellow-400 text-slate-950 border-yellow-500 shadow-xs'
                         : 'bg-surface-subtle border-border-subtle text-text-secondary hover:bg-surface-hover'
@@ -633,7 +637,7 @@ function QuillApp({
                         key={lbl}
                         type="button"
                         onClick={() => setSelectedLabel(active ? '' : lbl)}
-                        className={`min-h-[34px] px-3 py-1 rounded-full text-xs font-bold shrink-0 border active:scale-[0.98] cursor-pointer transition ${
+                        className={`min-h-[36px] px-3 py-1 rounded-full text-xs font-bold shrink-0 border active:scale-[0.98] cursor-pointer transition ${
                           active
                             ? 'bg-yellow-400 text-slate-950 border-yellow-500 shadow-xs'
                             : 'bg-surface-subtle border-border-subtle text-text-secondary hover:bg-surface-hover'
@@ -666,14 +670,14 @@ function QuillApp({
             Notes in Trash are automatically deleted forever after 7 days.
           </span>
           {visibleNotes.length > 0 && (
-            <button
-              type="button"
+            <Button
+              variant="danger"
+              size="md"
               disabled={actionPending}
               onClick={() => setConfirmEmptyTrash(true)}
-              className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold active:scale-[0.98] disabled:opacity-60 cursor-pointer transition"
             >
               Empty Trash
-            </button>
+            </Button>
           )}
         </SectionCard>
       )}
@@ -951,7 +955,7 @@ function QuillApp({
         isPending={actionPending}
         confirmText={actionPending ? 'Deleting...' : 'Delete Forever'}
       />
-    </main>
+    </ModulePage>
   );
 }
 

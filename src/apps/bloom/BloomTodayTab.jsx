@@ -8,10 +8,15 @@ import {
   History,
   Info,
   ShieldAlert,
-  Thermometer
+  Sparkles,
+  Thermometer,
+  XCircle
 } from 'lucide-react';
 import {
+  Button,
   IconBadge,
+  MetricStrip,
+  MetricTile,
   SectionCard,
   SubSurface,
   WeeklyHistoryPanel,
@@ -55,7 +60,7 @@ export default function BloomTodayTab({
 
   const [selectedPrey, setSelectedPrey] = useState('hydei');
   const [preyCount, setPreyCount] = useState(3);
-  const [selectedAbdomen, setSelectedAbdomen] = useState(summary.latestAbdomen || 'plump');
+  const [selectedAbdomen, setSelectedAbdomen] = useState(summary.latestAbdomen || '');
   const [leavePreyWarning, setLeavePreyWarning] = useState(false);
   const [feedNoteInput, setFeedNoteInput] = useState('');
   const [overrideFeedLockout, setOverrideFeedLockout] = useState(false);
@@ -140,7 +145,7 @@ export default function BloomTodayTab({
     const ok = await onLogFeeding(outcome, todayKey, {
       preyId: selectedPrey,
       count: preyCount,
-      abdomenAfter: selectedAbdomen,
+      abdomenAfter: selectedAbdomen || null,
       note: feedNoteInput,
       leavePreyWarning
     });
@@ -178,76 +183,69 @@ export default function BloomTodayTab({
       )}
 
       {/* Quick Status Metrics Strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="p-3.5 rounded-2xl border border-border-subtle bg-surface-card text-text-primary shadow-xs">
-          <div className="text-xs font-bold uppercase tracking-wider text-text-muted">
-            Stage &amp; Molt Clock
-          </div>
-          <div className="text-base font-extrabold mt-0.5 text-emerald-700 dark:text-emerald-400">
-            {settings.currentInstar} • Day {summary.daysInCurrentInstar}
-          </div>
-          <div className="text-xs text-text-muted mt-0.5">
-            {summary.isAdult
+      <MetricStrip>
+        <MetricTile
+          label="Stage & Molt Clock"
+          accent="emerald"
+          value={`${settings.currentInstar} • Day ${summary.daysInCurrentInstar}`}
+          valueClassName="text-base sm:text-lg text-emerald-700 dark:text-emerald-400"
+          sublabel={
+            summary.isAdult
               ? 'Winged Adult (final molt complete)'
-              : `Est. molt ~${formatFriendlyDate(summary.projectedNextMoltDateStr, todayKey)}`}
-          </div>
-        </div>
+              : `Est. molt ~${formatFriendlyDate(summary.projectedNextMoltDateStr, todayKey)}`
+          }
+        />
 
-        <div className="p-3.5 rounded-2xl border border-border-subtle bg-surface-card text-text-primary shadow-xs">
-          <div className="text-xs font-bold uppercase tracking-wider text-text-muted">
-            Hydration / Mist
-          </div>
-          <div className="text-base font-extrabold mt-0.5 text-emerald-700 dark:text-emerald-400">
-            {summary.lastMist ? summary.lastMist.timeAgoLabel : 'No mists yet'}
-          </div>
-          <div className="text-xs text-text-muted mt-0.5">
-            {summary.lastMist
+        <MetricTile
+          label="Hydration / Mist"
+          accent="emerald"
+          value={summary.lastMist ? summary.lastMist.timeAgoLabel : 'No mists yet'}
+          valueClassName="text-base sm:text-lg text-emerald-700 dark:text-emerald-400"
+          sublabel={
+            summary.lastMist
               ? `By ${summary.lastMist.by} (${summary.todayMistCount} today)`
-              : `Target: every ~${settings.mistTargetHours}h`}
-          </div>
-        </div>
+              : `Target: every ~${settings.mistTargetHours}h`
+          }
+        />
 
-        <div className="p-3.5 rounded-2xl border border-border-subtle bg-surface-card text-text-primary shadow-xs">
-          <div className="text-xs font-bold uppercase tracking-wider text-text-muted">
-            Feeding &amp; Abdomen
-          </div>
-          <div className="text-base font-extrabold mt-0.5 text-emerald-700 dark:text-emerald-400">
-            {summary.lastMeal ? summary.lastMeal.friendlyWhen : 'Not logged yet'}
-          </div>
-          <div className="text-xs text-text-muted mt-0.5 capitalize">
-            Abdomen: {summary.latestAbdomen || 'Unchecked'}
-          </div>
-        </div>
+        <MetricTile
+          label="Feeding & Abdomen"
+          accent="emerald"
+          value={summary.lastMeal ? summary.lastMeal.friendlyWhen : 'Not logged yet'}
+          valueClassName="text-base sm:text-lg text-emerald-700 dark:text-emerald-400"
+          sublabel={<span className="capitalize">Abdomen: {summary.latestAbdomen || 'Unchecked'}</span>}
+        />
 
-        <div className="p-3.5 rounded-2xl border border-border-subtle bg-surface-card text-text-primary shadow-xs flex flex-col justify-between">
-          <div className="text-xs font-bold uppercase tracking-wider text-text-muted">
-            Lifecycle Mode
-          </div>
+        <MetricTile label="Lifecycle Mode" accent="emerald">
           {canConfigure ? (
             <div
               className={`grid gap-1.5 pt-1.5 ${
                 summary.effectiveStatus !== 'premolt' && !summary.isAdult
-                  ? 'grid-cols-1 sm:grid-cols-2'
+                  ? 'grid-cols-1 xl:grid-cols-2'
                   : 'grid-cols-1'
               }`}
             >
               {summary.effectiveStatus !== 'premolt' && !summary.isAdult && (
-                <button
-                  type="button"
+                <Button
+                  variant="tinted"
+                  accent="amber"
+                  size="sm"
                   disabled={isPending}
                   onClick={() => onTogglePremolt(true)}
-                  className="h-full min-h-[44px] flex flex-col justify-center items-center text-center py-2 px-2.5 rounded-xl text-xs font-bold bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 active:scale-[0.98] transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="whitespace-nowrap"
                 >
                   Premolt
-                </button>
+                </Button>
               )}
-              <button
-                type="button"
+              <Button
+                variant="primary"
+                accent="emerald"
+                size="sm"
                 onClick={onOpenMoltModal}
-                className="h-full min-h-[44px] flex flex-col justify-center items-center text-center py-2 px-2.5 rounded-xl text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white active:scale-[0.98] transition cursor-pointer"
+                className="whitespace-nowrap"
               >
                 + Log Molt
-              </button>
+              </Button>
             </div>
           ) : (
             <div className="text-xs font-bold capitalize mt-1">
@@ -258,11 +256,12 @@ export default function BloomTodayTab({
                   : 'Normal Hunting'}
             </div>
           )}
-        </div>
-      </div>
+        </MetricTile>
+      </MetricStrip>
 
-      {/* Primary 2-Column Care Cards: Misting & Feeding */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
+      {/* Primary 2-Column Care Grid: Left (Misting + Micro-Climate), Right (Feeding & Abdomen) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 items-start gap-4 sm:gap-5">
+        <div className="space-y-4 sm:space-y-5">
         {/* CARD A: MISTING & HYDRATION */}
         <SectionCard className="flex flex-col justify-between space-y-4">
           <div className="space-y-4">
@@ -301,7 +300,7 @@ export default function BloomTodayTab({
                   <span className="min-w-0 break-words">
                     Last misted <strong>{summary.lastMist.timeAgoLabel}</strong> by{' '}
                     <strong>{summary.lastMist.by}</strong>
-                    {summary.lastMist.dropletDrinkObserved ? ' • 💧 Drank droplets!' : ''}
+                    {summary.lastMist.dropletDrinkObserved ? ' • Drank droplets' : ''}
                   </span>
                   <span className="font-mono text-xs text-text-secondary shrink-0">
                     {formatTimeDisplay(summary.lastMist.timestamp)}
@@ -320,14 +319,17 @@ export default function BloomTodayTab({
                   onChange={(e) => setMistDrinkObserved(e.target.checked)}
                   className="rounded accent-emerald-600 w-4 h-4 shrink-0"
                 />
-                <span>💧 Spotted {settings.mantisName} drinking wall droplets</span>
+                <span className="inline-flex items-center gap-1.5">
+                  <Droplets className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                  <span>Spotted {settings.mantisName} drinking wall droplets</span>
+                </span>
               </label>
 
               <input
                 type="text"
                 value={mistNoteInput}
                 onChange={(e) => setMistNoteInput(e.target.value)}
-                placeholder="Optional mist note (e.g., extra wall spray for premolt)..."
+                placeholder="Optional mist note (e.g., light wall spray)..."
                 className={getFieldClass('emerald')}
               />
 
@@ -352,6 +354,60 @@ export default function BloomTodayTab({
           />
         </SectionCard>
 
+        {/* CARD C: ENCLOSURE TEMP & HUMIDITY (paired under Misting to balance Feeding height) */}
+        <SectionCard className="space-y-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <IconBadge icon={Thermometer} accent="amber" size="sm" />
+              <div className="min-w-0">
+                <h3 className="text-sm font-extrabold">Enclosure Temp &amp; Humidity</h3>
+                <p className="text-xs text-text-muted">
+                  Target: {settings.dayTempMinC}–{settings.dayTempMaxC}°C day •{' '}
+                  {settings.humidityMinPct}–{settings.humidityMaxPct}% RH
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {summary.latestClimate && (
+            <SubSurface className="p-3 text-xs flex flex-wrap items-center justify-between gap-2">
+              <span>
+                Latest:{' '}
+                {summary.latestClimate.tempC != null && (
+                  <strong>{summary.latestClimate.tempC}°C </strong>
+                )}
+                {summary.latestClimate.humidityPct != null && (
+                  <strong>• {summary.latestClimate.humidityPct}% RH</strong>
+                )}
+              </span>
+              <span className="text-xs text-text-muted">
+                {formatFriendlyDate(summary.latestClimate.dateKey, todayKey)}{' '}
+                {formatTimeDisplay(summary.latestClimate.timestamp)}
+              </span>
+            </SubSurface>
+          )}
+
+          <ClimateFields
+            tempValue={tempInput}
+            onTempChange={setTempInput}
+            humidityValue={humidityInput}
+            onHumidityChange={setHumidityInput}
+            onSubmit={handleSubmitClimate}
+            submitLabel="Log Check"
+            isPending={isPending}
+          />
+
+          <CareEntryList
+            dateKey={todayKey}
+            climateChecks={summary.todayLog.climateChecks || []}
+            variant="card"
+            title={`Today's Climate Checks (${(summary.todayLog.climateChecks || []).length})`}
+            onRequestDelete={onRequestDelete}
+            disabled={isPending}
+          />
+        </SectionCard>
+        </div>
+
         {/* CARD B: FEEDING & ABDOMEN PLUMPNESS GAUGE */}
         <SectionCard className="flex flex-col justify-between space-y-4">
           <div className="space-y-4">
@@ -372,7 +428,9 @@ export default function BloomTodayTab({
               onChange={setSelectedAbdomen}
               latestAbdomen={summary.latestAbdomen}
               label={`${settings.mantisName}'s Abdomen Plumpness Check:`}
-              onSaveOnly={() => onUpdateAbdomenOnly(selectedAbdomen, todayKey)}
+              onSaveOnly={() => {
+                if (selectedAbdomen) onUpdateAbdomenOnly(selectedAbdomen, todayKey);
+              }}
               saveLabel="Save Check Only"
               disabled={isPending}
             />
@@ -501,79 +559,25 @@ export default function BloomTodayTab({
         </SectionCard>
       </div>
 
-      {/* Secondary Row: Micro-Climate Check + Daily Observations */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
-        <SectionCard className="lg:col-span-5 space-y-3.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <IconBadge icon={Thermometer} accent="amber" size="sm" />
-              <div className="min-w-0">
-                <h3 className="text-sm font-extrabold">Enclosure Temp &amp; Humidity</h3>
-                <p className="text-xs text-text-muted">
-                  Target: {settings.dayTempMinC}–{settings.dayTempMaxC}°C day •{' '}
-                  {settings.humidityMinPct}–{settings.humidityMaxPct}% RH
-                </p>
-              </div>
-            </div>
-          </div>
+      {/* Full-Width Secondary Card: Behaviours & Daily Observations */}
+      <SectionCard className="space-y-3.5">
+        <div className="flex items-center gap-2">
+          <Activity className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
+          <h3 className="text-sm font-extrabold">
+            {settings.mantisName}&apos;s Behaviours &amp; Daily Observation
+          </h3>
+        </div>
 
-          {summary.latestClimate && (
-            <SubSurface className="p-3 text-xs flex flex-wrap items-center justify-between gap-2">
-              <span>
-                Latest:{' '}
-                {summary.latestClimate.tempC != null && (
-                  <strong>{summary.latestClimate.tempC}°C </strong>
-                )}
-                {summary.latestClimate.humidityPct != null && (
-                  <strong>• {summary.latestClimate.humidityPct}% RH</strong>
-                )}
-              </span>
-              <span className="text-xs text-text-muted">
-                {formatFriendlyDate(summary.latestClimate.dateKey, todayKey)}{' '}
-                {formatTimeDisplay(summary.latestClimate.timestamp)}
-              </span>
-            </SubSurface>
-          )}
-
-          <ClimateFields
-            tempValue={tempInput}
-            onTempChange={setTempInput}
-            humidityValue={humidityInput}
-            onHumidityChange={setHumidityInput}
-            onSubmit={handleSubmitClimate}
-            submitLabel="Log Check"
-            isPending={isPending}
-          />
-
-          <CareEntryList
-            dateKey={todayKey}
-            climateChecks={summary.todayLog.climateChecks || []}
-            variant="card"
-            title={`Today's Climate Checks (${(summary.todayLog.climateChecks || []).length})`}
-            onRequestDelete={onRequestDelete}
-            disabled={isPending}
-          />
-        </SectionCard>
-
-        <SectionCard className="lg:col-span-7 space-y-3.5">
-          <div className="flex items-center gap-2">
-            <Activity className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
-            <h3 className="text-sm font-extrabold">
-              {settings.mantisName}&apos;s Behaviours &amp; Daily Observation
-            </h3>
-          </div>
-
-          <BehaviorJournalEditor
-            behaviors={summary.todayLog.behaviors || []}
-            journalNote={journalDraft}
-            onJournalChange={setJournalDraft}
-            onToggleBehavior={(tag) => onToggleBehavior(tag, todayKey)}
-            onSaveNote={handleSubmitJournal}
-            placeholder={`Quick observation about ${settings.mantisName} today...`}
-            isPending={isPending}
-          />
-        </SectionCard>
-      </div>
+        <BehaviorJournalEditor
+          behaviors={summary.todayLog.behaviors || []}
+          journalNote={journalDraft}
+          onJournalChange={setJournalDraft}
+          onToggleBehavior={(tag) => onToggleBehavior(tag, todayKey)}
+          onSaveNote={handleSubmitJournal}
+          placeholder={`Quick observation about ${settings.mantisName} today...`}
+          isPending={isPending}
+        />
+      </SectionCard>
 
       {/* Mon-Sun Weekly Care History */}
       <WeeklyHistoryPanel
@@ -647,7 +651,7 @@ export default function BloomTodayTab({
                             ? 'bg-amber-400'
                             : isGapDay
                               ? 'bg-rose-400'
-                              : 'bg-slate-400'
+                              : 'bg-text-muted/50'
                       }`}
                     />
                     <span>{formatFriendlyDate(dateKey, todayKey)}</span>
@@ -688,22 +692,31 @@ export default function BloomTodayTab({
                 {hasActivity && (
                   <div className="flex flex-wrap gap-1.5 pt-0.5">
                     {mists.length > 0 && (
-                      <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 font-semibold">
-                        💧 {mists.length} mist{mists.length > 1 ? 's' : ''}
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 font-semibold tabular-nums">
+                        <Droplets className="w-3 h-3 shrink-0" />
+                        <span>{mists.length} mist{mists.length > 1 ? 's' : ''}</span>
                       </span>
                     )}
                     {feedings.map((f) => (
                       <span
                         key={f.id}
-                        className={`px-2 py-0.5 rounded-md font-semibold ${
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold tabular-nums ${
                           f.outcome === 'refused'
                             ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300'
                             : 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
                         }`}
                       >
-                        {f.outcome === 'refused'
-                          ? '✗ Refused prey'
-                          : `🪰 ${f.count}× ${formatShortPreyLabel(f.preyLabel)}`}
+                        {f.outcome === 'refused' ? (
+                          <>
+                            <XCircle className="w-3 h-3 shrink-0" />
+                            <span>Refused prey</span>
+                          </>
+                        ) : (
+                          <>
+                            <Bug className="w-3 h-3 shrink-0" />
+                            <span>{f.count}× {formatShortPreyLabel(f.preyLabel)}</span>
+                          </>
+                        )}
                       </span>
                     ))}
                     {rec.abdomenStatus && (
@@ -714,18 +727,22 @@ export default function BloomTodayTab({
                     {climateChecks.map((c) => (
                       <span
                         key={c.id}
-                        className="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-800 dark:text-amber-300 font-semibold"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-800 dark:text-amber-300 font-semibold tabular-nums"
                       >
-                        🌡️ {c.tempC != null ? `${c.tempC}°C` : '—'}
-                        {c.humidityPct != null ? ` / ${c.humidityPct}%` : ''}
+                        <Thermometer className="w-3 h-3 shrink-0" />
+                        <span>
+                          {c.tempC != null ? `${c.tempC}°C` : '—'}
+                          {c.humidityPct != null ? ` / ${c.humidityPct}%` : ''}
+                        </span>
                       </span>
                     ))}
                     {dayMolts.map((m) => (
                       <span
                         key={m.id}
-                        className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 font-semibold"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 font-semibold"
                       >
-                        ✨ {m.fromInstar} → {m.toInstar}
+                        <Sparkles className="w-3 h-3 shrink-0" />
+                        <span>{m.fromInstar} → {m.toInstar}</span>
                       </span>
                     ))}
                     {behaviors.map((tag) => (

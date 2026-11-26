@@ -3,17 +3,27 @@ import {
   Cat,
   Edit3,
   Flower2,
+  KeyRound,
+  MapPin,
+  Package,
+  PawPrint,
   Phone,
+  Pill,
   ShieldAlert,
   Stethoscope,
-  Wifi
+  Trash2,
+  Utensils,
+  Wifi,
+  Wrench
 } from 'lucide-react';
 import { copyTextToClipboard } from '../utils/householdHelpers.js';
 import { useActionLock } from '../hooks/useActionLock.js';
 import {
+  Button,
+  CardHeader,
   EmptyStateCard,
-  IconBadge,
   ModuleHeader,
+  ModulePage,
   SectionCard,
   StatusPill,
   SubSurface
@@ -85,52 +95,52 @@ function BeaconApp({
   );
 
   return (
-    <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4 space-y-4 sm:space-y-5">
+    <ModulePage module="beacon">
       {/* HEADER */}
       <ModuleHeader
         accent="sky"
         icon={ShieldAlert}
+        shortTitle="Beacon • House Guide"
         title="Beacon • Emergency, Vet & House Guide"
         subtitle="Everything a pet sitter, guest, or household member needs for the pets and the house"
         actions={
           <>
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              accent="purple"
+              size="md"
+              icon={Cat}
               onClick={() => onNavigateApp('cadence')}
-              className="min-h-[44px] px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold inline-flex items-center gap-1.5 transition active:scale-[0.98] cursor-pointer"
               title={`Open ${catName}'s Medicine (Cadence)`}
             >
-              <Cat className="w-4 h-4 shrink-0" />
               <span className="sm:hidden">Cadence</span>
               <span className="hidden sm:inline">{catName} (Cadence)</span>
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="primary"
+              accent="emerald"
+              size="md"
+              icon={Flower2}
               onClick={() => onNavigateApp('bloom')}
-              className="min-h-[44px] px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold inline-flex items-center gap-1.5 transition active:scale-[0.98] cursor-pointer"
               title={`Open ${mantisName}'s Habitat & Care (Bloom)`}
             >
-              <Flower2 className="w-4 h-4 shrink-0" />
               <span className="sm:hidden">Bloom</span>
               <span className="hidden sm:inline">{mantisName} (Bloom)</span>
-            </button>
+            </Button>
             {canEdit && (
-              <button
-                type="button"
+              <Button
+                variant={isEditing ? 'primary' : 'secondary'}
+                accent="sky"
+                size="md"
+                icon={Edit3}
                 disabled={isSaving}
                 onClick={() => setIsEditing((prev) => !prev)}
                 aria-pressed={isEditing}
-                className={`min-w-[44px] min-h-[44px] px-3.5 py-2 rounded-xl border text-xs font-bold inline-flex items-center justify-center gap-1.5 transition active:scale-[0.98] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
-                  isEditing
-                    ? 'bg-sky-700 hover:bg-sky-800 border-sky-700 text-white shadow-xs'
-                    : 'bg-surface-subtle border-border-strong text-text-primary hover:bg-sky-500/10 hover:border-sky-500/40 hover:text-sky-800 dark:hover:text-sky-300'
-                }`}
                 title={isEditing ? 'Cancel Edit' : 'Edit Guide'}
                 aria-label={isEditing ? 'Cancel Edit' : 'Edit Guide'}
               >
-                <Edit3 className="w-4 h-4 shrink-0" />
                 <span className="hidden sm:inline">{isEditing ? 'Cancel Edit' : 'Edit Guide'}</span>
-              </button>
+              </Button>
             )}
           </>
         }
@@ -144,37 +154,44 @@ function BeaconApp({
           onCancel={() => setIsEditing(false)}
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
           {/* 1. PET CARE & MEDICATION INSTRUCTIONS */}
           <SectionCard className="space-y-3.5">
-            <div className="flex items-center gap-2.5">
-              <IconBadge icon={Cat} accent="purple" />
-              <div className="min-w-0">
-                <h2 className="text-base font-extrabold">Pet Care</h2>
-                <p className="text-xs text-text-muted">
+            <CardHeader
+              icon={Cat}
+              accent="purple"
+              title="Pet Care"
+              subtitle={
+                <>
                   Feeding, supplies &amp; {catName}&apos;s prescribed{' '}
                   {cadenceSettings?.medicationName || 'Oral Solution'} (
                   {cadenceSettings?.dosageLabel || '2.5 mg / 0.5 ml'})
-                </p>
-              </div>
-            </div>
+                </>
+              }
+            />
 
             <div className="space-y-2.5 text-xs sm:text-sm">
-              <div className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl border bg-purple-50/50 dark:bg-purple-950/20 border-purple-200/80 dark:border-purple-800/60">
-                <div className="font-bold text-purple-700 dark:text-purple-300 mb-1">
-                  💊 {catName}&apos;s Medication Schedule (~
-                  {cadenceSettings?.morningTargetTime || '08:00'} &amp; ~
-                  {cadenceSettings?.eveningTargetTime || '20:00'})
+              <div className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl border bg-purple-500/5 border-purple-500/20">
+                <div className="font-bold text-purple-700 dark:text-purple-300 mb-1 flex items-center gap-1.5">
+                  <Pill className="w-4 h-4 shrink-0" />
+                  <span>
+                    {catName}&apos;s Medication Schedule (~
+                    {cadenceSettings?.morningTargetTime || '08:00'} &amp; ~
+                    {cadenceSettings?.eveningTargetTime || '20:00'})
+                  </span>
                 </div>
                 <p className="leading-relaxed">
                   {cadenceSettings?.administrationNote || beaconInfo?.petCare?.summary}
                 </p>
               </div>
 
-              <div className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl border bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/60">
-                <div className="font-bold text-emerald-800 dark:text-emerald-300 mb-1">
-                  🌸 {mantisName} ({bloomSettings.commonName || 'Spiny Flower Mantis'} •{' '}
-                  {bloomSettings.currentInstar || 'L2'})
+              <div className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl border bg-emerald-500/5 border-emerald-500/20">
+                <div className="font-bold text-emerald-800 dark:text-emerald-300 mb-1 flex items-center gap-1.5">
+                  <Flower2 className="w-4 h-4 shrink-0" />
+                  <span>
+                    {mantisName} ({bloomSettings.commonName || 'Spiny Flower Mantis'} •{' '}
+                    {bloomSettings.currentInstar || 'L2'})
+                  </span>
                 </div>
                 <p className="leading-relaxed">
                   {bloomSettings.careNote ||
@@ -183,21 +200,30 @@ function BeaconApp({
               </div>
 
               <SubSurface className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl">
-                <div className="font-bold mb-1">🍽️ Feeding Routine</div>
+                <div className="font-bold mb-1 flex items-center gap-1.5">
+                  <Utensils className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400 shrink-0" />
+                  <span>Feeding Routine</span>
+                </div>
                 <p className="leading-relaxed text-text-secondary">
                   {beaconInfo?.petCare?.feedingGuide || 'No feeding guide entered yet.'}
                 </p>
               </SubSurface>
 
               <SubSurface className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl">
-                <div className="font-bold mb-1">🧰 Carrier &amp; Medicine Supplies</div>
+                <div className="font-bold mb-1 flex items-center gap-1.5">
+                  <Package className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400 shrink-0" />
+                  <span>Carrier &amp; Medicine Supplies</span>
+                </div>
                 <p className="leading-relaxed text-text-secondary">
                   {beaconInfo?.petCare?.carrierAndSupplies || 'No supply locations entered yet.'}
                 </p>
               </SubSurface>
 
               <SubSurface className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl">
-                <div className="font-bold mb-1">🐾 Pet Quirks &amp; Notes</div>
+                <div className="font-bold mb-1 flex items-center gap-1.5">
+                  <PawPrint className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400 shrink-0" />
+                  <span>Pet Quirks &amp; Notes</span>
+                </div>
                 <p className="leading-relaxed text-text-secondary">
                   {beaconInfo?.petCare?.quirksAndNotes || 'No extra pet notes entered yet.'}
                 </p>
@@ -207,24 +233,22 @@ function BeaconApp({
 
           {/* 2. EMERGENCY VET, HOUSEHOLD CONTACTS & UTILITIES */}
           <SectionCard className="space-y-3.5">
-            <div className="flex items-center gap-2.5">
-              <IconBadge icon={Stethoscope} accent="rose" />
-              <div className="min-w-0">
-                <h2 className="text-base font-extrabold">
-                  Veterinary Clinic &amp; Emergency Contacts
-                </h2>
-                <p className="text-xs text-text-muted">
-                  Tap any phone number to call or copy directly
-                </p>
-              </div>
-            </div>
+            <CardHeader
+              icon={Stethoscope}
+              accent="rose"
+              title="Veterinary Clinic & Emergency Contacts"
+              subtitle="Tap any phone number to call or copy directly"
+            />
 
-            <div className="p-3.5 rounded-xl sm:rounded-2xl border space-y-2 text-xs sm:text-sm bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-800/60">
+            <div className="p-3.5 rounded-xl sm:rounded-2xl border space-y-2 text-xs sm:text-sm bg-rose-500/5 border-rose-500/20">
               <div className="font-extrabold text-base">
                 {beaconInfo?.vetInfo?.clinicName?.trim() || 'Veterinary Clinic not set'}
               </div>
               {beaconInfo?.vetInfo?.address?.trim() && (
-                <div>📍 {beaconInfo.vetInfo.address.trim()}</div>
+                <div className="flex items-start gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                  <span>{beaconInfo.vetInfo.address.trim()}</span>
+                </div>
               )}
               {beaconInfo?.vetInfo?.policyNumber?.trim() && (
                 <div className="text-xs font-semibold text-text-secondary">
@@ -238,7 +262,7 @@ function BeaconApp({
                     <div className="inline-flex flex-wrap items-center gap-1.5 max-w-full">
                       <a
                         href={`tel:${beaconInfo.vetInfo.phone.trim()}`}
-                        className="min-h-[40px] min-w-0 max-w-full break-all px-3.5 py-2 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 dark:hover:bg-slate-600 text-white font-bold text-xs inline-flex items-center gap-1.5 transition active:scale-[0.98]"
+                        className="min-h-[40px] min-w-0 max-w-full break-all px-3.5 py-2 rounded-xl bg-sky-700 hover:bg-sky-800 text-white font-bold text-xs inline-flex items-center gap-1.5 transition active:scale-[0.98]"
                       >
                         <Phone className="w-3.5 h-3.5 shrink-0" />
                         <span className="min-w-0 break-all">
@@ -293,7 +317,7 @@ function BeaconApp({
                 Household Contacts
               </div>
               {contacts.length > 0 ? (
-                <div className="grid grid-cols-1 2xl:grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-1 xl:grid-cols-2 gap-2.5">
                   {contacts.map((c, idx) => {
                     const contactCopyId = `contact-${c.id || idx}`;
                     const contactLabel = c.name?.trim() || 'contact';
@@ -349,11 +373,11 @@ function BeaconApp({
                 </div>
               ) : (
                 <EmptyStateCard
+                  compact
                   accent="sky"
                   icon={Phone}
                   title="No household contacts yet"
-                  description="No household emergency contacts entered yet."
-                  className="p-4 sm:p-5"
+                  description="Add emergency contacts in Edit Guide."
                 />
               )}
             </div>
@@ -365,7 +389,7 @@ function BeaconApp({
                 <span>Home Wi-Fi &amp; Utilities</span>
               </div>
 
-              <div className="grid grid-cols-1 2xl:grid-cols-2 gap-2.5 text-xs sm:text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-1 xl:grid-cols-2 gap-2.5 text-xs sm:text-sm">
                 <SubSurface className="p-3.5 space-y-1">
                   <div className="text-xs font-bold uppercase tracking-wider text-text-muted">
                     Wi-Fi Network (SSID)
@@ -398,22 +422,31 @@ function BeaconApp({
               </div>
 
               <SubSurface className="p-3.5 text-xs sm:text-sm">
-                <div className="font-bold mb-1">🗑️ Bin Collection</div>
+                <div className="font-bold mb-1 flex items-center gap-1.5">
+                  <Trash2 className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400 shrink-0" />
+                  <span>Bin Collection</span>
+                </div>
                 <p className="leading-relaxed text-text-secondary">
                   {beaconInfo?.houseGuide?.binDayInfo || 'No bin collection details entered yet.'}
                 </p>
               </SubSurface>
 
               <SubSurface className="p-3.5 text-xs sm:text-sm">
-                <div className="font-bold mb-1">🔧 Utilities, Stopcock &amp; Fuse Box</div>
+                <div className="font-bold mb-1 flex items-center gap-1.5">
+                  <Wrench className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400 shrink-0" />
+                  <span>Utilities, Stopcock &amp; Fuse Box</span>
+                </div>
                 <p className="leading-relaxed text-text-secondary">
                   {beaconInfo?.houseGuide?.utilitiesInfo || 'No utilities info entered yet.'}
                 </p>
               </SubSurface>
 
               {beaconInfo?.houseGuide?.emergencyNotes?.trim() && (
-                <div className="p-3.5 rounded-2xl border text-xs sm:text-sm bg-amber-50/70 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/50">
-                  <div className="font-bold mb-1">🔑 Home Emergency &amp; Security Notes</div>
+                <div className="p-3.5 rounded-2xl border text-xs sm:text-sm bg-amber-500/10 border-amber-500/35">
+                  <div className="font-bold mb-1 flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
+                    <KeyRound className="w-3.5 h-3.5 shrink-0" />
+                    <span>Home Emergency &amp; Security Notes</span>
+                  </div>
                   <p className="leading-relaxed text-text-secondary">
                     {beaconInfo.houseGuide.emergencyNotes}
                   </p>
@@ -423,7 +456,7 @@ function BeaconApp({
           </SectionCard>
         </div>
       )}
-    </main>
+    </ModulePage>
   );
 }
 

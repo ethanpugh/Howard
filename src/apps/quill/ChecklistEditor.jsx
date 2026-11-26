@@ -110,7 +110,7 @@ function ChecklistEditor({
                   disabled={idx === 0}
                   onClick={() => handleMove(item.id, -1)}
                   aria-label="Move item up"
-                  className="min-w-[32px] min-h-[32px] p-1 rounded-lg text-text-muted hover:text-text-primary disabled:opacity-30 flex items-center justify-center active:scale-[0.98] cursor-pointer"
+                  className="min-w-[36px] min-h-[36px] p-1 rounded-xl text-text-muted hover:text-text-primary disabled:opacity-30 flex items-center justify-center active:scale-[0.98] cursor-pointer"
                 >
                   <ArrowUp className="w-3.5 h-3.5" />
                 </button>
@@ -119,7 +119,7 @@ function ChecklistEditor({
                   disabled={idx === uncheckedItems.length - 1}
                   onClick={() => handleMove(item.id, 1)}
                   aria-label="Move item down"
-                  className="min-w-[32px] min-h-[32px] p-1 rounded-lg text-text-muted hover:text-text-primary disabled:opacity-30 flex items-center justify-center active:scale-[0.98] cursor-pointer"
+                  className="min-w-[36px] min-h-[36px] p-1 rounded-xl text-text-muted hover:text-text-primary disabled:opacity-30 flex items-center justify-center active:scale-[0.98] cursor-pointer"
                 >
                   <ArrowDown className="w-3.5 h-3.5" />
                 </button>
@@ -127,7 +127,7 @@ function ChecklistEditor({
                   type="button"
                   onClick={() => handleDelete(item.id)}
                   aria-label="Remove item"
-                  className="min-w-[32px] min-h-[32px] p-1 rounded-lg text-text-muted hover:text-rose-600 dark:hover:text-rose-400 flex items-center justify-center active:scale-[0.98] cursor-pointer"
+                  className="min-w-[36px] min-h-[36px] p-1 rounded-xl text-text-muted hover:text-rose-600 dark:hover:text-rose-400 flex items-center justify-center active:scale-[0.98] cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>

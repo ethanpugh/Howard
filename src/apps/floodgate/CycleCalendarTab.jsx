@@ -62,7 +62,7 @@ export default function CycleCalendarTab({
       return (
         <div
           key={`empty-${idx}`}
-          className="min-h-[4.25rem] sm:h-24 rounded-xl sm:rounded-2xl bg-transparent"
+          className="min-h-[3.1rem] sm:min-h-[4.5rem] xl:min-h-[5.5rem] rounded-xl sm:rounded-2xl bg-transparent"
         />
       );
     }
@@ -77,7 +77,7 @@ export default function CycleCalendarTab({
         key={dateStr}
         type="button"
         onClick={() => onSelectDate(dateStr)}
-        className={`min-h-[4.25rem] sm:h-24 p-1 sm:p-2 rounded-xl sm:rounded-2xl border flex flex-col justify-between text-left transition-all relative active:scale-[0.98] cursor-pointer ${
+        className={`min-h-[3.1rem] sm:min-h-[4.5rem] xl:min-h-[5.5rem] p-1 sm:p-2 rounded-xl sm:rounded-2xl border flex flex-col justify-between text-left transition-all relative active:scale-[0.98] cursor-pointer ${
           isSelected
             ? 'ring-2 ring-rose-600 border-rose-600 bg-rose-500/10'
             : 'bg-surface-subtle/75 border-border-subtle hover:bg-surface-hover'
@@ -125,7 +125,7 @@ export default function CycleCalendarTab({
             )}
             {log?.hasClots && (
               <span
-                className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-purple-600"
+                className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-fuchsia-700"
                 title={`Clots: ${log.clotCount}`}
               />
             )}
@@ -163,10 +163,10 @@ export default function CycleCalendarTab({
             <span className="w-3 h-3 rounded-full bg-rose-500 inline-block" /> Period / Bleeding
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-purple-600 inline-block" /> Blood Clots
+            <span className="w-3 h-3 rounded-full bg-fuchsia-700 inline-block" /> Blood Clots
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="px-1.5 py-0.5 rounded-md font-bold text-[11px] bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300">
+            <span className="px-1.5 py-0.5 rounded-md font-bold text-[11px] bg-amber-500/15 text-amber-800 dark:text-amber-300">
               6+
             </span>{' '}
             High Pain (≥6)
@@ -205,7 +205,7 @@ export default function CycleCalendarTab({
                   {selectedLog.leakedThrough && ' (Flooded/Leaked)'}
                 </div>
                 {selectedLog.hasClots ? (
-                  <div className="mt-2 pt-2 border-t border-border-subtle text-purple-700 dark:text-purple-300 font-semibold text-xs">
+                  <div className="mt-2 pt-2 border-t border-border-subtle text-fuchsia-700 dark:text-fuchsia-300 font-semibold text-xs">
                     Clots: {selectedLog.clotCount} passed (
                     {(selectedLog.clotSizes || []).length > 0
                       ? selectedLog.clotSizes
@@ -251,23 +251,24 @@ export default function CycleCalendarTab({
             </div>
           ) : (
             <EmptyStateCard
+              compact
               accent="rose"
               icon={CalendarIcon}
-              title="No symptoms logged for this date yet"
-              description={`Record flow, pain, bowel symptoms, or medications for ${formatShortDateEnGB(selectedDate)}.`}
+              title="No symptoms logged for this date"
+              description={`Record symptoms for ${formatShortDateEnGB(selectedDate)}.`}
               action={
                 <button
                   type="button"
                   onClick={onOpenLogTab}
-                  className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 hover:bg-rose-500/20 active:scale-[0.98] transition cursor-pointer"
+                  className="min-h-[36px] px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 hover:bg-rose-500/20 active:scale-[0.98] transition cursor-pointer"
                 >
-                  + Log Symptoms for {formatShortDateEnGB(selectedDate)}
+                  + Log Day
                 </button>
               }
             />
           )}
 
-          <div className="pt-4 mt-4 border-t border-border-subtle text-xs text-text-muted flex items-center justify-between gap-2">
+          <div className="pt-4 mt-4 border-t border-border-subtle text-xs text-text-muted flex flex-wrap items-center justify-between gap-2">
             <span>Total days tracked: {Object.keys(logsMap).length}</span>
             <button
               type="button"

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Bug, Plus, Ruler } from 'lucide-react';
+import { AlertTriangle, Bug, Check, Plus, Ruler } from 'lucide-react';
 import {
   EmptyStateCard,
   IconBadge,
@@ -296,8 +296,8 @@ export default function BloomHabitatTab({
 
       {/* Enclosure Sizing & Hygiene Card (5 cols) */}
       <SectionCard className="lg:col-span-5 space-y-4">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
             <IconBadge icon={Ruler} accent="emerald" size="sm" />
             <div>
               <h2 className="text-base font-extrabold">Enclosure &amp; Clearance</h2>
@@ -326,10 +326,18 @@ export default function BloomHabitatTab({
               : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-950 dark:text-emerald-200'
           }`}
         >
-          <div className="font-extrabold">
-            {summary.clearance.isEnclosureTight
-              ? `⚠️ Upsize Soon — Enclosure Getting Snug for ${summary.clearance.bodyLen}mm`
-              : `✓ Safe Molting Clearance (${summary.clearance.encH}mm H × ${summary.clearance.encW}mm W)`}
+          <div className="font-extrabold flex items-center gap-1.5">
+            {summary.clearance.isEnclosureTight ? (
+              <>
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>Upsize Soon — Enclosure Getting Snug for {summary.clearance.bodyLen}mm</span>
+              </>
+            ) : (
+              <>
+                <Check className="w-3.5 h-3.5 shrink-0" />
+                <span>Safe Molting Clearance ({summary.clearance.encH}mm H × {summary.clearance.encW}mm W)</span>
+              </>
+            )}
           </div>
           <p
             className={

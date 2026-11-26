@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { CheckCircle2, Repeat, Scale } from 'lucide-react';
+import { CheckCircle2, Repeat, Scale, Users } from 'lucide-react';
 import { SectionCard, SubSurface, EmptyStateCard } from '../../components/HowardUI.jsx';
 import { formatGBP, toMonthlyAmount } from '../../utils/householdHelpers.js';
 import { getPerspectiveShareFactor } from './ledgerConstants.js';
@@ -108,7 +108,7 @@ function SettlementCard({
             Card &amp; joint-account expense breakdown between {partner1Name} and {partner2Name}
           </p>
         </div>
-        <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30">
+        <span className="px-3 py-1 rounded-full text-xs font-bold bg-orange-500/15 text-orange-800 dark:text-orange-300 border border-orange-500/30">
           {splitRule === 'proportional' ? 'Proportional' : '50/50'} Split ({partner1JointPct}% /{' '}
           {partner2JointPct}%)
         </span>
@@ -151,7 +151,7 @@ function SettlementCard({
         className={`p-3.5 rounded-2xl border flex items-center gap-2.5 text-xs sm:text-sm font-bold ${
           isSettledEven
             ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-800 dark:text-emerald-300'
-            : 'bg-amber-500/15 border-amber-500/30 text-amber-900 dark:text-amber-200'
+            : 'bg-orange-500/15 border-orange-500/30 text-orange-900 dark:text-orange-200'
         }`}
       >
         {isSettledEven ? (
@@ -259,16 +259,17 @@ export default function LedgerOverviewTab({
   return (
     <div className="space-y-4 sm:space-y-5">
       {/* Side-by-Side Comparison: Joint vs Partner 1 vs Partner 2 */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-3.5 sm:gap-4">
-        <SectionCard className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5 sm:gap-4">
+        <SectionCard className="md:col-span-2 xl:col-span-1 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">
-              🤝 Joint / Household Bills
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-surface-muted text-text-secondary">
+              <Users className="w-3.5 h-3.5 shrink-0" />
+              <span>Joint / Household Bills</span>
             </span>
             <button
               type="button"
               onClick={() => onSetPerspective('joint')}
-              className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline shrink-0 cursor-pointer"
+              className="text-xs font-bold text-orange-700 dark:text-orange-400 hover:underline shrink-0 cursor-pointer"
             >
               Filter Joint &rarr;
             </button>
@@ -302,7 +303,7 @@ export default function LedgerOverviewTab({
             </div>
             <div className="flex justify-between gap-2 pt-2 border-t border-border-subtle text-sm font-extrabold">
               <span>Total Joint Outgoings:</span>
-              <span className="text-indigo-600 dark:text-indigo-400 shrink-0">
+              <span className="text-orange-700 dark:text-orange-400 shrink-0">
                 {formatGBP(financialSummary.jointRec.total + financialSummary.jointExpTotal)}
               </span>
             </div>
@@ -379,7 +380,7 @@ export default function LedgerOverviewTab({
                   </div>
                   <div className="w-full h-2.5 rounded-full bg-surface-muted overflow-hidden">
                     <div
-                      className="h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-700"
+                      className="h-full rounded-full bg-gradient-to-r from-orange-500 to-orange-700"
                       style={{ width: `${Math.max(3, item.pct)}%` }}
                     />
                   </div>
@@ -388,7 +389,7 @@ export default function LedgerOverviewTab({
             </div>
           ) : (
             <EmptyStateCard
-              accent="amber"
+              accent="orange"
               icon={Scale}
               title="No outgoings recorded yet"
               description="No outgoings recorded for this view yet."
@@ -397,7 +398,7 @@ export default function LedgerOverviewTab({
         </SectionCard>
 
         <SectionCard className="lg:col-span-5 space-y-4">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
               <h3 className="text-base font-extrabold">Upcoming Direct Debits &amp; Subs</h3>
               <p className="text-xs text-text-muted">Due within the next 10 days</p>
@@ -405,7 +406,7 @@ export default function LedgerOverviewTab({
             <button
               type="button"
               onClick={onOpenRecurringTab}
-              className="text-xs font-bold text-amber-700 dark:text-amber-400 hover:underline shrink-0 cursor-pointer"
+              className="text-xs font-bold text-orange-700 dark:text-orange-400 hover:underline shrink-0 cursor-pointer"
             >
               View All &rarr;
             </button>
@@ -425,7 +426,7 @@ export default function LedgerOverviewTab({
                     </div>
                     <div className="text-xs text-text-muted mt-0.5">
                       {bill.scheduleLabel} •{' '}
-                      <span className="font-semibold text-amber-700 dark:text-amber-400">
+                      <span className="font-semibold text-orange-700 dark:text-orange-400">
                         {bill.daysUntil === 0
                           ? 'Due Today'
                           : `In ${bill.daysUntil}d (${bill.nextDateFormatted})`}
@@ -433,7 +434,7 @@ export default function LedgerOverviewTab({
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <div className="text-sm font-extrabold">{formatGBP(bill.amount)}</div>
+                    <div className="text-sm font-extrabold tabular-nums">{formatGBP(bill.amount)}</div>
                     <div className="text-xs uppercase font-bold text-text-muted">
                       {bill.type === 'direct-debit' ? 'Direct Debit' : 'Sub'}
                     </div>
@@ -443,7 +444,7 @@ export default function LedgerOverviewTab({
             </div>
           ) : (
             <EmptyStateCard
-              accent="amber"
+              accent="orange"
               icon={Repeat}
               title="No upcoming bills"
               description="No Direct Debits or Subscriptions due in the next 10 days."

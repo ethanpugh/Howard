@@ -10,8 +10,11 @@ import {
   Sparkles
 } from 'lucide-react';
 import {
+  AlertBanner,
+  Button,
   ConfirmModal,
   ModuleHeader,
+  ModulePage,
   SegmentedTabs,
   StatusPill
 } from '../components/HowardUI.jsx';
@@ -515,7 +518,7 @@ function BloomApp({
         setRefusalPremoltPrompt(false);
         notify(
           moltPayload.advanceInstar
-            ? `🎉 ${settings.mantisName} molted from ${moltPayload.fromInstar} to ${moltPayload.toInstar}!${
+            ? `${settings.mantisName} molted from ${moltPayload.fromInstar} to ${moltPayload.toInstar}!${
                 moltPayload.startHardening
                   ? ` (${hardeningHours}h hardening timer started)`
                   : ''
@@ -776,7 +779,7 @@ function BloomApp({
             : 'Delete Climate Check?';
 
   return (
-    <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4 space-y-4 sm:space-y-5">
+    <ModulePage module="bloom">
       {/* ====================================================================
           1. BLOOM HERO HEADER & SUB-VIEW NAVIGATION
       ==================================================================== */}
@@ -804,29 +807,32 @@ function BloomApp({
                   : 'Unsexed'}
             </span>
             {summary.effectiveStatus === 'premolt' && (
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase bg-amber-500 text-slate-950">
-                ⚠️ Premolt Watch
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase bg-amber-500 text-slate-950">
+                <AlertTriangle className="w-3 h-3 shrink-0" />
+                <span>Premolt Watch</span>
               </span>
             )}
             {summary.effectiveStatus === 'hardening' && (
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase bg-rose-600 text-white">
-                🛡️ Hardening ({summary.hardeningRemainingLabel})
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase bg-rose-600 text-white tabular-nums">
+                <ShieldAlert className="w-3 h-3 shrink-0" />
+                <span>Hardening ({summary.hardeningRemainingLabel})</span>
               </span>
             )}
           </>
         }
         actions={
           canConfigure ? (
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              accent="emerald"
+              size="md"
+              icon={Settings}
               onClick={() => setActiveModal({ type: 'settings' })}
-              className="min-h-[40px] min-w-[40px] px-3 py-2 rounded-xl border border-border-strong bg-surface-subtle text-text-primary hover:bg-surface-hover text-xs font-bold flex items-center justify-center gap-1.5 active:scale-[0.98] transition cursor-pointer"
               title={`Configure ${settings.mantisName}'s Species & Care Settings`}
               aria-label={`Configure ${settings.mantisName}'s Species & Care Settings`}
             >
-              <Settings className="w-4 h-4" />
               <span className="hidden sm:inline">Settings</span>
-            </button>
+            </Button>
           ) : null
         }
         footer={
@@ -870,175 +876,147 @@ function BloomApp({
           2. CRITICAL SAFETY BANNERS (UNEATEN PREY, PREMOLT, POST-MOLT HARDENING)
       ==================================================================== */}
       {settings.livePreyInside && (
-        <section className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border bg-rose-500/10 border-rose-500/40 text-rose-950 dark:text-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-start sm:items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-2xl bg-rose-600 text-white flex items-center justify-center shrink-0">
-              <ShieldAlert className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-sm font-extrabold">
-                Uneaten Live Prey Still Inside {settings.mantisName}&apos;s Enclosure
-              </h2>
-              <p className="text-xs text-rose-900 dark:text-rose-200 leading-relaxed break-words">
-                {settings.livePreyNote || 'Live feeder left inside.'} Remove roaming
-                locusts/flies before lights-out or if {settings.mantisName} hangs to molt.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            disabled={isPending}
-            onClick={() =>
-              handlePatchSettings(
-                {
-                  livePreyInside: false,
-                  livePreyNote: '',
-                  livePreyByProfileId: null,
-                  livePreyAt: null
-                },
-                `Marked ${settings.mantisName}'s enclosure clear of live prey`
-              )
-            }
-            className="min-h-[40px] px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold shrink-0 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer"
-          >
-            ✓ Prey Eaten / Removed
-          </button>
-        </section>
+        <AlertBanner
+          severity="danger"
+          icon={ShieldAlert}
+          title={`Uneaten Live Prey Still Inside ${settings.mantisName}'s Enclosure`}
+          description={`${settings.livePreyNote || 'Live feeder left inside.'} Remove roaming locusts/flies before lights-out or if ${settings.mantisName} hangs to molt.`}
+          action={
+            <Button
+              variant="danger"
+              size="md"
+              disabled={isPending}
+              onClick={() =>
+                handlePatchSettings(
+                  {
+                    livePreyInside: false,
+                    livePreyNote: '',
+                    livePreyByProfileId: null,
+                    livePreyAt: null
+                  },
+                  `Marked ${settings.mantisName}'s enclosure clear of live prey`
+                )
+              }
+            >
+              ✓ Prey Eaten / Removed
+            </Button>
+          }
+        />
       )}
 
       {summary.effectiveStatus === 'premolt' && (
-        <section className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border bg-amber-500/15 border-amber-500/50 text-amber-950 dark:text-amber-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center shrink-0">
-              <AlertTriangle className="w-5 h-5" />
-            </div>
-            <div className="space-y-1">
-              <h2 className="text-sm sm:text-base font-extrabold">
-                Premolt Watch Active — Do NOT Offer Live Prey
-              </h2>
-              <p className="text-xs text-amber-900 dark:text-amber-100 leading-relaxed">
-                {settings.mantisName} is preparing to shed {settings.currentInstar}. Remove any
-                remaining feeders, mist the side wall lightly to maintain ~60–68% RH, and avoid
-                bumping or opening the mesh lid while hanging.
-              </p>
-            </div>
-          </div>
-          {canConfigure && (
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setActiveModal({ type: 'molt' })}
-                className="min-h-[40px] px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs active:scale-[0.98] transition cursor-pointer"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>🎉 {settings.mantisName} Molted!</span>
-              </button>
-              <button
-                type="button"
-                disabled={isPending}
-                onClick={() => handleTogglePremolt(false)}
-                className="min-h-[40px] px-3.5 py-2.5 rounded-xl bg-surface-card text-text-primary hover:bg-surface-hover text-xs font-bold border border-amber-500/40 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer"
-              >
-                Exit Premolt
-              </button>
-            </div>
-          )}
-        </section>
+        <AlertBanner
+          severity="warn"
+          icon={AlertTriangle}
+          title="Premolt Watch Active — Do NOT Offer Live Prey"
+          description={`${settings.mantisName} is preparing to shed ${settings.currentInstar}. Remove any remaining feeders, mist the side wall lightly to maintain ~60–68% RH, and avoid bumping or opening the mesh lid while hanging.`}
+          action={
+            canConfigure ? (
+              <>
+                <Button
+                  variant="primary"
+                  accent="emerald"
+                  size="md"
+                  icon={Sparkles}
+                  onClick={() => setActiveModal({ type: 'molt' })}
+                >
+                  <span>{settings.mantisName} Molted!</span>
+                </Button>
+                <Button
+                  variant="secondary"
+                  accent="amber"
+                  size="md"
+                  disabled={isPending}
+                  onClick={() => handleTogglePremolt(false)}
+                >
+                  Exit Premolt
+                </Button>
+              </>
+            ) : null
+          }
+        />
       )}
 
       {summary.effectiveStatus === 'hardening' && (
-        <section className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border bg-rose-500/10 border-rose-500/40 text-rose-950 dark:text-rose-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-rose-600 text-white flex items-center justify-center shrink-0">
-              <Sparkles className="w-5 h-5" />
-            </div>
-            <div className="space-y-1">
-              <h2 className="text-sm sm:text-base font-extrabold">
-                Post-Molt Exoskeleton Hardening ({summary.hardeningRemainingLabel} remaining)
-              </h2>
-              <p className="text-xs text-rose-900 dark:text-rose-200 leading-relaxed">
-                {settings.mantisName}&apos;s fresh {settings.currentInstar} cuticle and raptorial
-                forelegs are still soft. Hold off on live feeders until the cooldown finishes—gentle
-                wall misting for drinking water is safe.
-              </p>
-            </div>
-          </div>
-          {canConfigure && (
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={() =>
-                handlePatchSettings(
-                  { lifecycleStatus: 'normal', hardeningUntil: null },
-                  `Ended post-molt cooldown for ${settings.mantisName}`
-                )
-              }
-              className="min-h-[40px] px-3.5 py-2 rounded-xl bg-rose-600/15 hover:bg-rose-600/25 border border-rose-500/40 text-rose-900 dark:text-rose-100 text-xs font-bold shrink-0 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer"
-            >
-              Mark Ready Early
-            </button>
-          )}
-        </section>
+        <AlertBanner
+          severity="danger"
+          icon={Sparkles}
+          title={`Post-Molt Exoskeleton Hardening (${summary.hardeningRemainingLabel} remaining)`}
+          description={`${settings.mantisName}'s fresh ${settings.currentInstar} cuticle and raptorial forelegs are still soft. Hold off on live feeders until the cooldown finishes—gentle wall misting for drinking water is safe.`}
+          action={
+            canConfigure ? (
+              <Button
+                variant="dangerTinted"
+                size="md"
+                disabled={isPending}
+                onClick={() =>
+                  handlePatchSettings(
+                    { lifecycleStatus: 'normal', hardeningUntil: null },
+                    `Ended post-molt cooldown for ${settings.mantisName}`
+                  )
+                }
+              >
+                Mark Ready Early
+              </Button>
+            ) : null
+          }
+        />
       )}
 
       {summary.effectiveStatus === 'hardened_ready' && (
-        <section className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 border bg-emerald-500/10 border-emerald-500/40 text-emerald-950 dark:text-emerald-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-700 text-white flex items-center justify-center shrink-0">
-              <CheckCircle2 className="w-5 h-5" />
-            </div>
-            <div className="text-xs">
-              <div className="font-extrabold text-sm">
-                ✨ {settings.mantisName}&apos;s {settings.currentInstar} Exoskeleton Has Hardened!
-              </div>
-              <p className="text-emerald-900 dark:text-emerald-200">
-                Post-molt cooldown is complete—safe to offer {settings.mantisName}{' '}
-                {pronounPossessive} first {settings.currentInstar} meal.
-              </p>
-            </div>
-          </div>
-          {canConfigure && (
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={() =>
-                handlePatchSettings(
-                  { lifecycleStatus: 'normal', hardeningUntil: null },
-                  `${settings.mantisName} is back in active hunting mode`
-                )
-              }
-              className="min-h-[40px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shrink-0 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer"
-            >
-              Resume Hunting Mode
-            </button>
-          )}
-        </section>
+        <AlertBanner
+          severity="success"
+          icon={CheckCircle2}
+          title={`${settings.mantisName}'s ${settings.currentInstar} Exoskeleton Has Hardened!`}
+          description={`Post-molt cooldown is complete—safe to offer ${settings.mantisName} ${pronounPossessive} first ${settings.currentInstar} meal.`}
+          action={
+            canConfigure ? (
+              <Button
+                variant="primary"
+                accent="emerald"
+                size="md"
+                disabled={isPending}
+                onClick={() =>
+                  handlePatchSettings(
+                    { lifecycleStatus: 'normal', hardeningUntil: null },
+                    `${settings.mantisName} is back in active hunting mode`
+                  )
+                }
+              >
+                Resume Hunting Mode
+              </Button>
+            ) : null
+          }
+        />
       )}
 
       {refusalPremoltPrompt && summary.effectiveStatus === 'normal' && canConfigure && (
-        <section className="rounded-2xl p-3.5 border bg-amber-500/10 border-amber-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
-          <div>
-            <strong>{settings.mantisName} refused prey!</strong> Refusing food is the #1 early
-            sign of Premolt in {settings.commonName || 'your mantis'}. Switch on Premolt Watch?
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={() => handleTogglePremolt(true)}
-              className="min-h-[40px] px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition cursor-pointer"
-            >
-              Enable Premolt Watch
-            </button>
-            <button
-              type="button"
-              onClick={() => setRefusalPremoltPrompt(false)}
-              className="min-h-[40px] px-3 py-2 rounded-xl bg-surface-muted text-text-primary hover:bg-surface-hover font-semibold active:scale-[0.98] transition cursor-pointer"
-            >
-              Not Yet
-            </button>
-          </div>
-        </section>
+        <AlertBanner
+          severity="warn"
+          icon={AlertTriangle}
+          title={`${settings.mantisName} refused prey!`}
+          description={`Refusing food is the #1 early sign of Premolt in ${settings.commonName || 'your mantis'}. Switch on Premolt Watch?`}
+          action={
+            <>
+              <Button
+                variant="primary"
+                accent="amber"
+                size="md"
+                disabled={isPending}
+                onClick={() => handleTogglePremolt(true)}
+              >
+                Enable Premolt Watch
+              </Button>
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={() => setRefusalPremoltPrompt(false)}
+              >
+                Not Yet
+              </Button>
+            </>
+          }
+        />
       )}
 
       {/* ====================================================================
@@ -1164,7 +1142,7 @@ function BloomApp({
           </p>
         )}
       </ConfirmModal>
-    </main>
+    </ModulePage>
   );
 }
 

@@ -5,6 +5,7 @@ import {
   Pill,
   FileText,
   Sparkles,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Plus,
@@ -14,7 +15,14 @@ import {
   Sliders,
   X
 } from 'lucide-react';
-import { SectionCard, SubSurface, getFieldClass } from '../../components/HowardUI.jsx';
+import {
+  Button,
+  CardHeader,
+  SectionCard,
+  StatusPill,
+  SubSurface,
+  getFieldClass
+} from '../../components/HowardUI.jsx';
 import {
   shiftDateKey,
   parseLocalDateKey,
@@ -58,6 +66,31 @@ export default function DailyLogTab({
   const [customMedName, setCustomMedName] = useState('');
   const [customMedDose, setCustomMedDose] = useState('');
   const [customMedTime, setCustomMedTime] = useState('');
+  const [accordionOverrides, setAccordionOverrides] = useState({});
+
+  const hasBowelData =
+    (formData.bowelSeverity && formData.bowelSeverity !== 'none') ||
+    (formData.bowelSymptoms || []).length > 0;
+  const hasMedsData =
+    (formData.medications || []).length > 0 || (formData.externalFactors || []).length > 0;
+
+  const isSectionOpen = (key, defaultOpen) => {
+    const overrideKey = `${selectedDate}:${key}`;
+    if (Object.prototype.hasOwnProperty.call(accordionOverrides, overrideKey)) {
+      return accordionOverrides[overrideKey];
+    }
+    return defaultOpen;
+  };
+
+  const toggleSection = (key, currentOpen) => {
+    const overrideKey = `${selectedDate}:${key}`;
+    setAccordionOverrides((prev) => ({ ...prev, [overrideKey]: !currentOpen }));
+  };
+
+  const bleedingOpen = isSectionOpen('bleeding', true);
+  const painOpen = isSectionOpen('pain', true);
+  const bowelOpen = isSectionOpen('bowel', hasBowelData);
+  const medsOpen = isSectionOpen('meds', hasMedsData);
 
   const weekStripDays = useMemo(() => {
     const items = [];
@@ -210,7 +243,7 @@ export default function DailyLogTab({
                   {dayLog?.hasClots && (
                     <span
                       className={`w-2 h-2 rounded-full ${
-                        isSelected ? 'bg-purple-200' : 'bg-purple-600'
+                        isSelected ? 'bg-fuchsia-200' : 'bg-fuchsia-700'
                       }`}
                     />
                   )}
@@ -229,23 +262,37 @@ export default function DailyLogTab({
       </SectionCard>
 
       {/* MAIN TWO-COLUMN LOGGING GRID FOR TABLET & DESKTOP */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 items-start gap-3.5 sm:gap-4">
+        <div className="space-y-3.5 sm:space-y-4">
         {/* 1. BLEEDING & CLOTS CARD */}
-        <SectionCard className="space-y-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2.5 rounded-2xl bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300">
-                <Droplets className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base sm:text-lg font-bold">Period &amp; Bleeding</h3>
-                <p className="text-xs text-text-muted">
-                  Flow severity, sanitary products &amp; blood clots
-                </p>
-              </div>
-            </div>
-          </div>
+        <SectionCard className="space-y-4">
+          <CardHeader
+            icon={Droplets}
+            accent="rose"
+            titleAs="h3"
+            title="Period & Bleeding"
+            subtitle="Flow severity, sanitary products & blood clots"
+            badges={
+              <StatusPill accent="rose" className="capitalize">
+                {formData.bleedingSeverity || 'none'}
+              </StatusPill>
+            }
+            action={
+              <button
+                type="button"
+                onClick={() => toggleSection('bleeding', bleedingOpen)}
+                aria-expanded={bleedingOpen}
+                aria-label={bleedingOpen ? 'Collapse Period & Bleeding' : 'Expand Period & Bleeding'}
+                className="lg:hidden min-w-[36px] min-h-[36px] rounded-xl border border-border-strong bg-surface-subtle flex items-center justify-center text-text-secondary cursor-pointer"
+              >
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${bleedingOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
+            }
+          />
 
+          <div className={`${bleedingOpen ? 'block' : 'hidden'} lg:block space-y-4`}>
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider mb-2.5 text-text-secondary">
               Bleeding Severity
@@ -272,7 +319,7 @@ export default function DailyLogTab({
                             key={idx}
                             className={`w-1 h-2.5 rounded-full ${
                               level.drops === 0
-                                ? 'bg-slate-300 dark:bg-slate-600'
+                                ? 'bg-border-strong'
                                 : level.dotColor
                             }`}
                           />
@@ -326,7 +373,7 @@ export default function DailyLogTab({
                         onClick={() =>
                           onUpdateField(item.field, (formData[item.field] || 0) + 1)
                         }
-                        className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200 hover:bg-rose-200 dark:hover:bg-rose-900 active:scale-[0.98] transition cursor-pointer"
+                        className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-rose-500/15 text-rose-800 dark:text-rose-200 hover:bg-rose-500/25 active:scale-[0.98] transition cursor-pointer"
                       >
                         <Plus className="w-3.5 h-3.5" />
                       </button>
@@ -362,7 +409,7 @@ export default function DailyLogTab({
           <SubSurface
             className={`p-4 space-y-4 ${
               formData.hasClots
-                ? 'bg-purple-500/10 border-purple-500/30'
+                ? 'bg-fuchsia-500/10 border-fuchsia-500/30'
                 : 'bg-surface-subtle border-border-subtle'
             }`}
           >
@@ -371,7 +418,7 @@ export default function DailyLogTab({
                 <h4 className="font-bold text-sm flex items-center gap-2">
                   <span>Blood Clots Tracker</span>
                   {formData.hasClots && (
-                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-purple-600 text-white font-semibold">
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-fuchsia-700 text-white font-semibold">
                       {formData.clotCount || 1} logged
                     </span>
                   )}
@@ -385,7 +432,7 @@ export default function DailyLogTab({
                 <button
                   type="button"
                   onClick={() => onUpdateField('hasClots', false)}
-                  className={`min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer ${
+                  className={`min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all active:scale-[0.98] cursor-pointer ${
                     !formData.hasClots
                       ? 'bg-surface-card text-text-primary shadow-2xs'
                       : 'text-text-secondary'
@@ -399,8 +446,8 @@ export default function DailyLogTab({
                     onUpdateField('hasClots', true);
                     if (!formData.clotCount) onUpdateField('clotCount', 1);
                   }}
-                  className={`min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer ${
-                    formData.hasClots ? 'bg-purple-600 text-white shadow-2xs' : 'text-text-secondary'
+                  className={`min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all active:scale-[0.98] cursor-pointer ${
+                    formData.hasClots ? 'bg-fuchsia-700 text-white shadow-2xs' : 'text-text-secondary'
                   }`}
                 >
                   Yes, Clots
@@ -409,8 +456,8 @@ export default function DailyLogTab({
             </div>
 
             {formData.hasClots && (
-              <div className="space-y-4 pt-2 border-t border-purple-500/25">
-                <div className="flex items-center justify-between">
+              <div className="space-y-4 pt-2 border-t border-fuchsia-500/25">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-semibold">Approximate number of clots:</span>
                   <div className="flex items-center gap-3">
                     <button
@@ -430,7 +477,7 @@ export default function DailyLogTab({
                       type="button"
                       aria-label="Increase clot count"
                       onClick={() => onUpdateField('clotCount', (formData.clotCount || 0) + 1)}
-                      className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-purple-600 text-white hover:bg-purple-700 active:scale-[0.98] transition cursor-pointer"
+                      className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-fuchsia-700 text-white hover:bg-fuchsia-800 active:scale-[0.98] transition cursor-pointer"
                     >
                       <Plus className="w-4 h-4" />
                     </button>
@@ -449,13 +496,13 @@ export default function DailyLogTab({
                           onClick={() => onToggleArrayItem('clotSizes', sz.id)}
                           className={`min-h-[40px] p-2.5 rounded-xl border text-left transition-all active:scale-[0.98] cursor-pointer ${
                             selected
-                              ? 'bg-purple-700 text-white border-purple-700'
+                              ? 'bg-fuchsia-700 text-white border-fuchsia-700'
                               : 'bg-surface-card border-border-strong text-text-primary hover:bg-surface-hover'
                           }`}
                         >
                           <div className="text-xs font-bold">{sz.label}</div>
                           <div
-                            className={`text-xs ${selected ? 'text-purple-100' : 'text-text-muted'}`}
+                            className={`text-xs ${selected ? 'text-fuchsia-100' : 'text-text-muted'}`}
                           >
                             {sz.desc}
                           </div>
@@ -467,30 +514,167 @@ export default function DailyLogTab({
               </div>
             )}
           </SubSurface>
+          </div>
         </SectionCard>
 
-        {/* 2. PAIN & PELVIC SYMPTOMS CARD */}
-        <SectionCard className="space-y-5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="p-2.5 rounded-2xl bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 shrink-0">
-                <Activity className="w-5 h-5" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-base sm:text-lg font-bold">Endo Pain &amp; Cramping</h3>
-                <p className="text-xs text-text-muted">
-                  Severity scale (0–10), body locations &amp; pain sensations
-                </p>
-              </div>
-            </div>
-            <div
-              className={`px-3 py-1.5 rounded-2xl text-sm font-bold shrink-0 whitespace-nowrap ${getPainBadgeStyle(formData.painScore)}`}
-            >
-              {formData.painScore} / 10
+        {/* 3. BOWEL & GI ISSUES CARD */}
+        <SectionCard className="space-y-4">
+          <CardHeader
+            icon={Sliders}
+            accent="rose"
+            titleAs="h3"
+            title="Bowel & GI Symptoms"
+            subtitle='"Endo belly" bloating, bowel pain & digestive changes'
+            badges={
+              <StatusPill accent="rose" className="capitalize">
+                {formData.bowelSeverity || 'none'}
+              </StatusPill>
+            }
+            action={
+              <button
+                type="button"
+                onClick={() => toggleSection('bowel', bowelOpen)}
+                aria-expanded={bowelOpen}
+                aria-label={bowelOpen ? 'Collapse Bowel & GI' : 'Expand Bowel & GI'}
+                className="lg:hidden min-w-[36px] min-h-[36px] rounded-xl border border-border-strong bg-surface-subtle flex items-center justify-center text-text-secondary cursor-pointer"
+              >
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${bowelOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
+            }
+          />
+
+          <div className={`${bowelOpen ? 'block' : 'hidden'} lg:block space-y-4`}>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider mb-2.5 text-text-secondary">
+              Overall Bowel / GI Distress
+            </label>
+            <div className="grid grid-cols-4 gap-2">
+              {BOWEL_SEVERITIES.map((sev) => {
+                const active = formData.bowelSeverity === sev.id;
+                return (
+                  <button
+                    key={sev.id}
+                    type="button"
+                    onClick={() => onUpdateField('bowelSeverity', sev.id)}
+                    className={`min-h-[40px] py-2.5 px-2 rounded-xl text-xs font-bold border transition-all active:scale-[0.98] cursor-pointer ${
+                      active
+                        ? `${sev.activeColor} shadow-xs`
+                        : 'bg-surface-subtle border-border-strong text-text-secondary hover:bg-surface-hover'
+                    }`}
+                  >
+                    {sev.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider mb-2.5 text-text-secondary">
+              Specific Bowel &amp; GI Symptoms
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {BOWEL_SYMPTOMS.map((sym) => {
+                const active = (formData.bowelSymptoms || []).includes(sym);
+                return (
+                  <button
+                    key={sym}
+                    type="button"
+                    onClick={() => {
+                      onToggleArrayItem('bowelSymptoms', sym);
+                      if (formData.bowelSeverity === 'none' && !active) {
+                        onUpdateField('bowelSeverity', 'mild');
+                      }
+                    }}
+                    className={`min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
+                      active
+                        ? 'bg-orange-600 text-white border-orange-700 shadow-2xs'
+                        : 'bg-surface-subtle border-border-strong text-text-secondary hover:bg-surface-hover'
+                    }`}
+                  >
+                    {sym}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <SubSurface className="flex flex-wrap items-center justify-between gap-2 p-3.5">
+            <div>
+              <div className="text-xs font-bold">Bowel Movements Today</div>
+              <div className="text-xs text-text-muted">
+                Helpful for tracking constipation vs frequency
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                aria-label="Decrease bowel movements"
+                onClick={() =>
+                  onUpdateField(
+                    'bowelMovementsCount',
+                    Math.max(0, (formData.bowelMovementsCount || 0) - 1)
+                  )
+                }
+                className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-surface-card border border-border-strong hover:bg-surface-hover active:scale-[0.98] transition cursor-pointer"
+              >
+                <Minus className="w-4 h-4" />
+              </button>
+              <span className="font-bold text-sm w-6 text-center">
+                {formData.bowelMovementsCount ?? 0}
+              </span>
+              <button
+                type="button"
+                aria-label="Increase bowel movements"
+                onClick={() =>
+                  onUpdateField('bowelMovementsCount', (formData.bowelMovementsCount || 0) + 1)
+                }
+                className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-surface-card border border-border-strong hover:bg-surface-hover active:scale-[0.98] transition cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
+          </SubSurface>
+          </div>
+        </SectionCard>
+        </div>
+
+        <div className="space-y-3.5 sm:space-y-4">
+        {/* 2. PAIN & PELVIC SYMPTOMS CARD */}
+        <SectionCard className="space-y-4">
+          <CardHeader
+            icon={Activity}
+            accent="rose"
+            titleAs="h3"
+            title="Endo Pain & Cramping"
+            subtitle="Severity scale (0–10), body locations & pain sensations"
+            action={
+              <div className="flex items-center gap-1.5">
+                <div
+                  className={`px-2.5 py-1 rounded-xl text-xs sm:text-sm font-bold shrink-0 whitespace-nowrap tabular-nums ${getPainBadgeStyle(formData.painScore)}`}
+                >
+                  {formData.painScore} / 10
+                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleSection('pain', painOpen)}
+                  aria-expanded={painOpen}
+                  aria-label={painOpen ? 'Collapse Endo Pain' : 'Expand Endo Pain'}
+                  className="lg:hidden min-w-[36px] min-h-[36px] rounded-xl border border-border-strong bg-surface-subtle flex items-center justify-center text-text-secondary cursor-pointer"
+                >
+                  <ChevronDown
+                    className={`w-4 h-4 transition-transform ${painOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+              </div>
+            }
+          />
+
+          <div className={`${painOpen ? 'block' : 'hidden'} lg:block space-y-4`}>
+          <div className="space-y-2.5">
             <div className="flex justify-between text-xs font-medium text-text-secondary">
               <span>0 • No Pain</span>
               <span>5 • Moderate</span>
@@ -505,7 +689,40 @@ export default function DailyLogTab({
               onChange={(e) => onUpdateField('painScore', Number(e.target.value))}
               className="w-full accent-rose-600 h-2.5 bg-surface-muted rounded-lg cursor-pointer"
             />
-            <div className="grid grid-cols-6 sm:grid-cols-11 lg:grid-cols-6 xl:grid-cols-11 gap-1.5 xl:gap-1">
+            <div className="sm:hidden space-y-1.5">
+              <button
+                type="button"
+                onClick={() => onUpdateField('painScore', 0)}
+                className={`w-full min-h-[36px] py-1.5 rounded-xl text-xs font-bold border transition-all active:scale-[0.98] cursor-pointer ${
+                  Number(formData.painScore) === 0
+                    ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                    : 'bg-surface-subtle border-border-strong text-text-secondary hover:bg-surface-hover'
+                }`}
+              >
+                0 — No Pain
+              </button>
+              <div className="grid grid-cols-5 gap-1.5">
+                {Array.from({ length: 10 }).map((_, idx) => {
+                  const num = idx + 1;
+                  const active = Number(formData.painScore) === num;
+                  return (
+                    <button
+                      key={num}
+                      type="button"
+                      onClick={() => onUpdateField('painScore', num)}
+                      className={`min-h-[36px] py-1.5 rounded-xl text-xs font-bold border tabular-nums transition-all active:scale-[0.98] cursor-pointer ${
+                        active
+                          ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                          : 'bg-surface-subtle border-border-strong text-text-secondary hover:bg-surface-hover'
+                      }`}
+                    >
+                      {num}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="hidden sm:grid sm:grid-cols-11 gap-1">
               {Array.from({ length: 11 }).map((_, num) => {
                 const active = Number(formData.painScore) === num;
                 return (
@@ -513,7 +730,7 @@ export default function DailyLogTab({
                     key={num}
                     type="button"
                     onClick={() => onUpdateField('painScore', num)}
-                    className={`min-h-[40px] py-2 rounded-xl text-xs font-bold border transition-all active:scale-[0.98] cursor-pointer ${
+                    className={`min-h-[40px] py-2 rounded-xl text-xs font-bold border tabular-nums transition-all active:scale-[0.98] cursor-pointer ${
                       active
                         ? 'bg-rose-600 text-white border-rose-600 scale-105 shadow-xs'
                         : 'bg-surface-subtle border-border-strong text-text-secondary hover:bg-surface-hover'
@@ -575,139 +792,48 @@ export default function DailyLogTab({
               })}
             </div>
           </div>
-        </SectionCard>
-
-        {/* 3. BOWEL & GI ISSUES CARD */}
-        <SectionCard className="space-y-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2.5 rounded-2xl bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300">
-                <Sliders className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base sm:text-lg font-bold">Bowel &amp; GI Symptoms</h3>
-                <p className="text-xs text-text-muted">
-                  &ldquo;Endo belly&rdquo; bloating, bowel pain &amp; digestive changes
-                </p>
-              </div>
-            </div>
           </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider mb-2.5 text-text-secondary">
-              Overall Bowel / GI Distress
-            </label>
-            <div className="grid grid-cols-4 gap-2">
-              {BOWEL_SEVERITIES.map((sev) => {
-                const active = formData.bowelSeverity === sev.id;
-                return (
-                  <button
-                    key={sev.id}
-                    type="button"
-                    onClick={() => onUpdateField('bowelSeverity', sev.id)}
-                    className={`min-h-[40px] py-2.5 px-2 rounded-xl text-xs font-bold border transition-all active:scale-[0.98] cursor-pointer ${
-                      active
-                        ? `${sev.activeColor} shadow-xs`
-                        : 'bg-surface-subtle border-border-strong text-text-secondary hover:bg-surface-hover'
-                    }`}
-                  >
-                    {sev.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider mb-2.5 text-text-secondary">
-              Specific Bowel &amp; GI Symptoms
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {BOWEL_SYMPTOMS.map((sym) => {
-                const active = (formData.bowelSymptoms || []).includes(sym);
-                return (
-                  <button
-                    key={sym}
-                    type="button"
-                    onClick={() => {
-                      onToggleArrayItem('bowelSymptoms', sym);
-                      if (formData.bowelSeverity === 'none' && !active) {
-                        onUpdateField('bowelSeverity', 'mild');
-                      }
-                    }}
-                    className={`min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
-                      active
-                        ? 'bg-orange-600 text-white border-orange-700 shadow-2xs'
-                        : 'bg-surface-subtle border-border-strong text-text-secondary hover:bg-surface-hover'
-                    }`}
-                  >
-                    {sym}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <SubSurface className="flex items-center justify-between p-3.5">
-            <div>
-              <div className="text-xs font-bold">Bowel Movements Today</div>
-              <div className="text-xs text-text-muted">
-                Helpful for tracking constipation vs frequency
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                aria-label="Decrease bowel movements"
-                onClick={() =>
-                  onUpdateField(
-                    'bowelMovementsCount',
-                    Math.max(0, (formData.bowelMovementsCount || 0) - 1)
-                  )
-                }
-                className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-surface-card border border-border-strong hover:bg-surface-hover active:scale-[0.98] transition cursor-pointer"
-              >
-                <Minus className="w-4 h-4" />
-              </button>
-              <span className="font-bold text-sm w-6 text-center">
-                {formData.bowelMovementsCount ?? 0}
-              </span>
-              <button
-                type="button"
-                aria-label="Increase bowel movements"
-                onClick={() =>
-                  onUpdateField('bowelMovementsCount', (formData.bowelMovementsCount || 0) + 1)
-                }
-                className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-surface-card border border-border-strong hover:bg-surface-hover active:scale-[0.98] transition cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </div>
-          </SubSurface>
         </SectionCard>
 
         {/* 4. MEDICATIONS & EXTERNAL FACTORS CARD */}
-        <SectionCard className="space-y-5">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2.5 rounded-2xl bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                <Pill className="w-5 h-5" />
+        <SectionCard className="space-y-4">
+          <CardHeader
+            icon={Pill}
+            accent="rose"
+            titleAs="h3"
+            title="Medication & Relief"
+            subtitle="Painkillers, hormones, heat therapy & daily triggers"
+            badges={
+              formData.medications.length > 0 ? (
+                <StatusPill accent="rose">{formData.medications.length} logged</StatusPill>
+              ) : null
+            }
+            action={
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="tinted"
+                  accent="rose"
+                  size="sm"
+                  onClick={onCopyYesterdayMeds}
+                >
+                  Copy Yesterday
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => toggleSection('meds', medsOpen)}
+                  aria-expanded={medsOpen}
+                  aria-label={medsOpen ? 'Collapse Medication & Relief' : 'Expand Medication & Relief'}
+                  className="lg:hidden min-w-[36px] min-h-[36px] rounded-xl border border-border-strong bg-surface-subtle flex items-center justify-center text-text-secondary cursor-pointer"
+                >
+                  <ChevronDown
+                    className={`w-4 h-4 transition-transform ${medsOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
               </div>
-              <div>
-                <h3 className="text-base sm:text-lg font-bold">Medication &amp; Relief</h3>
-                <p className="text-xs text-text-muted">
-                  Painkillers, hormones, heat therapy &amp; daily triggers
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={onCopyYesterdayMeds}
-              className="min-h-[40px] text-xs font-semibold px-3.5 py-2 rounded-xl bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 active:scale-[0.98] transition cursor-pointer"
-            >
-              Copy Yesterday&apos;s Meds
-            </button>
-          </div>
+            }
+          />
+
+          <div className={`${medsOpen ? 'block' : 'hidden'} lg:block space-y-4`}>
 
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider mb-2 text-text-secondary">
@@ -856,7 +982,9 @@ export default function DailyLogTab({
               })}
             </div>
           </div>
+          </div>
         </SectionCard>
+        </div>
       </div>
 
       {/* DAILY NOTES & SAVE BAR */}
@@ -871,7 +999,7 @@ export default function DailyLogTab({
           rows={3}
           value={formData.notes}
           onChange={(e) => onUpdateField('notes', e.target.value)}
-          placeholder="Write any extra details about today (e.g. specific foods eaten, how sleep went, questions for the GP or gynecologist)..."
+          placeholder="Extra notes for today (food, sleep, GP questions)..."
           className={getFieldClass('rose')}
         />
 
@@ -886,25 +1014,47 @@ export default function DailyLogTab({
           </div>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
             {isDirty && (saveFailed || pendingNav) && (
-              <button
-                type="button"
+              <Button
+                variant="dangerTinted"
+                size="lg"
                 onClick={onDiscardPendingNav}
-                className="min-h-[44px] px-4 py-3 rounded-2xl font-bold text-xs border border-rose-500/40 text-rose-700 dark:text-rose-200 hover:bg-rose-500/15 active:scale-[0.98] transition cursor-pointer"
               >
                 Discard Unsaved Changes
-              </button>
+              </Button>
             )}
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              accent="rose"
+              size="lg"
+              icon={Check}
               onClick={onSaveDayEntry}
-              className="w-full sm:w-auto min-h-[44px] px-8 py-3.5 rounded-2xl font-bold text-sm bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-700 hover:to-rose-800 text-white shadow-md flex items-center justify-center gap-2 active:scale-[0.98] transition cursor-pointer"
+              className="w-full sm:w-auto px-6"
             >
-              <Check className="w-4 h-4 stroke-[2.5]" />
               <span>Save Log for {formatShortDateEnGB(selectedDate)}</span>
-            </button>
+            </Button>
           </div>
         </div>
       </SectionCard>
+
+      {isDirty && (
+        <div className="fixed inset-x-0 bottom-[calc(5.25rem+env(safe-area-inset-bottom))] md:bottom-5 z-30 flex justify-center px-3 pointer-events-none no-print animate-fade-in">
+          <div className="howard-floating-pill pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-full border backdrop-blur-xl">
+            <span className="text-xs font-bold text-rose-700 dark:text-rose-300 pl-1 whitespace-nowrap">
+              Unsaved log
+            </span>
+            <Button
+              variant="primary"
+              accent="rose"
+              size="sm"
+              icon={Check}
+              onClick={onSaveDayEntry}
+              className="rounded-full whitespace-nowrap"
+            >
+              Save {formatShortDateEnGB(selectedDate)}
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

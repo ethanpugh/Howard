@@ -18,7 +18,7 @@ export default function LedgerRecurringTab({
   return (
     <SectionCard className="space-y-3 sm:space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
+        <div className="min-w-0 flex-1">
           <h2 className="text-lg font-extrabold">
             Subscriptions &amp; Direct Debits ({filteredRecurring.length})
           </h2>
@@ -28,7 +28,7 @@ export default function LedgerRecurringTab({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           {[
             { id: 'all', label: 'All Recurring' },
             { id: 'direct-debit', label: 'Direct Debits' },
@@ -40,7 +40,7 @@ export default function LedgerRecurringTab({
               onClick={() => onChangeTypeFilter(flt.id)}
               className={`min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-bold border active:scale-[0.98] transition cursor-pointer ${
                 recurringTypeFilter === flt.id
-                  ? 'bg-amber-700 text-white border-amber-700'
+                  ? 'bg-orange-700 text-white border-orange-700'
                   : 'bg-surface-subtle border-border-strong text-text-secondary hover:bg-surface-hover'
               }`}
             >
@@ -51,7 +51,7 @@ export default function LedgerRecurringTab({
           <button
             type="button"
             onClick={() => onOpenNewRecurring('direct-debit')}
-            className="min-h-[40px] px-3.5 py-2 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold flex items-center gap-1 active:scale-[0.98] transition cursor-pointer"
+            className="min-h-[40px] px-3.5 py-2 rounded-xl bg-orange-700 hover:bg-orange-800 text-white text-xs font-bold inline-flex items-center gap-1 whitespace-nowrap shrink-0 active:scale-[0.98] transition cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add New</span>
@@ -141,7 +141,7 @@ export default function LedgerRecurringTab({
                       onClick={() => onToggleActive(item)}
                       className={`min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold border active:scale-[0.98] transition cursor-pointer ${
                         isPaused
-                          ? 'bg-amber-700 text-white border-amber-700'
+                          ? 'bg-orange-700 text-white border-orange-700'
                           : 'bg-surface-card border-border-strong text-text-primary hover:bg-surface-hover'
                       }`}
                     >
@@ -150,7 +150,7 @@ export default function LedgerRecurringTab({
                     <button
                       type="button"
                       onClick={() => onOpenEditRecurring(item)}
-                      className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-text-muted hover:text-amber-700 dark:hover:text-amber-400 hover:bg-surface-hover active:scale-[0.98] transition cursor-pointer"
+                      className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-text-muted hover:text-orange-700 dark:hover:text-orange-400 hover:bg-surface-hover active:scale-[0.98] transition cursor-pointer"
                       title="Edit"
                       aria-label={`Edit ${item.title}`}
                     >
@@ -179,7 +179,7 @@ export default function LedgerRecurringTab({
         </div>
       ) : (
         <EmptyStateCard
-          accent="amber"
+          accent="orange"
           icon={CreditCard}
           title="No subscriptions or Direct Debits match this filter"
           description="Add a household bill or personal subscription to track monthly commitments."
@@ -187,7 +187,7 @@ export default function LedgerRecurringTab({
             <button
               type="button"
               onClick={() => onOpenNewRecurring('direct-debit')}
-              className="min-h-[40px] px-4 py-2 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold active:scale-[0.98] transition cursor-pointer"
+              className="min-h-[40px] px-4 py-2 rounded-xl bg-orange-700 hover:bg-orange-800 text-white text-xs font-bold active:scale-[0.98] transition cursor-pointer"
             >
               + Add First Recurring Bill
             </button>

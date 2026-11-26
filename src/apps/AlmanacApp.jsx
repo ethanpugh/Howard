@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
+  AlertTriangle,
   Calendar as CalendarIcon,
   Plus,
   Edit3,
@@ -7,6 +8,8 @@ import {
   Cat,
   Flower2,
   Heart,
+  Sparkles,
+  Sprout,
   Stethoscope,
   Wallet,
   Clock,
@@ -14,8 +17,11 @@ import {
   Repeat
 } from 'lucide-react';
 import {
+  Button,
   ModuleHeader,
+  ModulePage,
   MonthCalendarLayout,
+  OpenModulePill,
   SubSurface,
   ConfirmModal,
   EmptyStateCard
@@ -317,7 +323,7 @@ function AlmanacApp({
       key: 'ledger',
       label: 'Ledger',
       icon: Wallet,
-      activeClass: 'bg-amber-500 text-slate-950 border-amber-600',
+      activeClass: 'bg-orange-700 text-white border-orange-700',
       visible: true
     },
     {
@@ -331,7 +337,7 @@ function AlmanacApp({
 
   const renderCalendarCell = (cell, idx) => {
     if (!cell) {
-      return <div key={`empty-${idx}`} className="h-16 sm:h-24 rounded-2xl" />;
+      return <div key={`empty-${idx}`} className="h-[3.1rem] sm:min-h-[4.5rem] xl:min-h-[5.5rem] rounded-xl sm:rounded-2xl" />;
     }
     const {
       dayNumber,
@@ -370,7 +376,7 @@ function AlmanacApp({
       mobileDots.push({ key: 'bloom', colorClass: 'bg-emerald-600', label: mantisName });
     }
     if (layers.ledger && ledgerDue.length > 0) {
-      mobileDots.push({ key: 'ledger', colorClass: 'bg-amber-500', label: 'Ledger' });
+      mobileDots.push({ key: 'ledger', colorClass: 'bg-orange-600', label: 'Ledger' });
     }
     if (layers.floodgate && (hasFloodgateBleed || floodgateLog?.hasClots)) {
       mobileDots.push({ key: 'floodgate', colorClass: 'bg-rose-500', label: 'Floodgate' });
@@ -381,7 +387,7 @@ function AlmanacApp({
         key={dateStr}
         type="button"
         onClick={() => setSelectedDate(dateStr)}
-        className={`min-h-[4.25rem] sm:h-24 p-1 sm:p-2 rounded-2xl border flex flex-col justify-between text-left transition relative cursor-pointer active:scale-[0.98] ${
+        className={`min-h-[3.1rem] sm:min-h-[4.5rem] xl:min-h-[5.5rem] p-1 sm:p-2 rounded-xl sm:rounded-2xl border flex flex-col justify-between text-left transition relative cursor-pointer active:scale-[0.98] ${
           isSelected
             ? 'ring-2 ring-indigo-600 border-indigo-600 bg-indigo-500/10'
             : 'bg-surface-subtle/75 border-border-subtle hover:bg-surface-hover'
@@ -396,10 +402,10 @@ function AlmanacApp({
             {dayNumber}
           </span>
 
-          <div className="hidden sm:flex items-center gap-1">
+          <div className="hidden sm:flex flex-wrap justify-end items-center gap-0.5 max-w-[34px] xl:max-w-[44px]">
             {layers.cadence && (amDone || pmDone) && (
               <span
-                className={`w-2 h-2 rounded-full ${
+                className={`w-1.5 h-1.5 rounded-full ${
                   amDone && pmDone ? 'bg-purple-600' : 'bg-amber-400'
                 }`}
                 title={`${catName}: ${amDone && pmDone ? 'AM & PM given' : '1 dose given'}`}
@@ -407,25 +413,25 @@ function AlmanacApp({
             )}
             {layers.bloom && hasBloomActivity && (
               <span
-                className="w-2 h-2 rounded-full bg-emerald-500"
+                className="w-1.5 h-1.5 rounded-full bg-emerald-500"
                 title={`${mantisName}: Care logged`}
               />
             )}
             {layers.floodgate && hasFloodgateBleed && (
               <span
-                className="w-2 h-2 rounded-full bg-rose-500"
+                className="w-1.5 h-1.5 rounded-full bg-rose-500"
                 title={`Floodgate: ${floodgateLog.bleedingSeverity}`}
               />
             )}
             {layers.floodgate && floodgateLog?.hasClots && (
               <span
-                className="w-2 h-2 rounded-full bg-rose-700"
+                className="w-1.5 h-1.5 rounded-full bg-rose-700"
                 title="Floodgate: Clots logged"
               />
             )}
             {layers.ledger && ledgerDue.length > 0 && (
               <span
-                className="w-2 h-2 rounded-full bg-amber-500"
+                className="w-1.5 h-1.5 rounded-full bg-orange-600"
                 title={`${ledgerDue.length} bill(s) / payday(s)`}
               />
             )}
@@ -455,10 +461,10 @@ function AlmanacApp({
             return (
               <div
                 key={evt.id}
-                className={`w-full text-[11px] font-bold px-1.5 py-0.5 rounded truncate ${cat.color}`}
+                className={`w-full text-[11px] font-bold px-1.5 py-0.5 rounded truncate flex items-center gap-1 ${cat.color}`}
               >
-                {isRec ? '🔄 ' : ''}
-                {evt.title}
+                {isRec && <Repeat className="w-2.5 h-2.5 shrink-0" />}
+                <span className="truncate">{evt.title}</span>
               </div>
             );
           })}
@@ -468,22 +474,25 @@ function AlmanacApp({
             </div>
           )}
           {layers.cadence && isBottleExpiry && (
-            <div className="w-full text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 truncate">
-              🐾 Bottle Expiry
+            <div className="w-full text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 truncate flex items-center gap-1">
+              <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
+              <span className="truncate">Bottle Expiry</span>
             </div>
           )}
           {layers.bloom &&
             bloomMoltsOnDay.map((m) => (
               <div
                 key={m.id}
-                className="w-full text-[11px] font-bold px-1.5 py-0.5 rounded bg-emerald-700 text-white truncate"
+                className="w-full text-[11px] font-bold px-1.5 py-0.5 rounded bg-emerald-700 text-white truncate flex items-center gap-1"
               >
-                🦋 {m.fromInstar}&rarr;{m.toInstar}
+                <Sparkles className="w-2.5 h-2.5 shrink-0" />
+                <span className="truncate">{m.fromInstar}&rarr;{m.toInstar}</span>
               </div>
             ))}
           {layers.bloom && isProjectedMolt && bloomMoltsOnDay.length === 0 && (
-            <div className="w-full text-[11px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 truncate">
-              🌿 Est. Molt
+            <div className="w-full text-[11px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 truncate flex items-center gap-1">
+              <Sprout className="w-2.5 h-2.5 shrink-0" />
+              <span className="truncate">Est. Molt</span>
             </div>
           )}
         </div>
@@ -492,10 +501,11 @@ function AlmanacApp({
   };
 
   return (
-    <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4 space-y-4 sm:space-y-5">
+    <ModulePage module="almanac">
       <ModuleHeader
         accent="indigo"
         icon={CalendarIcon}
+        shortTitle="Almanac"
         title="Almanac • Unified Household Calendar"
         subtitle={
           <>
@@ -504,19 +514,21 @@ function AlmanacApp({
             {canViewFloodgate ? ', and Floodgate cycle logs' : ''}
           </>
         }
+        compactActions
         actions={
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            accent="indigo"
+            size="md"
+            icon={Plus}
             onClick={() => setEventModalState({ mode: 'add' })}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white min-h-[40px] px-3.5 py-2 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs active:scale-[0.98] transition cursor-pointer"
           >
-            <Plus className="w-4 h-4 shrink-0" />
             <span>Add Event</span>
-          </button>
+          </Button>
         }
         footer={
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-text-muted flex items-center gap-1 mr-1">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-text-muted flex items-center gap-1 mr-1 shrink-0">
               <Layers className="w-3.5 h-3.5" /> Layers:
             </span>
             {layerToggles
@@ -529,7 +541,7 @@ function AlmanacApp({
                     key={toggle.key}
                     type="button"
                     onClick={() => toggleLayer(toggle.key)}
-                    className={`min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 active:scale-[0.98] transition cursor-pointer ${
+                    className={`min-h-[36px] sm:min-h-[40px] px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 whitespace-nowrap shrink-0 active:scale-[0.98] transition cursor-pointer ${
                       active
                         ? toggle.activeClass
                         : 'bg-surface-subtle border-border-strong text-text-secondary hover:bg-surface-hover'
@@ -568,7 +580,7 @@ function AlmanacApp({
               Bloom
             </span>
             <span className="inline-flex items-center gap-1.5 font-semibold">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
+              <span className="w-2.5 h-2.5 rounded-full bg-orange-600 shrink-0" />
               Ledger
             </span>
             {canViewFloodgate && (
@@ -693,33 +705,36 @@ function AlmanacApp({
                 })
               ) : (
                 <EmptyStateCard
+                  compact
                   accent="indigo"
                   icon={CalendarIcon}
                   title="No household events scheduled"
-                  description="Tap Add Event to log an appointment, bin collection, or reminder for this date."
-                  className="p-4 sm:p-5"
+                  description="Tap Add Event to log a reminder for this date."
                 />
               )}
             </div>
 
             {layers.cadence && (
               <SubSurface className="p-3.5 space-y-2.5 text-xs bg-purple-500/5 border-purple-500/20">
-                <div className="flex items-center justify-between gap-2 font-bold text-purple-700 dark:text-purple-300">
+                <div className="flex flex-wrap items-center justify-between gap-2 font-bold text-purple-700 dark:text-purple-300">
                   <span className="flex items-center gap-1.5 min-w-0">
                     <Cat className="w-3.5 h-3.5 shrink-0" /> {catName}&apos;s Medication
                   </span>
-                  <button
-                    type="button"
+                  <OpenModulePill
+                    accent="purple"
                     onClick={() => onNavigateApp('cadence')}
-                    className="min-h-[40px] -my-2.5 inline-flex items-center px-2 -mr-2 rounded-xl underline text-xs font-semibold cursor-pointer shrink-0"
-                  >
-                    Open Cadence
-                  </button>
+                    label="Open"
+                    ariaLabel="Open Cadence"
+                    title="Open Cadence"
+                  />
                 </div>
                 {selectedCellData.isBottleExpiry && (
-                  <div className="p-2 rounded-xl bg-amber-500 text-slate-950 font-bold">
-                    🐾 Bottle Expiry Date — open a fresh bottle &amp; update the opened date in
-                    Cadence
+                  <div className="p-2 rounded-xl bg-amber-500 text-slate-950 font-bold flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span>
+                      Bottle Expiry Date — open a fresh bottle &amp; update the opened date in
+                      Cadence
+                    </span>
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-2">
@@ -745,32 +760,36 @@ function AlmanacApp({
 
             {layers.bloom && (
               <SubSurface className="p-3.5 space-y-2.5 text-xs bg-emerald-500/5 border-emerald-500/20">
-                <div className="flex items-center justify-between gap-2 font-bold text-emerald-700 dark:text-emerald-300">
+                <div className="flex flex-wrap items-center justify-between gap-2 font-bold text-emerald-700 dark:text-emerald-300">
                   <span className="flex items-center gap-1.5 min-w-0">
                     <Flower2 className="w-3.5 h-3.5 shrink-0" /> {mantisName}&apos;s Habitat (Bloom)
                   </span>
-                  <button
-                    type="button"
+                  <OpenModulePill
+                    accent="emerald"
                     onClick={() => onNavigateApp('bloom')}
-                    className="min-h-[40px] -my-2.5 inline-flex items-center px-2 -mr-2 rounded-xl underline text-xs font-semibold cursor-pointer shrink-0"
-                  >
-                    Open Bloom
-                  </button>
+                    label="Open"
+                    ariaLabel="Open Bloom"
+                    title="Open Bloom"
+                  />
                 </div>
 
                 {selectedCellData.bloomMoltsOnDay.length > 0 && (
-                  <div className="p-2 rounded-xl bg-emerald-700 text-white font-bold">
-                    🎉 Molted:{' '}
-                    {selectedCellData.bloomMoltsOnDay
-                      .map((m) => `${m.fromInstar} → ${m.toInstar}`)
-                      .join(', ')}
+                  <div className="p-2 rounded-xl bg-emerald-700 text-white font-bold flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                    <span>
+                      Molted:{' '}
+                      {selectedCellData.bloomMoltsOnDay
+                        .map((m) => `${m.fromInstar} → ${m.toInstar}`)
+                        .join(', ')}
+                    </span>
                   </div>
                 )}
 
                 {selectedCellData.isProjectedMolt &&
                   selectedCellData.bloomMoltsOnDay.length === 0 && (
-                    <div className="p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 font-semibold">
-                      🌿 Projected next molt window (~{bloomSummary.avgInterMoltDays}d cycle)
+                    <div className="p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 font-semibold flex items-center gap-1.5">
+                      <Sprout className="w-3.5 h-3.5 shrink-0" />
+                      <span>Projected next molt window (~{bloomSummary.avgInterMoltDays}d cycle)</span>
                     </div>
                   )}
 
@@ -803,17 +822,17 @@ function AlmanacApp({
 
             {layers.floodgate && canViewFloodgate && (
               <SubSurface className="p-3.5 space-y-2.5 text-xs bg-rose-500/5 border-rose-500/20">
-                <div className="flex items-center justify-between gap-2 font-bold text-rose-700 dark:text-rose-300">
+                <div className="flex flex-wrap items-center justify-between gap-2 font-bold text-rose-700 dark:text-rose-300">
                   <span className="flex items-center gap-1.5 min-w-0">
                     <Heart className="w-3.5 h-3.5 shrink-0" /> Floodgate Cycle Log
                   </span>
-                  <button
-                    type="button"
+                  <OpenModulePill
+                    accent="rose"
                     onClick={() => onOpenFloodgate({ tab: 'log', date: selectedDate })}
-                    className="min-h-[40px] -my-2.5 inline-flex items-center px-2 -mr-2 rounded-xl underline text-xs font-semibold cursor-pointer shrink-0"
-                  >
-                    {selectedCellData.floodgateLog ? 'Edit Day' : 'Log Day'}
-                  </button>
+                    label={selectedCellData.floodgateLog ? 'Edit' : 'Log'}
+                    ariaLabel="Open Floodgate"
+                    title="Open Floodgate"
+                  />
                 </div>
                 {selectedCellData.floodgateLog ? (
                   <div className="space-y-1">
@@ -822,7 +841,7 @@ function AlmanacApp({
                       {selectedCellData.floodgateLog.painScore}/10
                     </div>
                     {selectedCellData.floodgateLog.hasClots && (
-                      <div className="text-purple-600 dark:text-purple-300 font-semibold">
+                      <div className="text-rose-700 dark:text-rose-300 font-semibold">
                         Clots: {selectedCellData.floodgateLog.clotCount} passed
                       </div>
                     )}
@@ -836,16 +855,18 @@ function AlmanacApp({
             )}
 
             {layers.ledger && selectedCellData.ledgerDue.length > 0 && (
-              <SubSurface className="p-3.5 space-y-2.5 text-xs bg-amber-500/5 border-amber-500/25">
-                <div className="flex items-center justify-between gap-2 font-bold text-amber-800 dark:text-amber-300">
-                  <span className="min-w-0">💷 Ledger Bills &amp; Paydays</span>
-                  <button
-                    type="button"
+              <SubSurface className="p-3.5 space-y-2.5 text-xs bg-orange-500/5 border-orange-500/25">
+                <div className="flex flex-wrap items-center justify-between gap-2 font-bold text-orange-800 dark:text-orange-300">
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <Wallet className="w-3.5 h-3.5 shrink-0" /> Ledger Bills &amp; Paydays
+                  </span>
+                  <OpenModulePill
+                    accent="orange"
                     onClick={() => onNavigateApp('ledger')}
-                    className="min-h-[40px] -my-2.5 inline-flex items-center px-2 -mr-2 rounded-xl underline text-xs font-semibold cursor-pointer shrink-0"
-                  >
-                    Open Ledger
-                  </button>
+                    label="Open"
+                    ariaLabel="Open Ledger"
+                    title="Open Ledger"
+                  />
                 </div>
                 <div className="space-y-1.5">
                   {selectedCellData.ledgerDue.map((it) => (
@@ -853,7 +874,7 @@ function AlmanacApp({
                       <span className="min-w-0 break-words">
                         • {it.title} ({it.kind})
                       </span>
-                      <span className="font-bold shrink-0">{formatGBP(it.amount)}</span>
+                      <span className="font-bold shrink-0 tabular-nums">{formatGBP(it.amount)}</span>
                     </div>
                   ))}
                 </div>
@@ -913,7 +934,7 @@ function AlmanacApp({
         danger
         maxWidthClass="max-w-sm"
       />
-    </main>
+    </ModulePage>
   );
 }
 

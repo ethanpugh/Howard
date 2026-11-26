@@ -332,7 +332,7 @@ export default function ProfileSwitcherModal({
           {activeProfile.id !== 'caregiver' && (
             <div className="pt-3 border-t border-border-subtle space-y-3">
               {!renameOpen ? (
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="text-xs text-text-muted flex items-center gap-1.5">
                     <span>{activeProfile.badgeEmoji}</span>
                     <span>
@@ -385,7 +385,7 @@ export default function ProfileSwitcherModal({
               )}
 
               {!pinManageOpen ? (
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="text-xs text-text-muted flex items-center gap-1.5">
                     <KeyRound className="w-3.5 h-3.5 text-teal-700 dark:text-teal-400" />
                     <span>
@@ -409,7 +409,7 @@ export default function ProfileSwitcherModal({
                   onSubmit={(e) => handleSavePinSettings(e, true)}
                   className="p-3.5 rounded-2xl border border-border-subtle bg-surface-subtle space-y-3"
                 >
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs font-bold">
                       Configure PIN for {activeProfile.name}
                     </span>
@@ -461,13 +461,13 @@ export default function ProfileSwitcherModal({
                     </p>
                   )}
 
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     {activeProfile.pinEnabled ? (
                       <button
                         type="button"
                         disabled={isPending}
                         onClick={(e) => handleSavePinSettings(e, false)}
-                        className="min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 transition disabled:opacity-60"
+                        className="min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold bg-rose-500/12 border border-rose-500/25 text-rose-700 dark:text-rose-300 hover:bg-rose-500/20 transition disabled:opacity-60"
                       >
                         Disable PIN
                       </button>

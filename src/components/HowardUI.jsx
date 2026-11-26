@@ -7,125 +7,12 @@ import {
   X
 } from 'lucide-react';
 import { WEEKDAY_OPTIONS } from '../utils/householdHelpers.js';
+import { MODULE_THEMES, getModuleTheme } from '../utils/moduleThemes.js';
 
-export const MODULE_ACCENTS = {
-  teal: {
-    iconBg: 'bg-teal-500/15 text-teal-800 dark:text-teal-300',
-    solidBtn: 'bg-teal-700 hover:bg-teal-800 text-white',
-    activeTab: 'bg-teal-700 text-white shadow-xs',
-    badge:
-      'bg-teal-500/15 text-teal-800 dark:text-teal-300 border border-teal-500/25',
-    openPill:
-      'border-teal-500/30 bg-teal-500/10 hover:bg-teal-500/20 text-teal-800 dark:text-teal-300',
-    focusRing:
-      'focus:outline-hidden focus:ring-2 focus:ring-teal-500 focus:border-teal-500',
-    focusVisibleRing:
-      'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-teal-500',
-    borderSoft: 'border-teal-500/35'
-  },
-  purple: {
-    iconBg: 'bg-purple-500/15 text-purple-700 dark:text-purple-300',
-    solidBtn: 'bg-purple-600 hover:bg-purple-700 text-white',
-    activeTab: 'bg-purple-600 text-white shadow-xs',
-    badge:
-      'bg-purple-500/15 text-purple-800 dark:text-purple-300 border border-purple-500/25',
-    openPill:
-      'border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-800 dark:text-purple-300',
-    focusRing:
-      'focus:outline-hidden focus:ring-2 focus:ring-purple-500 focus:border-purple-500',
-    focusVisibleRing:
-      'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-500',
-    borderSoft: 'border-purple-500/35'
-  },
-  emerald: {
-    iconBg: 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300',
-    solidBtn: 'bg-emerald-700 hover:bg-emerald-800 text-white',
-    activeTab: 'bg-emerald-700 text-white shadow-xs',
-    badge:
-      'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/25',
-    openPill:
-      'border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300',
-    focusRing:
-      'focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500',
-    focusVisibleRing:
-      'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-500',
-    borderSoft: 'border-emerald-500/35'
-  },
-  indigo: {
-    iconBg: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300',
-    solidBtn: 'bg-indigo-600 hover:bg-indigo-700 text-white',
-    activeTab: 'bg-indigo-600 text-white shadow-xs',
-    badge:
-      'bg-indigo-500/15 text-indigo-800 dark:text-indigo-300 border border-indigo-500/25',
-    openPill:
-      'border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-800 dark:text-indigo-300',
-    focusRing:
-      'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500',
-    focusVisibleRing:
-      'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500',
-    borderSoft: 'border-indigo-500/35'
-  },
-  rose: {
-    iconBg: 'bg-rose-500/15 text-rose-700 dark:text-rose-300',
-    solidBtn: 'bg-rose-600 hover:bg-rose-700 text-white',
-    activeTab: 'bg-rose-600 text-white shadow-xs',
-    badge:
-      'bg-rose-500/15 text-rose-800 dark:text-rose-300 border border-rose-500/25',
-    openPill:
-      'border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-800 dark:text-rose-300',
-    focusRing:
-      'focus:outline-hidden focus:ring-2 focus:ring-rose-500 focus:border-rose-500',
-    focusVisibleRing:
-      'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-500',
-    borderSoft: 'border-rose-500/35'
-  },
-  amber: {
-    iconBg: 'bg-amber-500/15 text-amber-800 dark:text-amber-300',
-    solidBtn: 'bg-amber-700 hover:bg-amber-800 text-white',
-    activeTab: 'bg-amber-700 text-white shadow-xs',
-    badge:
-      'bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/25',
-    openPill:
-      'border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 dark:text-amber-300',
-    focusRing:
-      'focus:outline-hidden focus:ring-2 focus:ring-amber-500 focus:border-amber-500',
-    focusVisibleRing:
-      'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500',
-    borderSoft: 'border-amber-500/35'
-  },
-  sky: {
-    iconBg: 'bg-sky-500/15 text-sky-800 dark:text-sky-300',
-    solidBtn: 'bg-sky-700 hover:bg-sky-800 text-white',
-    activeTab: 'bg-sky-700 text-white shadow-xs',
-    badge:
-      'bg-sky-500/15 text-sky-800 dark:text-sky-300 border border-sky-500/25',
-    openPill:
-      'border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 text-sky-800 dark:text-sky-300',
-    focusRing:
-      'focus:outline-hidden focus:ring-2 focus:ring-sky-500 focus:border-sky-500',
-    focusVisibleRing:
-      'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500',
-    borderSoft: 'border-sky-500/35'
-  },
-  yellow: {
-    iconBg: 'bg-yellow-400/25 text-yellow-800 dark:bg-yellow-400/20 dark:text-yellow-300',
-    solidBtn: 'bg-yellow-400 hover:bg-yellow-500 text-slate-950',
-    activeTab: 'bg-yellow-400 text-slate-950 shadow-xs',
-    activeTabBadge: 'bg-slate-950/15 text-slate-950',
-    badge:
-      'bg-yellow-400/25 text-yellow-900 dark:bg-yellow-400/20 dark:text-yellow-300 border border-yellow-500/40',
-    openPill:
-      'border-yellow-500/45 bg-yellow-400/15 hover:bg-yellow-400/25 text-yellow-900 dark:text-yellow-300',
-    focusRing:
-      'focus:outline-hidden focus:ring-2 focus:ring-yellow-400 focus:border-yellow-500',
-    focusVisibleRing:
-      'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-yellow-400',
-    borderSoft: 'border-yellow-500/45'
-  }
-};
+export const MODULE_ACCENTS = MODULE_THEMES;
 
 export function getAccentMeta(accent = 'teal') {
-  return MODULE_ACCENTS[accent] || MODULE_ACCENTS.teal;
+  return getModuleTheme(accent);
 }
 
 export function getFieldClass(accent = 'teal', extraClass = '', options = {}) {
@@ -135,6 +22,69 @@ export function getFieldClass(accent = 'teal', extraClass = '', options = {}) {
   return extraClass ? `${base} ${extraClass}` : base;
 }
 
+const BUTTON_SIZE_CLASSES = {
+  sm: 'min-h-[36px] px-2.5 py-1.5 text-xs',
+  md: 'min-h-[40px] px-3.5 py-2 text-xs',
+  lg: 'min-h-[44px] px-4 py-2.5 text-xs sm:text-sm'
+};
+
+/**
+ * Standardized button primitive with 3 heights (36/40/44px) and uniform rounded-xl geometry.
+ */
+export function Button({
+  variant = 'primary',
+  accent = 'teal',
+  size = 'md',
+  icon: Icon = null,
+  iconRight: IconRight = null,
+  className = '',
+  type = 'button',
+  children,
+  ...rest
+}) {
+  const accentMeta = getAccentMeta(accent);
+  const sizeClass = BUTTON_SIZE_CLASSES[size] || BUTTON_SIZE_CLASSES.md;
+  const variantClass =
+    variant === 'tinted'
+      ? accentMeta.tintedBtn
+      : variant === 'secondary'
+        ? 'border border-border-strong bg-surface-subtle hover:bg-surface-hover text-text-primary'
+        : variant === 'ghost'
+          ? 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+          : variant === 'danger'
+            ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-xs'
+            : variant === 'dangerTinted'
+              ? 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 border border-rose-500/30'
+              : `${accentMeta.solidBtn} shadow-xs`;
+
+  return (
+    <button
+      type={type}
+      className={`${sizeClass} rounded-xl font-bold inline-flex items-center justify-center gap-1.5 active:scale-[0.98] transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${accentMeta.focusVisibleRing} ${variantClass} ${className}`.trim()}
+      {...rest}
+    >
+      {Icon && <Icon className="w-4 h-4 shrink-0" />}
+      {children}
+      {IconRight && <IconRight className="w-4 h-4 shrink-0" />}
+    </button>
+  );
+}
+
+/**
+ * Uniform top-level module container (locks all 8 modules to max-w-7xl & consistent padding).
+ */
+export function ModulePage({ module = 'foyer', className = '', children, ...rest }) {
+  return (
+    <main
+      data-module={module}
+      className={`max-w-7xl mx-auto px-2.5 sm:px-5 pt-3 sm:pt-4 space-y-3 sm:space-y-4 ${className}`.trim()}
+      {...rest}
+    >
+      {children}
+    </main>
+  );
+}
+
 /**
  * Primary elevated container card (replaces repeated outer white/slate-900 card boilerplate).
  */
@@ -142,7 +92,7 @@ export function SectionCard({ as = 'section', className = '', children, ...rest 
   const Tag = as;
   return (
     <Tag
-      className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-border-subtle bg-surface-card text-text-primary shadow-xs ${className}`.trim()}
+      className={`rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 border border-border-subtle bg-surface-card text-text-primary shadow-xs ${className}`.trim()}
       {...rest}
     >
       {children}
@@ -189,11 +139,217 @@ export function IconBadge({
   );
 }
 
+/**
+ * Standardized card header with IconBadge, heading, optional badges/subtitle, and right action.
+ */
+export function CardHeader({
+  icon = null,
+  accent = 'teal',
+  iconSize = 'md',
+  title,
+  subtitle = null,
+  badges = null,
+  action = null,
+  titleAs = 'h2',
+  className = ''
+}) {
+  const HeadingTag = titleAs;
+  return (
+    <div
+      className={`flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 ${className}`.trim()}
+    >
+      <div className="flex items-center gap-2.5 sm:gap-3 min-w-[180px] flex-1">
+        {icon && <IconBadge icon={icon} accent={accent} size={iconSize} />}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <HeadingTag className="text-base font-extrabold leading-tight break-words">
+              {title}
+            </HeadingTag>
+            {badges}
+          </div>
+          {subtitle && (
+            <p className="text-xs text-text-muted mt-0.5 leading-relaxed">{subtitle}</p>
+          )}
+        </div>
+      </div>
+      {action && <div className="flex flex-wrap items-center gap-2 shrink-0">{action}</div>}
+    </div>
+  );
+}
+
+const ALERT_SEVERITY_STYLES = {
+  warn: {
+    wrap: 'bg-amber-500/12 border-amber-500/45 text-amber-950 dark:text-amber-100',
+    iconBox: 'bg-amber-500 text-slate-950',
+    desc: 'text-amber-900 dark:text-amber-200'
+  },
+  danger: {
+    wrap: 'bg-rose-500/10 border-rose-500/40 text-rose-950 dark:text-rose-100',
+    iconBox: 'bg-rose-600 text-white',
+    desc: 'text-rose-900 dark:text-rose-200'
+  },
+  info: {
+    wrap: 'bg-sky-500/10 border-sky-500/35 text-sky-950 dark:text-sky-100',
+    iconBox: 'bg-sky-700 text-white',
+    desc: 'text-sky-900 dark:text-sky-200'
+  },
+  success: {
+    wrap: 'bg-emerald-500/10 border-emerald-500/40 text-emerald-950 dark:text-emerald-100',
+    iconBox: 'bg-emerald-700 text-white',
+    desc: 'text-emerald-900 dark:text-emerald-200'
+  }
+};
+
+/**
+ * Shared contextual alert banner for safety lockouts, expiry warnings, and sync notices.
+ */
+export function AlertBanner({
+  severity = 'warn',
+  icon: Icon = null,
+  title,
+  description = null,
+  moduleAccent = null,
+  moduleLabel = '',
+  action = null,
+  className = '',
+  role = null
+}) {
+  const styles = ALERT_SEVERITY_STYLES[severity] || ALERT_SEVERITY_STYLES.warn;
+  return (
+    <section
+      role={role || undefined}
+      className={`rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${styles.wrap} ${className}`.trim()}
+    >
+      <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
+        {Icon && (
+          <div
+            className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${styles.iconBox}`}
+          >
+            <Icon className="w-5 h-5" />
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            {moduleAccent && moduleLabel && (
+              <StatusPill accent={moduleAccent}>{moduleLabel}</StatusPill>
+            )}
+            <h3 className="text-sm font-extrabold leading-snug">{title}</h3>
+          </div>
+          {description && (
+            <p className={`text-xs mt-0.5 leading-relaxed break-words ${styles.desc}`}>
+              {description}
+            </p>
+          )}
+        </div>
+      </div>
+      {action && <div className="flex flex-wrap items-center gap-2 shrink-0">{action}</div>}
+    </section>
+  );
+}
+
+/**
+ * Standard wrapper when one module is embedded inside another (Foyer widgets, Almanac inspector).
+ */
+export function ModuleEmbedCard({
+  module = 'foyer',
+  accent = null,
+  icon = null,
+  title,
+  subtitle = null,
+  badges = null,
+  openLabel = 'Open',
+  openAriaLabel = '',
+  openTitle = '',
+  onOpen = null,
+  className = '',
+  footer = null,
+  children
+}) {
+  const resolvedAccent = accent || module;
+  const theme = getAccentMeta(resolvedAccent);
+  return (
+    <SectionCard
+      className={`relative overflow-hidden pl-4 sm:pl-5 flex flex-col justify-between space-y-3 sm:space-y-4 ${className}`.trim()}
+    >
+      <span
+        aria-hidden="true"
+        className={`absolute inset-y-3 left-0 w-1 rounded-r-full ${theme.spineClass || theme.dotClass}`}
+      />
+      <div className="space-y-3 sm:space-y-4">
+        <CardHeader
+          icon={icon}
+          accent={resolvedAccent}
+          title={title}
+          subtitle={subtitle}
+          badges={badges}
+          action={
+            onOpen ? (
+              <OpenModulePill
+                accent={resolvedAccent}
+                onClick={onOpen}
+                label={openLabel}
+                ariaLabel={openAriaLabel}
+                title={openTitle}
+              />
+            ) : null
+          }
+        />
+        {children}
+      </div>
+      {footer}
+    </SectionCard>
+  );
+}
+
+export function MetricStrip({ className = '', children }) {
+  return (
+    <section className={`grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5 ${className}`.trim()}>
+      {children}
+    </section>
+  );
+}
+
+export function MetricTile({
+  label,
+  value,
+  sublabel = null,
+  icon: Icon = null,
+  accent = 'teal',
+  valueClassName = '',
+  className = '',
+  children = null
+}) {
+  const theme = getAccentMeta(accent);
+  return (
+    <div
+      className={`rounded-2xl p-3 sm:p-4 border border-border-subtle bg-surface-card text-text-primary shadow-xs flex flex-col justify-between ${className}`.trim()}
+    >
+      <div>
+        <div
+          className={`flex items-center justify-between gap-1.5 text-[11px] font-bold uppercase tracking-wider ${
+            Icon ? theme.textAccent : 'text-text-muted'
+          }`}
+        >
+          <span className="truncate">{label}</span>
+          {Icon && <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />}
+        </div>
+        {value !== undefined && value !== null && (
+          <div className={`text-lg sm:text-2xl font-extrabold mt-0.5 tabular-nums ${valueClassName}`.trim()}>
+            {value}
+          </div>
+        )}
+        {sublabel && <div className="text-xs text-text-muted mt-0.5">{sublabel}</div>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export function StatusPill({ accent = 'teal', className = '', children }) {
   const accentMeta = getAccentMeta(accent);
   return (
     <span
-      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-bold ${accentMeta.badge} ${className}`.trim()}
+      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-bold whitespace-nowrap shrink-0 ${accentMeta.badge} ${className}`.trim()}
     >
       {children}
     </span>
@@ -227,7 +383,9 @@ export function ModuleHeader({
   accent = 'teal',
   icon: Icon,
   title,
+  shortTitle = null,
   subtitle,
+  keepSubtitleOnMobile = false,
   badges = null,
   actions = null,
   compactActions = false,
@@ -238,17 +396,21 @@ export function ModuleHeader({
 
   return (
     <section
-      className={`rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-border-subtle bg-surface-card text-text-primary shadow-xs ${className}`.trim()}
+      className={`relative overflow-hidden rounded-2xl sm:rounded-3xl p-3 sm:p-4 lg:p-5 pl-4 sm:pl-5 lg:pl-6 border border-border-subtle bg-surface-card text-text-primary shadow-xs ${className}`.trim()}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <span
+        aria-hidden="true"
+        className={`absolute inset-y-3 left-0 w-1 rounded-r-full ${accentMeta.spineClass || accentMeta.dotClass}`}
+      />
+      <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3">
         <div
-          className={`flex items-start sm:items-center gap-3 flex-1 ${
-            compactActions ? 'min-w-0' : 'min-w-[220px] sm:min-w-[260px]'
+          className={`flex items-center gap-2.5 sm:gap-3 flex-1 ${
+            compactActions ? 'min-w-[160px]' : 'min-w-[200px] sm:min-w-[260px]'
           }`}
         >
           {Icon && (
             <div
-              className={`w-10 h-10 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center shrink-0 ${accentMeta.iconBg}`}
+              className={`w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0 ${accentMeta.iconBg}`}
             >
               <Icon className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
@@ -256,12 +418,23 @@ export function ModuleHeader({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-lg sm:text-xl font-extrabold tracking-tight leading-tight break-words">
-                {title}
+                {shortTitle ? (
+                  <>
+                    <span className="sm:hidden">{shortTitle}</span>
+                    <span className="hidden sm:inline">{title}</span>
+                  </>
+                ) : (
+                  title
+                )}
               </h1>
               {badges}
             </div>
             {subtitle && (
-              <p className="text-xs text-text-muted mt-0.5 leading-relaxed">
+              <p
+                className={`text-xs text-text-muted mt-0.5 leading-relaxed ${
+                  keepSubtitleOnMobile ? '' : 'hidden sm:block'
+                }`.trim()}
+              >
                 {subtitle}
               </p>
             )}
@@ -281,7 +454,7 @@ export function ModuleHeader({
         )}
       </div>
 
-      {footer && <div className="mt-3">{footer}</div>}
+      {footer && <div className="mt-2.5 sm:mt-3">{footer}</div>}
     </section>
   );
 }
@@ -289,7 +462,7 @@ export function ModuleHeader({
 const TAB_GRID_COLS = {
   2: 'grid grid-cols-2',
   3: 'grid grid-cols-3',
-  4: 'grid grid-cols-2 sm:grid-cols-4'
+  4: 'grid grid-cols-4'
 };
 
 export function SegmentedTabs({
@@ -303,7 +476,7 @@ export function SegmentedTabs({
   const tabRefs = useRef([]);
   const isFourOrMore = tabs.length >= 4;
   const layoutClass =
-    TAB_GRID_COLS[tabs.length] || 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5';
+    TAB_GRID_COLS[tabs.length] || 'grid grid-cols-4 lg:grid-cols-5';
   const shortHideClass = isFourOrMore ? 'xl:hidden truncate' : 'sm:hidden truncate';
   const longShowClass = isFourOrMore ? 'hidden xl:inline truncate' : 'hidden sm:inline truncate';
 
@@ -346,8 +519,12 @@ export function SegmentedTabs({
             onClick={() => onChange?.(tab.id)}
             onKeyDown={(e) => handleKeyDown(e, index)}
             className={`min-h-[40px] ${
-              tabs.length === 3 ? 'px-1.5 sm:px-3.5 gap-1 sm:gap-1.5' : 'px-2.5 sm:px-3.5 gap-1.5'
-            } py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center transition cursor-pointer active:scale-[0.98] ${
+              isFourOrMore
+                ? 'flex-col sm:flex-row px-1 sm:px-3 py-1.5 sm:py-2 gap-0.5 sm:gap-1.5 text-[11px] sm:text-xs md:text-sm'
+                : tabs.length === 3
+                  ? 'px-1.5 sm:px-3.5 py-2 gap-1 sm:gap-1.5 text-xs sm:text-sm'
+                  : 'px-2.5 sm:px-3.5 py-2 gap-1.5 text-xs sm:text-sm'
+            } rounded-xl font-bold flex items-center justify-center transition cursor-pointer active:scale-[0.98] ${
               accentMeta.focusVisibleRing
             } ${
               isActive
@@ -366,7 +543,7 @@ export function SegmentedTabs({
             )}
             {tab.badge !== undefined && tab.badge !== null && tab.badge !== '' && (
               <span
-                className={`px-1.5 py-0.5 rounded-full text-[11px] font-extrabold leading-none shrink-0 ${
+                className={`hidden sm:inline-flex px-1.5 py-0.5 rounded-full text-[11px] font-extrabold leading-none shrink-0 tabular-nums ${
                   isActive
                     ? accentMeta.activeTabBadge || 'bg-black/20 text-white'
                     : 'bg-surface-muted text-text-secondary'
@@ -596,11 +773,6 @@ export function ConfirmModal({
   maxWidthClass = 'max-w-md',
   children = null
 }) {
-  const accentMeta = getAccentMeta(accent);
-  const confirmClass = danger
-    ? 'bg-rose-600 hover:bg-rose-700 text-white'
-    : accentMeta.solidBtn;
-
   return (
     <ModalShell
       isOpen={isOpen}
@@ -614,22 +786,23 @@ export function ConfirmModal({
       disableBackdropClose={isPending}
       footer={
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="md"
             disabled={isPending}
             onClick={onClose}
-            className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold bg-surface-subtle text-text-primary hover:bg-surface-hover active:scale-[0.98] transition cursor-pointer disabled:opacity-50"
           >
             {cancelText}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant={danger ? 'danger' : 'primary'}
+            accent={accent}
+            size="md"
             disabled={isPending}
             onClick={onConfirm}
-            className={`min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold shadow-xs active:scale-[0.98] transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${confirmClass}`}
           >
             {confirmText}
-          </button>
+          </Button>
         </div>
       }
     >
@@ -661,11 +834,7 @@ export function WeeklyHistoryPanel({
     <SectionCard aria-label={ariaLabel} className="space-y-3 sm:space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div className="flex items-center gap-2.5 min-w-0">
-          {Icon && (
-            <div className="w-10 h-10 rounded-2xl bg-surface-subtle flex items-center justify-center shrink-0">
-              <Icon className={`w-5 h-5 ${iconClassName}`.trim()} />
-            </div>
-          )}
+          {Icon && <IconBadge icon={Icon} accent={accent} iconClassName={iconClassName} />}
           <div className="min-w-0">
             <h3 className="font-extrabold text-sm sm:text-base">{title}</h3>
             {subtitle && <p className="text-xs text-text-muted">{subtitle}</p>}
@@ -772,15 +941,15 @@ export function MonthCalendarLayout({
   subtitle = null
 }) {
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 sm:gap-5">
+    <div className="grid grid-cols-1 xl:grid-cols-12 items-start gap-4 sm:gap-5">
       <SectionCard className="xl:col-span-8">
         <div className="flex flex-wrap items-center justify-between gap-2.5 mb-3">
-          <div>
-            <h2 className="text-lg sm:text-xl font-extrabold">{monthLabel}</h2>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base sm:text-xl font-extrabold whitespace-nowrap">{monthLabel}</h2>
             {subtitle && <p className="text-xs text-text-muted">{subtitle}</p>}
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
             {headerRight}
             <button
               type="button"
@@ -826,7 +995,7 @@ export function MonthCalendarLayout({
       </SectionCard>
 
       <SectionCard
-        className={`xl:col-span-4 flex flex-col justify-between space-y-3.5 sm:space-y-4 ${inspectorClassName}`.trim()}
+        className={`xl:col-span-4 xl:sticky xl:top-20 flex flex-col justify-between space-y-3.5 sm:space-y-4 ${inspectorClassName}`.trim()}
       >
         <div className="space-y-3.5 sm:space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -851,13 +1020,43 @@ export function EmptyStateCard({
   description = '',
   action = null,
   accent = 'teal',
+  compact = false,
   className = ''
 }) {
   const accentMeta = getAccentMeta(accent);
 
+  if (compact) {
+    return (
+      <div
+        className={`rounded-2xl border border-dashed border-border-strong bg-surface-subtle/60 text-text-secondary p-3 sm:p-3.5 flex flex-wrap items-center justify-between gap-2.5 text-left ${className}`.trim()}
+      >
+        <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">
+          {Icon && (
+            <div
+              className={`w-8 h-8 rounded-xl shrink-0 flex items-center justify-center ${accentMeta.iconBg}`}
+            >
+              <Icon className="w-4 h-4" />
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            {title && (
+              <div className="text-xs sm:text-sm font-extrabold text-text-primary leading-snug break-words">
+                {title}
+              </div>
+            )}
+            {description && (
+              <p className="text-xs text-text-muted leading-snug break-words">{description}</p>
+            )}
+          </div>
+        </div>
+        {action && <div className="shrink-0">{action}</div>}
+      </div>
+    );
+  }
+
   return (
     <div
-      className={`rounded-2xl border border-dashed border-border-strong bg-surface-subtle/60 text-text-secondary p-6 sm:p-8 text-center space-y-2.5 ${className}`.trim()}
+      className={`rounded-2xl border border-dashed border-border-strong bg-surface-subtle/60 text-text-secondary p-5 sm:p-7 text-center space-y-2.5 ${className}`.trim()}
     >
       {Icon && (
         <div

@@ -23,8 +23,8 @@ export default function LedgerExpensesTab({
 
   return (
     <SectionCard className="space-y-3 sm:space-y-4">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div>
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
           <h2 className="text-lg font-extrabold">
             {selectedMonthLabel} Expenses Log ({filteredExpenses.length})
           </h2>
@@ -34,7 +34,7 @@ export default function LedgerExpensesTab({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <div className="relative flex-1 sm:flex-initial sm:w-52 min-w-0">
             <Search className="w-3.5 h-3.5 text-text-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
@@ -43,7 +43,7 @@ export default function LedgerExpensesTab({
               onChange={(e) => onChangeSearch(e.target.value)}
               placeholder="Search expenses..."
               aria-label="Search expenses"
-              className={getFieldClass('amber', 'pl-9 min-h-[40px]', { compact: true })}
+              className={getFieldClass('orange', 'pl-9 min-h-[40px]', { compact: true })}
             />
           </div>
 
@@ -52,7 +52,7 @@ export default function LedgerExpensesTab({
               value={expenseCategoryFilter}
               aria-label="Filter expenses by category"
               onChange={(e) => onChangeCategoryFilter(e.target.value)}
-              className={getFieldClass('amber', 'min-h-[40px] font-bold', { compact: true })}
+              className={getFieldClass('orange', 'min-h-[40px] font-bold', { compact: true })}
             >
               <option value="All">All Categories</option>
               {EXPENSE_CATEGORIES.map((c) => (
@@ -66,7 +66,7 @@ export default function LedgerExpensesTab({
           <button
             type="button"
             onClick={onOpenNewExpense}
-            className="min-h-[40px] px-3.5 py-2 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold flex items-center gap-1 active:scale-[0.98] transition cursor-pointer"
+            className="min-h-[40px] px-3.5 py-2 rounded-xl bg-orange-700 hover:bg-orange-800 text-white text-xs font-bold inline-flex items-center gap-1 whitespace-nowrap shrink-0 active:scale-[0.98] transition cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Log Expense</span>
@@ -95,7 +95,7 @@ export default function LedgerExpensesTab({
                     <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-surface-subtle text-text-secondary">
                       Paid by: {paidByInfo.shortLabel}
                     </span>
-                    <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-800 dark:text-amber-300">
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-orange-500/15 text-orange-800 dark:text-orange-300">
                       {exp.category}
                     </span>
                   </div>
@@ -118,7 +118,7 @@ export default function LedgerExpensesTab({
                     <button
                       type="button"
                       onClick={() => onOpenEditExpense(exp)}
-                      className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-text-muted hover:text-amber-700 dark:hover:text-amber-400 hover:bg-surface-hover active:scale-[0.98] transition cursor-pointer"
+                      className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-text-muted hover:text-orange-700 dark:hover:text-orange-400 hover:bg-surface-hover active:scale-[0.98] transition cursor-pointer"
                       title="Edit expense"
                       aria-label={`Edit ${exp.title}`}
                     >
@@ -147,7 +147,7 @@ export default function LedgerExpensesTab({
         </div>
       ) : (
         <EmptyStateCard
-          accent="amber"
+          accent="orange"
           icon={Receipt}
           title={`No expenses logged for ${selectedMonthLabel} matching this filter`}
           description="Log groceries, vet bills, or shared spending to track monthly outgoings."
@@ -155,7 +155,7 @@ export default function LedgerExpensesTab({
             <button
               type="button"
               onClick={onOpenNewExpense}
-              className="min-h-[40px] px-4 py-2 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold cursor-pointer"
+              className="min-h-[40px] px-4 py-2 rounded-xl bg-orange-700 hover:bg-orange-800 text-white text-xs font-bold cursor-pointer"
             >
               + Log First Expense for {selectedMonthLabel}
             </button>

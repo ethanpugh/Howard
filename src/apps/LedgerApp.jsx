@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Wallet,
   Plus,
@@ -11,7 +11,8 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
-  AlertTriangle
+  AlertTriangle,
+  MoreHorizontal
 } from 'lucide-react';
 import {
   getLocalDateKey,
@@ -24,9 +25,12 @@ import {
   getLedgerScheduleInfo
 } from '../utils/householdHelpers.js';
 import {
+  Button,
+  MetricStrip,
+  MetricTile,
   ModuleHeader,
+  ModulePage,
   SegmentedTabs,
-  SectionCard,
   ConfirmModal
 } from '../components/HowardUI.jsx';
 import {
@@ -79,6 +83,26 @@ function LedgerApp({
   const [expenseSearch, setExpenseSearch] = useState('');
   const [modalState, setModalState] = useState(null);
   const [confirmDeleteItem, setConfirmDeleteItem] = useState(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const mobileMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return undefined;
+    const handleOutside = (e) => {
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(e.target)) {
+        setMobileMenuOpen(false);
+      }
+    };
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') setMobileMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', handleOutside);
+    window.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('pointerdown', handleOutside);
+      window.removeEventListener('keydown', handleEsc);
+    };
+  }, [mobileMenuOpen]);
 
   const incomes = useMemo(() => ledgerData?.incomes || [], [ledgerData]);
   const recurring = useMemo(() => ledgerData?.recurring || [], [ledgerData]);
@@ -97,6 +121,14 @@ function LedgerApp({
     const [y, m] = selectedMonth.split('-').map(Number);
     return new Date(y, m - 1, 1).toLocaleDateString('en-GB', {
       month: 'long',
+      year: 'numeric'
+    });
+  }, [selectedMonth]);
+
+  const shortMonthLabel = useMemo(() => {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString('en-GB', {
+      month: 'short',
       year: 'numeric'
     });
   }, [selectedMonth]);
@@ -497,125 +529,187 @@ function LedgerApp({
   };
 
   return (
-    <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4 space-y-4 sm:space-y-5">
+    <ModulePage module="ledger">
       <ModuleHeader
-        accent="amber"
+        accent="orange"
         icon={Wallet}
-        title="Ledger • Household Bookkeeping & Subscriptions"
+        shortTitle="Ledger"
+        title="Ledger • Bookkeeping & Subscriptions"
         subtitle={`Track expenses, Direct Debits, subscriptions, and income — separated between ${partner1Name}, ${partner2Name}, and Unified`}
+        compactActions
         actions={
-          <>
-            <button
-              type="button"
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <Button
+              variant="primary"
+              accent="orange"
+              size="md"
+              icon={Plus}
               onClick={() => setModalState({ kind: 'expense' })}
-              className="min-h-[40px] px-3.5 py-2 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shadow-2xs active:scale-[0.98] transition cursor-pointer"
             >
-              <Plus className="w-4 h-4 shrink-0" />
               <span>Expense</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setModalState({ kind: 'income', defaultFreq: 'one-off' })}
-              className="min-h-[40px] px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-800 dark:text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shadow-2xs active:scale-[0.98] transition cursor-pointer"
-              title="Log a one-off or variable income payment for this month"
-            >
-              <Plus className="w-4 h-4 shrink-0" />
-              <span>Income</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setModalState({ kind: 'recurring', defaultType: 'direct-debit' })}
-              className="min-h-[40px] px-3 py-2 rounded-xl border border-border-strong bg-surface-subtle text-text-primary hover:bg-surface-hover text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shadow-2xs active:scale-[0.98] transition cursor-pointer"
-            >
-              <Plus className="w-4 h-4 shrink-0" />
-              <span>Bill / Sub</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleExportMonthCSV}
-              className="min-h-[40px] px-3 py-2 rounded-xl border border-border-strong bg-surface-subtle text-text-primary hover:bg-surface-hover text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shadow-2xs active:scale-[0.98] transition cursor-pointer"
-              title="Export selected month to CSV spreadsheet"
-            >
-              <Download className="w-4 h-4 shrink-0" />
-              <span>CSV</span>
-            </button>
-          </>
+            </Button>
+
+            {/* Desktop full action buttons */}
+            <div className="hidden lg:flex items-center gap-2">
+              <Button
+                variant="tinted"
+                accent="orange"
+                size="md"
+                icon={Plus}
+                onClick={() => setModalState({ kind: 'income', defaultFreq: 'one-off' })}
+                title="Log a one-off or variable income payment for this month"
+              >
+                <span>Income</span>
+              </Button>
+              <Button
+                variant="secondary"
+                accent="orange"
+                size="md"
+                icon={Plus}
+                onClick={() => setModalState({ kind: 'recurring', defaultType: 'direct-debit' })}
+              >
+                <span>Bill / Sub</span>
+              </Button>
+              <Button
+                variant="secondary"
+                accent="orange"
+                size="md"
+                icon={Download}
+                onClick={handleExportMonthCSV}
+                title="Export selected month to CSV spreadsheet"
+              >
+                <span>CSV</span>
+              </Button>
+            </div>
+
+            {/* Mobile & Tablet overflow menu for secondary actions */}
+            <div ref={mobileMenuRef} className="relative lg:hidden">
+              <Button
+                variant="secondary"
+                accent="orange"
+                size="md"
+                aria-expanded={mobileMenuOpen}
+                aria-label="More Ledger actions"
+                onClick={() => setMobileMenuOpen((prev) => !prev)}
+                className="px-2.5"
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </Button>
+              {mobileMenuOpen && (
+                <div className="absolute right-0 top-11 z-30 w-44 py-1.5 rounded-2xl border border-border-strong bg-surface-card shadow-xl text-xs font-bold text-text-primary">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      setModalState({ kind: 'income', defaultFreq: 'one-off' });
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left hover:bg-surface-hover flex items-center gap-2 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-orange-700 dark:text-orange-400" />
+                    <span>Log Income</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      setModalState({ kind: 'recurring', defaultType: 'direct-debit' });
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left hover:bg-surface-hover flex items-center gap-2 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-orange-700 dark:text-orange-400" />
+                    <span>Add Bill / Sub</span>
+                  </button>
+                  <div className="my-1 border-t border-border-subtle" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      handleExportMonthCSV();
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left hover:bg-surface-hover flex items-center gap-2 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Export CSV</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         }
         footer={
-          <div className="space-y-3">
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-wrap items-center justify-between gap-2.5">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-xs font-bold uppercase tracking-wider text-text-muted mr-1 whitespace-nowrap">
-                    View Ledger For:
-                  </span>
-                  {Object.values(ownerMeta).map((meta) => {
-                    const active = perspective === meta.id;
-                    return (
-                      <button
-                        key={meta.id}
-                        type="button"
-                        onClick={() => setPerspective(meta.id)}
-                        className={`min-h-[40px] px-3 sm:px-3.5 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 whitespace-nowrap active:scale-[0.98] transition cursor-pointer ${
-                          active
-                            ? `${meta.pillClass} shadow-xs`
-                            : 'bg-surface-subtle border-border-strong text-text-secondary hover:bg-surface-hover'
-                        }`}
-                      >
-                        <span>{meta.badgeEmoji}</span>
-                        <span className="sm:hidden">{meta.shortLabel}</span>
-                        <span className="hidden sm:inline">{meta.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Month Picker for Variable Expenses */}
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => shiftSelectedMonth(-1)}
-                    className="min-w-[40px] min-h-[40px] p-2 rounded-xl border border-border-strong hover:bg-surface-hover flex items-center justify-center active:scale-[0.98] transition cursor-pointer shrink-0"
-                    title="Previous Month"
-                    aria-label="Previous Month"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <div className="min-h-[40px] px-3 py-1.5 rounded-xl bg-surface-muted text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0">
-                    <Calendar className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 shrink-0" />
-                    <span>{selectedMonthLabel}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => shiftSelectedMonth(1)}
-                    className="min-w-[40px] min-h-[40px] p-2 rounded-xl border border-border-strong hover:bg-surface-hover flex items-center justify-center active:scale-[0.98] transition cursor-pointer shrink-0"
-                    title="Next Month"
-                    aria-label="Next Month"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                  {selectedMonth !== todayStr.slice(0, 7) && (
+          <div className="space-y-2.5 sm:space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 w-full sm:w-auto">
+                <span className="hidden xl:inline text-xs font-bold uppercase tracking-wider text-text-muted mr-1 whitespace-nowrap">
+                  View Ledger For:
+                </span>
+                {Object.values(ownerMeta).map((meta) => {
+                  const active = perspective === meta.id;
+                  return (
                     <button
+                      key={meta.id}
                       type="button"
-                      onClick={() => setSelectedMonth(todayStr.slice(0, 7))}
-                      className="min-h-[40px] px-3 py-2 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold whitespace-nowrap active:scale-[0.98] transition cursor-pointer shrink-0"
+                      onClick={() => setPerspective(meta.id)}
+                      className={`min-h-[36px] sm:min-h-[40px] px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl text-xs font-bold border flex items-center justify-center sm:justify-start gap-1.5 whitespace-nowrap active:scale-[0.98] transition cursor-pointer ${
+                        active
+                          ? `${meta.pillClass} shadow-xs`
+                          : 'bg-surface-subtle border-border-strong text-text-secondary hover:bg-surface-hover'
+                      }`}
                     >
-                      This Month
+                      <span>{meta.badgeEmoji}</span>
+                      <span className="sm:hidden">{meta.shortLabel}</span>
+                      <span className="hidden sm:inline">{meta.label}</span>
                     </button>
-                  )}
+                  );
+                })}
+              </div>
+
+              {/* Month Picker for Variable Expenses */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => shiftSelectedMonth(-1)}
+                  className="min-w-[36px] min-h-[36px] sm:min-w-[40px] sm:min-h-[40px] p-1.5 sm:p-2 rounded-xl border border-border-strong hover:bg-surface-hover flex items-center justify-center active:scale-[0.98] transition cursor-pointer shrink-0"
+                  title="Previous Month"
+                  aria-label="Previous Month"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <div className="min-h-[36px] sm:min-h-[40px] px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-surface-muted text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0">
+                  <Calendar className="w-3.5 h-3.5 text-orange-700 dark:text-orange-400 shrink-0" />
+                  <span>{selectedMonthLabel}</span>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => shiftSelectedMonth(1)}
+                  className="min-w-[36px] min-h-[36px] sm:min-w-[40px] sm:min-h-[40px] p-1.5 sm:p-2 rounded-xl border border-border-strong hover:bg-surface-hover flex items-center justify-center active:scale-[0.98] transition cursor-pointer shrink-0"
+                  title="Next Month"
+                  aria-label="Next Month"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                {selectedMonth !== todayStr.slice(0, 7) && (
+                  <Button
+                    variant="primary"
+                    accent="orange"
+                    size="sm"
+                    onClick={() => setSelectedMonth(todayStr.slice(0, 7))}
+                  >
+                    This Month
+                  </Button>
+                )}
               </div>
             </div>
 
             <SegmentedTabs
-              accent="amber"
+              accent="orange"
               activeId={activeTab}
               onChange={setActiveTab}
               tabs={[
                 { id: 'overview', label: 'Overview & Split', shortLabel: 'Summary', icon: Scale },
                 {
                   id: 'recurring',
-                  label: 'Bills & Direct Debits',
+                  label: 'Bills & Subs',
                   shortLabel: 'Bills',
                   icon: CreditCard,
                   badge: perspectiveCounts.recurring
@@ -629,7 +723,7 @@ function LedgerApp({
                 },
                 {
                   id: 'income',
-                  label: 'Income & Split Rules',
+                  label: 'Income & Splits',
                   shortLabel: 'Income',
                   icon: TrendingUp,
                   badge: perspectiveCounts.incomes
@@ -641,79 +735,92 @@ function LedgerApp({
       />
 
       {/* FOUR FINANCIAL KPI SUMMARY CARDS (DYNAMIC BY PERSPECTIVE) */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5 sm:gap-4">
-        <SectionCard>
-          <div className="flex items-center justify-between gap-2 text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mb-1">
-            <span>{perspective === 'joint' ? 'Joint Pool / Split' : 'Monthly Income'}</span>
-            <TrendingUp className="w-4 h-4 shrink-0" />
-          </div>
-          <div className="text-2xl xl:text-3xl font-extrabold">
-            {perspective === 'joint'
+      <MetricStrip className="grid-cols-2 xl:grid-cols-4 gap-2.5 sm:gap-3.5">
+        <MetricTile
+          label={perspective === 'joint' ? 'Joint Pool / Split' : 'Monthly Income'}
+          icon={TrendingUp}
+          accent="orange"
+          value={
+            perspective === 'joint'
               ? `${financialSummary.partner1JointPct}% / ${financialSummary.partner2JointPct}%`
-              : formatGBP(financialSummary.activeKpi.income)}
-          </div>
-          <div className="text-xs text-text-muted mt-1">
-            {perspective === 'unified'
-              ? `⚡ ${partner1Name} ${formatGBP(financialSummary.partner1Income)} • 🌸 ${partner2Name} ${formatGBP(financialSummary.partner2Income)}${financialSummary.jointIncome > 0 ? ` • 🤝 Joint ${formatGBP(financialSummary.jointIncome)}` : ''}`
-              : perspective === 'joint'
-                ? `Split rule: ${splitRule === 'proportional' ? 'Proportional to Income' : '50/50 Equal Split'}${financialSummary.jointIncome > 0 ? ` • Joint income: ${formatGBP(financialSummary.jointIncome)}/mo` : ''}`
-                : `${ownerMeta[perspective]?.shortLabel}'s monthly net income`}
-          </div>
-        </SectionCard>
-
-        <SectionCard>
-          <div className="flex items-center justify-between gap-2 text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 mb-1">
-            <span>Direct Debits &amp; Subs</span>
-            <Repeat className="w-4 h-4 shrink-0" />
-          </div>
-          <div className="text-2xl xl:text-3xl font-extrabold">
-            {formatGBP(financialSummary.activeKpi.recurring)}
-            <span className="text-xs font-semibold text-text-muted">/mo</span>
-          </div>
-          <div className="text-xs text-text-muted mt-1">
-            DDs: <strong>{formatGBP(financialSummary.activeKpi.directDebits)}</strong> • Subs:{' '}
-            <strong>{formatGBP(financialSummary.activeKpi.subscriptions)}</strong>
-          </div>
-        </SectionCard>
-
-        <SectionCard>
-          <div className="flex items-center justify-between gap-2 text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 mb-1">
-            <span>{selectedMonthLabel} Expenses</span>
-            <Receipt className="w-4 h-4 shrink-0" />
-          </div>
-          <div className="text-2xl xl:text-3xl font-extrabold">
-            {formatGBP(financialSummary.activeKpi.expenses)}
-          </div>
-          <div className="text-xs text-text-muted mt-1">
-            {financialSummary.activeKpi.subtitle}
-          </div>
-        </SectionCard>
-
-        <SectionCard>
-          <div className="flex items-center justify-between gap-2 text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 mb-1">
-            <span>
-              {perspective === 'joint' ? 'Total Joint Outgoings' : 'Net Monthly Remainder'}
+              : formatGBP(financialSummary.activeKpi.income)
+          }
+          sublabel={
+            <span className="hidden sm:block">
+              {perspective === 'unified' ? (
+                <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                  <span className="whitespace-nowrap">
+                    ⚡ {partner1Name} {formatGBP(financialSummary.partner1Income)}
+                  </span>
+                  <span>•</span>
+                  <span className="whitespace-nowrap">
+                    🌸 {partner2Name} {formatGBP(financialSummary.partner2Income)}
+                  </span>
+                  {financialSummary.jointIncome > 0 && (
+                    <>
+                      <span>•</span>
+                      <span className="whitespace-nowrap">
+                        🤝 Joint {formatGBP(financialSummary.jointIncome)}
+                      </span>
+                    </>
+                  )}
+                </span>
+              ) : perspective === 'joint' ? (
+                `Split rule: ${splitRule === 'proportional' ? 'Proportional to Income' : '50/50 Equal Split'}${financialSummary.jointIncome > 0 ? ` • Joint income: ${formatGBP(financialSummary.jointIncome)}/mo` : ''}`
+              ) : (
+                `${ownerMeta[perspective]?.shortLabel}'s monthly net income`
+              )}
             </span>
-            <Scale className="w-4 h-4 shrink-0" />
-          </div>
-          <div
-            className={`text-2xl xl:text-3xl font-extrabold ${
-              perspective !== 'joint' && financialSummary.activeKpi.netRemainder < 0
-                ? 'text-rose-600 dark:text-rose-400'
-                : ''
-            }`}
-          >
-            {formatGBP(financialSummary.activeKpi.netRemainder)}
-          </div>
-          <div className="text-xs text-text-muted mt-1">
-            {Math.abs(financialSummary.netPartner1Balance) < 0.01
-              ? '✓ Joint expenses settled even this month'
-              : financialSummary.netPartner1Balance > 0
-                ? `🤝 Shared cards: ${partner2Name} owes ${partner1Name} ${formatGBP(financialSummary.netPartner1Balance)}`
-                : `🤝 Shared cards: ${partner1Name} owes ${partner2Name} ${formatGBP(Math.abs(financialSummary.netPartner1Balance))}`}
-          </div>
-        </SectionCard>
-      </section>
+          }
+        />
+
+        <MetricTile
+          label="Bills & Subs"
+          icon={Repeat}
+          accent="orange"
+          value={
+            <>
+              {formatGBP(financialSummary.activeKpi.recurring)}
+              <span className="text-xs font-semibold text-text-muted">/mo</span>
+            </>
+          }
+          sublabel={
+            <span className="hidden sm:block">
+              DDs: <strong>{formatGBP(financialSummary.activeKpi.directDebits)}</strong> • Subs:{' '}
+              <strong>{formatGBP(financialSummary.activeKpi.subscriptions)}</strong>
+            </span>
+          }
+        />
+
+        <MetricTile
+          label={`${shortMonthLabel} Spend`}
+          icon={Receipt}
+          accent="orange"
+          value={formatGBP(financialSummary.activeKpi.expenses)}
+          sublabel={<span className="hidden sm:block">{financialSummary.activeKpi.subtitle}</span>}
+        />
+
+        <MetricTile
+          label={perspective === 'joint' ? 'Joint Outgoings' : 'Net Remainder'}
+          icon={Scale}
+          accent="orange"
+          value={formatGBP(financialSummary.activeKpi.netRemainder)}
+          valueClassName={
+            perspective !== 'joint' && financialSummary.activeKpi.netRemainder < 0
+              ? 'text-rose-600 dark:text-rose-400'
+              : ''
+          }
+          sublabel={
+            <span className="hidden sm:block">
+              {Math.abs(financialSummary.netPartner1Balance) < 0.01
+                ? '✓ Joint expenses settled even this month'
+                : financialSummary.netPartner1Balance > 0
+                  ? `🤝 Shared cards: ${partner2Name} owes ${partner1Name} ${formatGBP(financialSummary.netPartner1Balance)}`
+                  : `🤝 Shared cards: ${partner1Name} owes ${partner2Name} ${formatGBP(Math.abs(financialSummary.netPartner1Balance))}`}
+            </span>
+          }
+        />
+      </MetricStrip>
 
       {activeTab === 'overview' && (
         <LedgerOverviewTab
@@ -857,7 +964,7 @@ function LedgerApp({
             : ''
         }
         icon={AlertTriangle}
-        accent="amber"
+        accent="orange"
         confirmText="Delete"
         danger
         maxWidthClass="max-w-sm"
@@ -869,7 +976,7 @@ function LedgerApp({
           </p>
         )}
       </ConfirmModal>
-    </main>
+    </ModulePage>
   );
 }
 

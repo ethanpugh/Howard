@@ -1,5 +1,5 @@
 import React from 'react';
-import { Flower2, Sparkles } from 'lucide-react';
+import { Flower2, Palette, Ruler, Sparkles } from 'lucide-react';
 import { EmptyStateCard, SectionCard, SubSurface } from '../../components/HowardUI.jsx';
 import { formatFriendlyDate } from '../../utils/householdHelpers.js';
 import { INSTAR_STAGES } from './bloomConstants.js';
@@ -126,8 +126,9 @@ export default function BloomGrowthTab({
                         {formatFriendlyDate(m.dateKey, todayKey)} ({m.dateKey})
                       </span>
                       {m.lengthMm && (
-                        <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-500/15 text-emerald-800 dark:text-emerald-300">
-                          📏 {m.lengthMm} mm
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 tabular-nums">
+                          <Ruler className="w-3 h-3 shrink-0" />
+                          <span>{m.lengthMm} mm</span>
                         </span>
                       )}
                       <span
@@ -145,8 +146,9 @@ export default function BloomGrowthTab({
                       </span>
                     </div>
                     {m.colorShift && (
-                      <div className="text-xs text-purple-700 dark:text-purple-300 font-semibold">
-                        🎨 Colour/Pattern: {m.colorShift}
+                      <div className="text-xs text-emerald-700 dark:text-emerald-300 font-semibold flex items-center gap-1.5">
+                        <Palette className="w-3.5 h-3.5 shrink-0" />
+                        <span>Colour/Pattern: {m.colorShift}</span>
                       </div>
                     )}
                     {m.note && <p className="text-xs text-text-secondary">{m.note}</p>}

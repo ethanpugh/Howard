@@ -21,7 +21,7 @@ export class ErrorBoundary extends React.Component {
     if (this.state.hasError) {
       const { appName } = this.props;
       return (
-        <main className="max-w-6xl mx-auto px-3 sm:px-5 pt-4">
+        <main className="max-w-7xl mx-auto px-2.5 sm:px-5 pt-3 sm:pt-4">
           <div className="rounded-2xl sm:rounded-3xl p-6 border border-rose-300 dark:border-rose-900/60 bg-surface-card text-text-primary shadow-xs space-y-3">
             <div className="flex items-center gap-2.5 text-rose-600 dark:text-rose-400 font-extrabold text-base">
               <AlertTriangle className="w-5 h-5 shrink-0" />

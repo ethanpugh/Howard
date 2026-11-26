@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Receipt, Repeat, TrendingUp } from 'lucide-react';
+import { Landmark, Receipt, Repeat, TrendingUp, Zap } from 'lucide-react';
 import { ModalShell, getFieldClass } from '../../components/HowardUI.jsx';
 import { formatGBP, WEEKDAY_OPTIONS } from '../../utils/householdHelpers.js';
 import { useActionLock } from '../../hooks/useActionLock.js';
@@ -28,7 +28,7 @@ function ScheduleFields({
         <select
           value={cycle}
           onChange={(e) => onCycleChange(e.target.value)}
-          className={getFieldClass('amber', '', { compact: true })}
+          className={getFieldClass('orange', '', { compact: true })}
         >
           <option value="monthly">Monthly</option>
           <option value="annual">Annual</option>
@@ -49,7 +49,7 @@ function ScheduleFields({
           <select
             value={weekday}
             onChange={(e) => onWeekdayChange(Number(e.target.value))}
-            className={getFieldClass('amber', '', { compact: true })}
+            className={getFieldClass('orange', '', { compact: true })}
           >
             {WEEKDAY_OPTIONS.map((w) => (
               <option key={w.id} value={w.id}>
@@ -63,7 +63,7 @@ function ScheduleFields({
             required
             value={anchorDate}
             onChange={(e) => onAnchorDateChange(e.target.value)}
-            className={getFieldClass('amber', '', { compact: true })}
+            className={getFieldClass('orange', '', { compact: true })}
           />
         ) : (
           <input
@@ -73,7 +73,7 @@ function ScheduleFields({
             required={requireMonthlyDay}
             value={day}
             onChange={(e) => onDayChange(e.target.value)}
-            className={getFieldClass('amber')}
+            className={getFieldClass('orange')}
           />
         )}
       </div>
@@ -180,7 +180,7 @@ export function ExpenseModal({
       onClose={onClose}
       title={editingExpense ? 'Edit Expense' : 'Log Expense'}
       icon={Receipt}
-      accent="amber"
+      accent="orange"
       maxWidthClass="max-w-md"
       disableBackdropClose={isSaving}
       footer={
@@ -197,7 +197,7 @@ export function ExpenseModal({
             type="submit"
             form="ledger-expense-form"
             disabled={isSaving}
-            className="min-h-[40px] px-5 py-2 rounded-xl text-xs font-bold bg-amber-700 hover:bg-amber-800 text-white disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+            className="min-h-[40px] px-5 py-2 rounded-xl text-xs font-bold bg-orange-700 hover:bg-orange-800 text-white disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
           >
             {isSaving ? 'Saving...' : 'Save Expense'}
           </button>
@@ -215,7 +215,7 @@ export function ExpenseModal({
             value={expTitle}
             onChange={(e) => setExpTitle(e.target.value)}
             placeholder="e.g., Weekly groceries, Vet visit, Coffee..."
-            className={getFieldClass('amber')}
+            className={getFieldClass('orange')}
           />
         </div>
 
@@ -232,7 +232,7 @@ export function ExpenseModal({
               value={expAmount}
               onChange={(e) => setExpAmount(e.target.value)}
               placeholder="0.00"
-              className={getFieldClass('amber', 'font-bold')}
+              className={getFieldClass('orange', 'font-bold')}
             />
           </div>
           <div className="min-w-0">
@@ -244,7 +244,7 @@ export function ExpenseModal({
               required
               value={expDate}
               onChange={(e) => setExpDate(e.target.value)}
-              className={getFieldClass('amber')}
+              className={getFieldClass('orange')}
             />
           </div>
         </div>
@@ -257,7 +257,7 @@ export function ExpenseModal({
             <select
               value={expOwner}
               onChange={(e) => setExpOwner(e.target.value)}
-              className={getFieldClass('amber')}
+              className={getFieldClass('orange')}
             >
               <option value="joint">🤝 Joint / Shared</option>
               <option value="partner1">⚡ {partner1Name} (Personal)</option>
@@ -272,7 +272,7 @@ export function ExpenseModal({
             <select
               value={expPaidBy}
               onChange={(e) => setExpPaidBy(e.target.value)}
-              className={getFieldClass('amber')}
+              className={getFieldClass('orange')}
             >
               <option value="partner1">⚡ {partner1Name}</option>
               <option value="partner2">🌸 {partner2Name}</option>
@@ -288,7 +288,7 @@ export function ExpenseModal({
           <select
             value={expCategory}
             onChange={(e) => setExpCategory(e.target.value)}
-            className={getFieldClass('amber')}
+            className={getFieldClass('orange')}
           >
             {EXPENSE_CATEGORIES.map((c) => (
               <option key={c} value={c}>
@@ -307,7 +307,7 @@ export function ExpenseModal({
             value={expNotes}
             onChange={(e) => setExpNotes(e.target.value)}
             placeholder="Optional receipt note..."
-            className={getFieldClass('amber')}
+            className={getFieldClass('orange')}
           />
         </div>
       </form>
@@ -448,7 +448,7 @@ export function RecurringModal({
       onClose={onClose}
       title={isEdit ? 'Edit Recurring Commitment' : 'Add Direct Debit or Subscription'}
       icon={Repeat}
-      accent="amber"
+      accent="orange"
       maxWidthClass="max-w-md"
       disableBackdropClose={isSaving}
       footer={
@@ -465,7 +465,7 @@ export function RecurringModal({
             type="submit"
             form="ledger-recurring-form"
             disabled={isSaving}
-            className="min-h-[40px] px-5 py-2 rounded-xl text-xs font-bold bg-amber-700 hover:bg-amber-800 text-white disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+            className="min-h-[40px] px-5 py-2 rounded-xl text-xs font-bold bg-orange-700 hover:bg-orange-800 text-white disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
           >
             {isSaving ? 'Saving...' : 'Save Commitment'}
           </button>
@@ -475,22 +475,26 @@ export function RecurringModal({
       <form id="ledger-recurring-form" onSubmit={handleSubmit} className="space-y-3.5">
         <div className="grid grid-cols-2 gap-2">
           {[
-            { id: 'direct-debit', label: '🏦 Direct Debit / Bill' },
-            { id: 'subscription', label: '🔄 Subscription' }
-          ].map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setRecType(t.id)}
-              className={`min-h-[40px] py-2 px-3 rounded-xl text-xs font-bold border cursor-pointer ${
-                recType === t.id
-                  ? 'bg-amber-700 text-white border-amber-700'
-                  : 'bg-surface-subtle border-border-strong text-text-secondary hover:bg-surface-hover'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+            { id: 'direct-debit', label: 'Direct Debit / Bill', icon: Landmark },
+            { id: 'subscription', label: 'Subscription', icon: Repeat }
+          ].map((t) => {
+            const TypeIcon = t.icon;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setRecType(t.id)}
+                className={`min-h-[40px] py-2 px-3 rounded-xl text-xs font-bold border inline-flex items-center justify-center gap-1.5 cursor-pointer ${
+                  recType === t.id
+                    ? 'bg-orange-700 text-white border-orange-700'
+                    : 'bg-surface-subtle border-border-strong text-text-secondary hover:bg-surface-hover'
+                }`}
+              >
+                <TypeIcon className="w-3.5 h-3.5 shrink-0" />
+                <span>{t.label}</span>
+              </button>
+            );
+          })}
         </div>
 
         <div>
@@ -503,7 +507,7 @@ export function RecurringModal({
             value={recTitle}
             onChange={(e) => setRecTitle(e.target.value)}
             placeholder="e.g., Electricity & Gas, Streaming, Council Tax..."
-            className={getFieldClass('amber')}
+            className={getFieldClass('orange')}
           />
         </div>
 
@@ -520,7 +524,7 @@ export function RecurringModal({
               value={recAmount}
               onChange={(e) => setRecAmount(e.target.value)}
               placeholder="0.00"
-              className={getFieldClass('amber', 'font-bold')}
+              className={getFieldClass('orange', 'font-bold')}
             />
           </div>
 
@@ -548,7 +552,7 @@ export function RecurringModal({
             <select
               value={recOwner}
               onChange={(e) => setRecOwner(e.target.value)}
-              className={getFieldClass('amber')}
+              className={getFieldClass('orange')}
             >
               <option value="joint">🤝 Joint / Shared</option>
               <option value="partner1">⚡ {partner1Name} (Personal)</option>
@@ -563,7 +567,7 @@ export function RecurringModal({
             <select
               value={recCategory}
               onChange={(e) => setRecCategory(e.target.value)}
-              className={getFieldClass('amber')}
+              className={getFieldClass('orange')}
             >
               {EXPENSE_CATEGORIES.map((c) => (
                 <option key={c} value={c}>
@@ -583,7 +587,7 @@ export function RecurringModal({
             value={recNotes}
             onChange={(e) => setRecNotes(e.target.value)}
             placeholder="Account / contract notes..."
-            className={getFieldClass('amber')}
+            className={getFieldClass('orange')}
           />
         </div>
       </form>
@@ -725,7 +729,7 @@ export function IncomeModal({
       onClose={onClose}
       title={isEdit ? 'Edit Income Stream' : 'Add Income Stream'}
       icon={TrendingUp}
-      accent="amber"
+      accent="orange"
       maxWidthClass="max-w-md"
       disableBackdropClose={isSaving}
       footer={
@@ -742,7 +746,7 @@ export function IncomeModal({
             type="submit"
             form="ledger-income-form"
             disabled={isSaving}
-            className="min-h-[40px] px-5 py-2 rounded-xl text-xs font-bold bg-amber-700 hover:bg-amber-800 text-white disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+            className="min-h-[40px] px-5 py-2 rounded-xl text-xs font-bold bg-orange-700 hover:bg-orange-800 text-white disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
           >
             {isSaving ? 'Saving...' : 'Save Income'}
           </button>
@@ -752,11 +756,12 @@ export function IncomeModal({
       <form id="ledger-income-form" onSubmit={handleSubmit} className="space-y-3.5">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {[
-            { id: 'one-off', label: '⚡ One-Off / Variable Income' },
-            { id: 'monthly', label: '🔄 Recurring Salary / Stream' }
+            { id: 'one-off', label: 'One-Off / Variable Income', icon: Zap },
+            { id: 'monthly', label: 'Recurring Salary / Stream', icon: Repeat }
           ].map((mode) => {
             const isOneOffSelected = incFrequency === 'one-off';
             const active = mode.id === 'one-off' ? isOneOffSelected : !isOneOffSelected;
+            const ModeIcon = mode.icon;
             return (
               <button
                 key={mode.id}
@@ -765,13 +770,14 @@ export function IncomeModal({
                   if (active) return;
                   setIncFrequency(mode.id);
                 }}
-                className={`min-h-[40px] py-2 px-3 rounded-xl text-xs font-bold border active:scale-[0.98] transition cursor-pointer ${
+                className={`min-h-[40px] py-2 px-3 rounded-xl text-xs font-bold border inline-flex items-center justify-center gap-1.5 active:scale-[0.98] transition cursor-pointer ${
                   active
-                    ? 'bg-amber-700 text-white border-amber-700'
+                    ? 'bg-orange-700 text-white border-orange-700'
                     : 'bg-surface-subtle border-border-strong text-text-secondary hover:bg-surface-hover'
                 }`}
               >
-                {mode.label}
+                <ModeIcon className="w-3.5 h-3.5 shrink-0" />
+                <span>{mode.label}</span>
               </button>
             );
           })}
@@ -791,7 +797,7 @@ export function IncomeModal({
                 ? 'e.g., Additional work, bonus, refund, sale...'
                 : 'e.g., Monthly Salary (Net)...'
             }
-            className={getFieldClass('amber')}
+            className={getFieldClass('orange')}
           />
         </div>
 
@@ -809,7 +815,7 @@ export function IncomeModal({
                 value={incAmount}
                 onChange={(e) => setIncAmount(e.target.value)}
                 placeholder="0.00"
-                className={getFieldClass('amber', 'font-bold')}
+                className={getFieldClass('orange', 'font-bold')}
               />
             </div>
             <div className="min-w-0">
@@ -821,7 +827,7 @@ export function IncomeModal({
                 required
                 value={incDate}
                 onChange={(e) => setIncDate(e.target.value)}
-                className={getFieldClass('amber')}
+                className={getFieldClass('orange')}
               />
             </div>
           </div>
@@ -839,7 +845,7 @@ export function IncomeModal({
                 value={incAmount}
                 onChange={(e) => setIncAmount(e.target.value)}
                 placeholder="0.00"
-                className={getFieldClass('amber', 'font-bold')}
+                className={getFieldClass('orange', 'font-bold')}
               />
             </div>
 
@@ -866,7 +872,7 @@ export function IncomeModal({
           <select
             value={incOwner}
             onChange={(e) => setIncOwner(e.target.value)}
-            className={getFieldClass('amber')}
+            className={getFieldClass('orange')}
           >
             <option value="partner1">⚡ {partner1Name}</option>
             <option value="partner2">🌸 {partner2Name}</option>
@@ -883,7 +889,7 @@ export function IncomeModal({
             value={incNotes}
             onChange={(e) => setIncNotes(e.target.value)}
             placeholder="Optional payday note..."
-            className={getFieldClass('amber')}
+            className={getFieldClass('orange')}
           />
         </div>
       </form>

@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Printer, Stethoscope } from 'lucide-react';
-import { SectionCard, SubSurface, EmptyStateCard } from '../../components/HowardUI.jsx';
+import { Button, MetricStrip, MetricTile, SectionCard, SubSurface, EmptyStateCard } from '../../components/HowardUI.jsx';
 import {
   shiftDateKey,
   formatShortDateEnGB
@@ -141,14 +141,15 @@ export default function InsightsReportTab({
             </button>
           ))}
 
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            accent="rose"
+            size="md"
+            icon={Printer}
             onClick={() => window.print()}
-            className="min-h-[40px] flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 text-white hover:bg-slate-900 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white active:scale-[0.98] transition cursor-pointer"
           >
-            <Printer className="w-4 h-4" />
             <span>Print GP Summary</span>
-          </button>
+          </Button>
         </div>
       </SectionCard>
 
@@ -162,56 +163,40 @@ export default function InsightsReportTab({
         </p>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
-        <SectionCard className="print-avoid-break">
-          <div className="text-xs font-semibold uppercase tracking-wider text-rose-600 dark:text-rose-400 mb-1">
-            Bleeding Days
-          </div>
-          <div className="text-2xl sm:text-3xl font-extrabold">
-            {insightsData.bleedingDaysCount}
-          </div>
-          <div className="text-xs text-text-secondary mt-1">
-            {insightsData.heavyDaysCount} heavy or flooding day(s)
-          </div>
-        </SectionCard>
-
-        <SectionCard className="print-avoid-break">
-          <div className="text-xs font-semibold uppercase tracking-wider text-purple-600 dark:text-purple-400 mb-1">
-            Blood Clot Episodes
-          </div>
-          <div className="text-2xl sm:text-3xl font-extrabold">
-            {insightsData.totalClotsCount}
-          </div>
-          <div className="text-xs text-text-secondary mt-1">
-            Across {insightsData.clotDaysCount} day(s) • {insightsData.largeClotDaysCount} with
-            &gt;2cm clots
-          </div>
-        </SectionCard>
-
-        <SectionCard className="print-avoid-break">
-          <div className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400 mb-1">
-            Average Pain Score
-          </div>
-          <div className="text-2xl sm:text-3xl font-extrabold">
-            {insightsData.avgPainAll} <span className="text-base font-normal">/ 10</span>
-          </div>
-          <div className="text-xs text-text-secondary mt-1">
-            {insightsData.highPainDaysCount} severe pain day(s) (≥6/10)
-          </div>
-        </SectionCard>
-
-        <SectionCard className="print-avoid-break">
-          <div className="text-xs font-semibold uppercase tracking-wider text-orange-600 dark:text-orange-400 mb-1">
-            Bowel / GI Flare Days
-          </div>
-          <div className="text-2xl sm:text-3xl font-extrabold">
-            {insightsData.bowelFlareDaysCount}
-          </div>
-          <div className="text-xs text-text-secondary mt-1">
-            Moderate or severe GI distress days
-          </div>
-        </SectionCard>
-      </div>
+      <MetricStrip>
+        <MetricTile
+          className="print-avoid-break"
+          label="Bleeding Days"
+          accent="rose"
+          value={insightsData.bleedingDaysCount}
+          sublabel={`${insightsData.heavyDaysCount} heavy or flooding day(s)`}
+        />
+        <MetricTile
+          className="print-avoid-break"
+          label="Blood Clot Episodes"
+          accent="rose"
+          value={insightsData.totalClotsCount}
+          sublabel={`Across ${insightsData.clotDaysCount} day(s) • ${insightsData.largeClotDaysCount} with >2cm clots`}
+        />
+        <MetricTile
+          className="print-avoid-break"
+          label="Average Pain Score"
+          accent="rose"
+          value={
+            <>
+              {insightsData.avgPainAll} <span className="text-base font-normal">/ 10</span>
+            </>
+          }
+          sublabel={`${insightsData.highPainDaysCount} severe pain day(s) (≥6/10)`}
+        />
+        <MetricTile
+          className="print-avoid-break"
+          label="Bowel / GI Flare Days"
+          accent="rose"
+          value={insightsData.bowelFlareDaysCount}
+          sublabel="Moderate or severe GI distress days"
+        />
+      </MetricStrip>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 sm:gap-4">
         {[
@@ -269,8 +254,8 @@ export default function InsightsReportTab({
         </h3>
         {consultationRows.length > 0 ? (
           <>
-            {/* Mobile stacked consultation card list (never prints, avoids horizontal scroll on mobile) */}
-            <div className="space-y-3 md:hidden print:hidden">
+            {/* Mobile & Tablet stacked consultation card list (never prints, avoids horizontal scroll) */}
+            <div className="space-y-3 lg:hidden print:hidden">
               {consultationRows.map(({ l, protectionParts }) => (
                 <SubSurface key={l.date} className="p-3.5 space-y-2 text-xs">
                   <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-border-subtle">
@@ -346,8 +331,8 @@ export default function InsightsReportTab({
               ))}
             </div>
 
-            {/* Tablet / Desktop & Print 6-column table */}
-            <div className="hidden md:block print:block overflow-x-auto">
+            {/* Desktop & Print 6-column table */}
+            <div className="hidden lg:block print:block overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-border-subtle text-text-secondary">

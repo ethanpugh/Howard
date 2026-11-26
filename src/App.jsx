@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspens
 import { CheckCircle2, AlertTriangle } from 'lucide-react';
 
 import FoyerApp from './apps/FoyerApp.jsx';
-import { getOpenModalCount } from './components/HowardUI.jsx';
+import { AlertBanner, Button, getOpenModalCount } from './components/HowardUI.jsx';
 import { ErrorBoundary } from './components/shell/ErrorBoundary.jsx';
 import {
   APP_REGISTRY,
@@ -16,6 +16,7 @@ import { useHouseholdSync, FALLBACK_PROFILES } from './hooks/useHouseholdSync.js
 import { useActionLock } from './hooks/useActionLock.js';
 import { apiRequest } from './utils/apiClient.js';
 import { getLocalDateKey, computeBloomSummary } from './utils/householdHelpers.js';
+import { getModuleTheme } from './utils/moduleThemes.js';
 
 const CadenceApp = lazy(() => import('./apps/CadenceApp.jsx'));
 const BloomApp = lazy(() => import('./apps/BloomApp.jsx'));
@@ -643,7 +644,7 @@ export default function App() {
         <div
           role="status"
           aria-live="polite"
-          className="fixed top-[max(1rem,env(safe-area-inset-top))] right-4 max-w-[calc(100vw-2rem)] z-[70] no-print animate-fade-in"
+          className="fixed top-[calc(4.5rem+env(safe-area-inset-top))] right-4 max-w-[calc(100vw-2rem)] z-[70] no-print animate-fade-in"
         >
           <div
             className={`w-full flex items-center gap-2.5 px-4 py-2.5 rounded-2xl shadow-xl border text-xs sm:text-sm font-semibold ${
@@ -651,7 +652,7 @@ export default function App() {
                 ? 'bg-rose-900 text-white border-rose-700'
                 : toast.type === 'info'
                   ? 'bg-amber-900 text-amber-50 border-amber-700'
-                  : 'bg-slate-900 text-white border-slate-700 dark:bg-slate-800'
+                  : 'bg-surface-card text-text-primary border-border-strong'
             }`}
           >
             <button
@@ -665,7 +666,7 @@ export default function App() {
               ) : toast.type === 'info' ? (
                 <AlertTriangle className="w-4 h-4 text-amber-300 shrink-0" />
               ) : (
-                <CheckCircle2 className="w-4 h-4 text-teal-400 shrink-0" />
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               )}
               <span className="min-w-0 break-words">{toast.text}</span>
             </button>
@@ -711,31 +712,36 @@ export default function App() {
           onNavigateModule={handleNavigateModule}
         />
 
-        <div className="flex-1 min-w-0 pb-[calc(6.5rem+env(safe-area-inset-bottom))] md:pb-8">
+        <div className="flex-1 min-w-0 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-8">
           {!isConnected && syncError && (
-            <div className="max-w-6xl mx-auto px-3 sm:px-5 pt-3 no-print">
-              <div className="rounded-2xl px-4 py-2.5 border bg-amber-500/15 border-amber-500/40 text-amber-900 dark:text-amber-200 text-xs font-bold flex items-center justify-between gap-2">
-                <span className="flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 shrink-0" />
-                  <span>{syncError}</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => fetchUnifiedSync({ force: true })}
-                  className="min-h-[40px] px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 cursor-pointer shrink-0 transition"
-                >
-                  Retry Now
-                </button>
-              </div>
+            <div className="max-w-7xl mx-auto px-2.5 sm:px-5 pt-3 no-print">
+              <AlertBanner
+                severity="warn"
+                icon={AlertTriangle}
+                title="Live Sync Disconnected"
+                description={syncError}
+                action={
+                  <Button
+                    variant="tinted"
+                    accent="amber"
+                    size="md"
+                    onClick={() => fetchUnifiedSync({ force: true })}
+                  >
+                    Retry Now
+                  </Button>
+                }
+              />
             </div>
           )}
 
           <ErrorBoundary darkMode={darkMode} appName={activeAppMeta.name} resetKey={activeAppId}>
             <Suspense
               fallback={
-                <div className="max-w-6xl mx-auto px-3 sm:px-5 pt-4" aria-busy="true">
+                <div className="max-w-7xl mx-auto px-2.5 sm:px-5 pt-3 sm:pt-4" aria-busy="true">
                   <div className="rounded-2xl sm:rounded-3xl p-6 border border-border-subtle bg-surface-card text-text-muted shadow-xs text-xs font-semibold flex items-center gap-3">
-                    <span className="w-2.5 h-2.5 rounded-full bg-teal-500 animate-pulse" />
+                    <span
+                      className={`w-2.5 h-2.5 rounded-full animate-pulse ${getModuleTheme(activeAppMeta.id).dotClass}`}
+                    />
                     <span>Loading {activeAppMeta.name}...</span>
                   </div>
                 </div>
