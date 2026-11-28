@@ -9,6 +9,7 @@ import type { PublicProfile } from '../shared/schemas/profile.ts';
 import FoyerApp from './apps/FoyerApp.tsx';
 import { AlertBanner, Button, getOpenModalCount } from './components/HowardUI.tsx';
 import { ErrorBoundary } from './components/shell/ErrorBoundary.tsx';
+import ProfileSwitcherModal from './components/shell/ProfileSwitcherModal.tsx';
 import {
   APP_REGISTRY,
   BentoSwitcherModal,
@@ -36,7 +37,6 @@ const LedgerApp = lazy(() => import('./apps/LedgerApp.tsx'));
 const QuillApp = lazy(() => import('./apps/QuillApp.tsx'));
 const BeaconApp = lazy(() => import('./apps/BeaconApp.tsx'));
 
-const ProfileSwitcherModal = lazy(() => import('./components/shell/ProfileSwitcherModal.tsx'));
 const BackstageBackupModal = lazy(() => import('./components/shell/BackstageBackupModal.tsx'));
 
 const MemoFoyerApp = React.memo(FoyerApp);
@@ -1076,25 +1076,23 @@ export default function App() {
 
       {profileModalOpen && (
         <ErrorBoundary appName="Profile Switcher" resetKey={String(profileModalOpen)}>
-          <Suspense fallback={null}>
-            <ProfileSwitcherModal
-              isOpen={profileModalOpen}
-              onClose={() => setProfileModalOpen(false)}
-              profiles={profiles}
-              activeProfile={activeProfile}
-              activeProfileId={activeProfileId}
-              hasSavedProfile={hasSavedProfile}
-              setHasSavedProfile={setHasSavedProfile}
-              setActiveProfileId={setActiveProfileId}
-              setProfiles={setProfiles}
-              markProfileUnlocked={markProfileUnlocked}
-              initialPinTarget={bootPinTarget}
-              onClearInitialPinTarget={clearBootPinTarget}
-              fetchUnifiedSync={fetchUnifiedSync}
-              showToast={showToast}
-              storageKey={ACTIVE_PROFILE_STORAGE_KEY}
-            />
-          </Suspense>
+          <ProfileSwitcherModal
+            isOpen={profileModalOpen}
+            onClose={() => setProfileModalOpen(false)}
+            profiles={profiles}
+            activeProfile={activeProfile}
+            activeProfileId={activeProfileId}
+            hasSavedProfile={hasSavedProfile}
+            setHasSavedProfile={setHasSavedProfile}
+            setActiveProfileId={setActiveProfileId}
+            setProfiles={setProfiles}
+            markProfileUnlocked={markProfileUnlocked}
+            initialPinTarget={bootPinTarget}
+            onClearInitialPinTarget={clearBootPinTarget}
+            fetchUnifiedSync={fetchUnifiedSync}
+            showToast={showToast}
+            storageKey={ACTIVE_PROFILE_STORAGE_KEY}
+          />
         </ErrorBoundary>
       )}
 
