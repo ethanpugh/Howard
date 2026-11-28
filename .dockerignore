@@ -10,6 +10,10 @@ data
 .DS_Store
 .env*
 tests
+e2e
+playwright-report
+test-results
+.playwright
 README.md
 docs
 Dockerfile
